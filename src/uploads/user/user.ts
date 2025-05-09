@@ -171,10 +171,10 @@ export const verifyEmailService = async (payload: any, res: Response) => {
   
   // If not resending, check if email already exists
   if (!resend) {
-    // const existingEmail = await usersModel.findOne({ email });
-    // if (existingEmail) {
-    //   return errorResponseHandler("Email already registered", httpStatusCode.BAD_REQUEST, res);
-    // }
+    const existingEmail = await usersModel.findOne({ email });
+    if (existingEmail) {
+      return errorResponseHandler("Email already registered", httpStatusCode.BAD_REQUEST, res);
+    }
   } else {
     // If resending, explicitly delete any existing tokens for this email
     await passwordResetTokenModel.findOneAndDelete({ email });
