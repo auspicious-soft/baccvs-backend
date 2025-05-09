@@ -36,7 +36,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/baccvs-baccvs-backend:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest
 
       # Step 7: Setup SSH for EC2
       - name: Setup SSH for EC2
