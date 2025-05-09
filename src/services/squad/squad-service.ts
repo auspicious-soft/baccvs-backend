@@ -339,7 +339,7 @@ export const updateSquadService = async (req: any, res: Response) => {
     if (paramsResult.error) {
       return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
     }
-    
+     
     const { squadId } = paramsResult.value;
     const updateData = req.body;
 
