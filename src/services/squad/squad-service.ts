@@ -1,74 +1,308 @@
 import { Request, Response } from "express";
-import mongoose from "mongoose";
-import { Squad, SquadStatus } from "src/models/squad/squad-schema";
+import mongoose, { Types } from "mongoose";
+import { Squad, SquadStatus, InterestCategory } from "src/models/squad/squad-schema";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import Joi from "joi";
 import { usersModel } from "src/models/user/user-schema";
+
+// Validation schemas
+// const createSquadSchema = Joi.object({
+//   title: Joi.string().trim().min(3).max(100).required()
+//     .messages({
+//       'string.base': 'Title must be a string',
+//       'string.empty': 'Title is required',
+//       'string.min': 'Title must be at least 3 characters long',
+//       'string.max': 'Title cannot exceed 100 characters',
+//       'any.required': 'Title is required'
+//     }),
+//   about: Joi.string().trim().max(500).required()
+//     .messages({
+//       'string.base': 'About must be a string',
+//       'string.empty': 'About is required',
+//       'string.max': 'About cannot exceed 500 characters',
+//       'any.required': 'About is required'
+//     }),
+//   // Change the media validation to accept strings
+//   media: Joi.array().items(
+//     Joi.string().uri()
+//   ).default([]),
+//   squadInterest: Joi.array().items(
+//     Joi.string().valid(...Object.values(InterestCategory))
+//   ).min(1).required()
+//     .messages({
+//       'array.base': 'Squad interests must be an array',
+//       'array.min': 'At least one interest must be selected',
+//       'any.required': 'Squad interests are required',
+//       'any.only': 'Invalid interest category'
+//     }),
+//   membersToAdd: Joi.array().items(
+//     Joi.string().pattern(/^[0-9a-fA-F]{24}$/).message('Invalid user ID format')
+//   ).default([])
+// });
+
+// const updateSquadSchema = Joi.object({
+//   title: Joi.string().trim().min(3).max(100)
+//     .messages({
+//       'string.base': 'Title must be a string',
+//       'string.min': 'Title must be at least 3 characters long',
+//       'string.max': 'Title cannot exceed 100 characters'
+//     }),
+//   about: Joi.string().trim().max(500)
+//     .messages({
+//       'string.base': 'About must be a string',
+//       'string.max': 'About cannot exceed 500 characters'
+//     }),
+//   // Changed to accept strings instead of objects
+//   media: Joi.array().items(
+//     Joi.string().uri()
+//   ),
+//   squadInterest: Joi.array().items(
+//     Joi.string().valid(...Object.values(InterestCategory))
+//   ).min(1)
+//     .messages({
+//       'array.base': 'Squad interests must be an array',
+//       'array.min': 'At least one interest must be selected',
+//       'any.only': 'Invalid interest category'
+//     })
+// });
+
+const memberIdSchema = Joi.object({
+  memberId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+    .messages({
+      'string.base': 'Member ID must be a string',
+      'string.empty': 'Member ID is required',
+      'string.pattern.base': 'Invalid member ID format',
+      'any.required': 'Member ID is required'
+    })
+});
+
+const squadIdSchema = Joi.object({
+  squadId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+    .messages({
+      'string.base': 'Squad ID must be a string',
+      'string.empty': 'Squad ID is required',
+      'string.pattern.base': 'Invalid squad ID format',
+      'any.required': 'Squad ID is required'
+    })
+});
+
+const targetSquadSchema = Joi.object({
+  targetSquadId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+    .messages({
+      'string.base': 'Target Squad ID must be a string',
+      'string.empty': 'Target Squad ID is required',
+      'string.pattern.base': 'Invalid target squad ID format',
+      'any.required': 'Target Squad ID is required'
+    })
+});
+
+const roleSchema = Joi.object({
+  role: Joi.string().valid('admin', 'member').required()
+    .messages({
+      'string.base': 'Role must be a string',
+      'string.empty': 'Role is required',
+      'any.only': 'Role must be either "admin" or "member"',
+      'any.required': 'Role is required'
+    })
+});
+
+const newOwnerSchema = Joi.object({
+  newOwnerId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+    .messages({
+      'string.base': 'New owner ID must be a string',
+      'string.empty': 'New owner ID is required',
+      'string.pattern.base': 'Invalid new owner ID format',
+      'any.required': 'New owner ID is required'
+    })
+});
+
+const squadInterestSchema = Joi.object({
+  squadInterest: Joi.array().items(
+    Joi.string().valid(...Object.values(InterestCategory))
+  ).min(1).required()
+    .messages({
+      'array.base': 'Squad interests must be an array',
+      'array.min': 'At least one interest must be selected',
+      'any.required': 'Squad interests are required',
+      'any.only': 'Invalid interest category'
+    })
+});
+
+const paginationSchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+  status: Joi.string().valid(...Object.values(SquadStatus)).optional(),
+  interest: Joi.string().valid(...Object.values(InterestCategory)).optional()
+});
+
+// Helper function to validate request data
+const validateRequest = (schema: Joi.ObjectSchema, data: any): { error?: string; value: any } => {
+  const { error, value } = schema.validate(data, { abortEarly: false });
+  
+  if (error) {
+    const errorMessage = error.details
+      .map((detail : any) => detail.message)
+      .join(', ');
+    return { error: errorMessage, value: data };
+  }
+  
+  return { value };
+};
+
+// Helper function to authenticate user
+const authenticateUser = (req: any, res: Response): boolean => {
+  if (!req.user) {
+    errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return false;
+  }
+  return true;
+};
+
+// Helper function to check if user is admin of squad
+const isSquadAdmin = async (squadId: string, userId: string) => {
+  return await Squad.findOne({
+    _id: squadId,
+    "members.user": userId,
+    "members.role": "admin",
+  });
+};
+
+// Helper function to check if user is member of squad
+const isSquadMember = async (squadId: string, userId: string) => {
+  return await Squad.findOne({
+    _id: squadId,
+    "members.user": userId,
+  });
+};
 
 /**
  * Create a new squad
  */
 export const createSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
+  
+  if (!authenticateUser(req, res)) return;
 
   const { id: userId } = req.user;
-  const { title, about, maxMembers, media } = req.body;
 
-  try {
-    // Check if user already has an active squad as creator
-    const existingSquad = await Squad.findOne({
-      creator: userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
+  
+  const { title, about, media, squadInterest, membersToAdd } = req.body;
+  
+  // Convert media strings to media objects based on file extension
+  const formattedMedia = media.map((url: string) => {
+    // Determine media type based on file extension or URL pattern
+    const isVideo = url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i) || 
+                    url.includes('video');
+    
+    return {
+      url: url,
+      type: isVideo ? 'video' : 'image' // Default to image if not identifiable as video
+    };
+  });
+  
+  // Set maxMembers to fixed value of 4 on the backend
+  const maxMembers = 4;
 
-    if (existingSquad) {
+  // Initialize members array with creator as admin
+  const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+
+  
+  // Add additional members if provided
+  if (membersToAdd && Array.isArray(membersToAdd)) {
+    // Check if the total number of members would exceed the limit
+    if (1 + membersToAdd.length > maxMembers) {
       return errorResponseHandler(
-        "You already have an active squad. Please delete or leave it before creating a new one.",
+        `Cannot add ${membersToAdd.length} members. Max members is ${maxMembers} including the creator.`,
         httpStatusCode.BAD_REQUEST,
         res
       );
     }
+    
+    // Check for duplicate member IDs
+    const uniqueMemberIds = new Set(membersToAdd);
+    if (uniqueMemberIds.size !== membersToAdd.length) {
+      return errorResponseHandler(
+        "Duplicate member IDs found",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    // check for member exists
+    for (const memberId of membersToAdd) {
+      const userExists = await usersModel.findById(memberId);
+      if (!userExists) {
+        return errorResponseHandler(
+          `User with ID ${memberId} does not exist`,
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+    }
 
-    // Create new squad
-    const squad = new Squad({
-      title,
-      about,
-      creator: userId,
-      members: [{ user: userId, role: "admin", joinedAt: new Date() }],
-      maxMembers: maxMembers || 4,
-      media: media || []
-    });
-
-    await squad.save();
-
-    return {
-      success: true,
-      message: "Squad created successfully",
-      squad
-    };
-  } catch (error) {
-    throw error;
+    // Add each provided member ID (excluding the creator if they're in the list)
+    for (const memberId of membersToAdd) {
+      // Skip if it's the creator (already added)
+      if (memberId === userId) continue;
+      
+      // Add as a regular member
+      squadMembers.push({
+        user: new mongoose.Types.ObjectId(memberId),
+        role: "member",
+        joinedAt: new Date()
+      });
+    }
   }
+
+  // Create new squad - use formattedMedia instead of media
+  const squad = new Squad({
+    title,
+    about,
+    creator: userId,
+    members: squadMembers,
+    maxMembers,
+    media: formattedMedia || [], // Use the converted media objects
+    squadInterest: squadInterest || [],
+    status: SquadStatus.ACTIVE,
+  });
+
+  await squad.save();
+
+  // Populate the member details for the response
+  const populatedSquad = await Squad.findById(squad._id)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos");
+
+  if (!populatedSquad) {
+    return errorResponseHandler(
+      "Failed to retrieve created squad",
+      httpStatusCode.INTERNAL_SERVER_ERROR,
+      res
+    );
+  }
+
+  return {
+    success: true,
+    message: "Squad created successfully",
+    squad: populatedSquad,
+  };
+
 };
 
 /**
  * Get a squad by ID
  */
 export const getSquadByIdService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
   try {
+    if (!authenticateUser(req, res)) return;
+
+    // Validate params
+    const { error, value } = validateRequest(squadIdSchema, req.params);
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId } = value;
+
     const squad = await Squad.findById(squadId)
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos")
@@ -78,12 +312,16 @@ export const getSquadByIdService = async (req: any, res: Response) => {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    return {
+    res.status(httpStatusCode.OK).json({
       success: true,
-      squad
-    };
+      squad,
+    });
   } catch (error) {
-    throw error;
+    console.error("Get squad error:", error);
+    if (error instanceof mongoose.Error.CastError) {
+      return errorResponseHandler("Invalid squad ID format", httpStatusCode.BAD_REQUEST, res);
+    }
+    return errorResponseHandler("Failed to fetch squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
@@ -91,26 +329,31 @@ export const getSquadByIdService = async (req: any, res: Response) => {
  * Update a squad
  */
 export const updateSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-  const { title, about, maxMembers } = req.body;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
   try {
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin"
-    });
+    if (!authenticateUser(req, res)) return;
 
+    const { id: userId } = req.user;
+    
+    // Validate params
+    const paramsResult = validateRequest(squadIdSchema, req.params);
+    if (paramsResult.error) {
+      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
+    }
+    
+    const { squadId } = paramsResult.value;
+    const updateData = req.body;
+
+    // Check if at least one field is being updated
+    if (Object.keys(updateData).length === 0) {
+      return errorResponseHandler(
+        "At least one field must be provided for update",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Check if user is admin of the squad
+    const squad = await isSquadAdmin(squadId, userId);
     if (!squad) {
       return errorResponseHandler(
         "You don't have permission to update this squad",
@@ -119,63 +362,67 @@ export const updateSquadService = async (req: any, res: Response) => {
       );
     }
 
-    // Validate maxMembers
-    if (maxMembers && maxMembers < squad.members.length) {
-      return errorResponseHandler(
-        "Max members cannot be less than current member count",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
+    // Format media if it exists in the update data
+    if (updateData.media && Array.isArray(updateData.media)) {
+      updateData.media = updateData.media.map((url: string) => {
+        // Determine media type based on file extension or URL pattern
+        const isVideo = url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i) || 
+                      url.includes('video');
+        
+        return {
+          url: url,
+          type: isVideo ? 'video' : 'image' // Default to image if not identifiable as video
+        };
+      });
     }
 
     // Update squad
     const updatedSquad = await Squad.findByIdAndUpdate(
       squadId,
-      {
-        $set: {
-          title: title || squad.title,
-          about: about || squad.about,
-          maxMembers: maxMembers || squad.maxMembers
-        }
-      },
-      { new: true }
+      { $set: updateData },
+      { new: true, runValidators: true }
     )
       .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
+      .populate("members.user", "userName photos")
+      .populate("matchedSquads.squad");
 
-    return {
+    if (!updatedSquad) {
+      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    res.status(httpStatusCode.OK).json({
       success: true,
       message: "Squad updated successfully",
       squad: updatedSquad
-    };
+    });
   } catch (error) {
-    throw error;
+    console.error("Update squad error:", error);
+    if (error instanceof mongoose.Error.ValidationError) {
+      return errorResponseHandler(error.message, httpStatusCode.BAD_REQUEST, res);
+    }
+    return errorResponseHandler("Failed to update squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
 /**
- * Delete a squad
+ * Delete a squad (set to inactive)
  */
 export const deleteSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
   try {
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin"
-    });
+    if (!authenticateUser(req, res)) return;
 
+    const { id: userId } = req.user;
+    
+    // Validate params
+    const { error, value } = validateRequest(squadIdSchema, req.params);
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId } = value;
+
+    // Check if user is admin of the squad
+    const squad = await isSquadAdmin(squadId, userId);
     if (!squad) {
       return errorResponseHandler(
         "You don't have permission to delete this squad",
@@ -184,44 +431,140 @@ export const deleteSquadService = async (req: any, res: Response) => {
       );
     }
 
-    // Set squad status to inactive instead of deleting
-    await Squad.findByIdAndUpdate(squadId, {
-      $set: { status: SquadStatus.INACTIVE }
-    });
+    // Set squad status to inactive
+    const deletedSquad = await Squad.findByIdAndUpdate(
+      squadId,
+      { $set: { status: SquadStatus.INACTIVE } },
+      { new: true }
+    );
 
-    return {
+    if (!deletedSquad) {
+      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    res.status(httpStatusCode.OK).json({
       success: true,
-      message: "Squad deleted successfully"
-    };
+      message: "Squad deleted successfully",
+    });
   } catch (error) {
-    throw error;
+    console.error("Delete squad error:", error);
+    return errorResponseHandler("Failed to delete squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
 /**
- * Join a squad using invitation code
+ * Get all squads (with pagination and filters)
  */
-export const joinSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { invitationCode } = req.body;
-
-  if (!invitationCode) {
-    return errorResponseHandler("Invitation code is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
+export const getSquadsService = async (req: any, res: Response) => {
   try {
-    // Find the squad with the given invitation code
-    const squad = await Squad.findOne({ 
-      invitationCode,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
+    if (!authenticateUser(req, res)) return;
 
+    // Validate query params
+    const { error, value } = validateRequest(paginationSchema, req.query);
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { page = 1, limit = 10, status, interest } = value;
+    const skip = (page - 1) * limit;
+
+    const query: any = {
+      status: { $ne: SquadStatus.INACTIVE },
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (interest) {
+      query.squadInterest = { $in: [interest] };
+    }
+
+    const squads = await Squad.find(query)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Squad.countDocuments(query);
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      squads,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get squads error:", error);
+    return errorResponseHandler("Failed to fetch squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Get squads for the current user
+ */
+export const getUserSquadsService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+
+    const squads = await Squad.find({
+      "members.user": userId,
+      status: { $ne: SquadStatus.INACTIVE },
+    })
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos")
+      .populate("matchedSquads.squad")
+      .sort({ createdAt: -1 });
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      squads,
+    });
+  } catch (error) {
+    console.error("Get user squads error:", error);
+    return errorResponseHandler("Failed to fetch user squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Add member to squad
+ */
+export const addMemberService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+    
+    // Validate params
+    const paramsResult = validateRequest(squadIdSchema, req.params);
+    if (paramsResult.error) {
+      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Validate body
+    const bodyResult = validateRequest(memberIdSchema, req.body);
+    if (bodyResult.error) {
+      return errorResponseHandler(bodyResult.error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId } = paramsResult.value;
+    const { memberId } = bodyResult.value;
+
+    // Check if user is admin of the squad
+    const squad = await isSquadAdmin(squadId, userId);
     if (!squad) {
-      return errorResponseHandler("Invalid invitation code", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "You don't have permission to add members to this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
     }
 
     // Check if squad is full
@@ -230,30 +573,437 @@ export const joinSquadService = async (req: any, res: Response) => {
     }
 
     // Check if user is already a member
-    if (squad.members.some(member => member?.user?.toString() === userId)) {
-      return errorResponseHandler("You are already a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    if (squad.members.some((member : any) => member?.user?.toString() === memberId)) {
+      return errorResponseHandler("User is already a member of this squad", httpStatusCode.BAD_REQUEST, res);
     }
 
-    // Add user to squad
+    // Check if user is trying to add themselves
+    if (memberId === userId) {
+      return errorResponseHandler("You cannot add yourself as a member", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Add member
     squad.members.push({
-      user: userId,
+      user: new Types.ObjectId(memberId),
       role: "member",
-      joinedAt: new Date()
+      joinedAt: new Date(),
     });
 
     await squad.save();
 
-    const populatedSquad = await Squad.findById(squad._id)
+    const updatedSquad = await Squad.findById(squadId)
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
 
-    return {
+    if (!updatedSquad) {
+      return errorResponseHandler("Failed to retrieve updated squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+    }
+
+    res.status(httpStatusCode.OK).json({
       success: true,
-      message: "Successfully joined the squad",
-      squad: populatedSquad
-    };
+      message: "Member added successfully",
+      squad: updatedSquad,
+    });
   } catch (error) {
-    throw error;
+    console.error("Add member error:", error);
+    return errorResponseHandler("Failed to add member", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Remove a member from a squad
+ */
+export const removeMemberService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+    
+    // Validate squadId and memberId
+    const { error, value } = validateRequest(
+      Joi.object({
+        squadId: squadIdSchema.extract('squadId'),
+        memberId: memberIdSchema.extract('memberId')
+      }),
+      req.params
+    );
+    
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId, memberId } = value;
+
+    // Check if user is admin of the squad
+    const squad = await isSquadAdmin(squadId, userId);
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to remove members from this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Check if target user is a member
+    const memberIndex = squad.members.findIndex((member : any) => member?.user?.toString() === memberId);
+    if (memberIndex === -1) {
+      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Check if trying to remove the creator
+    if (squad.creator.toString() === memberId) {
+      return errorResponseHandler("Cannot remove the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Remove member
+    squad.members.splice(memberIndex, 1);
+    await squad.save();
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: "Member removed successfully",
+    });
+  } catch (error) {
+    console.error("Remove member error:", error);
+    return errorResponseHandler("Failed to remove member", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Match with another squad
+ */
+export const matchSquadService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+    
+    // Validate params
+    const paramsResult = validateRequest(squadIdSchema, req.params);
+    if (paramsResult.error) {
+      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Validate body
+    const bodyResult = validateRequest(targetSquadSchema, req.body);
+    if (bodyResult.error) {
+      return errorResponseHandler(bodyResult.error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId } = paramsResult.value;
+    const { targetSquadId } = bodyResult.value;
+
+    // Validate squadId and targetSquadId are different
+    if (squadId === targetSquadId) {
+      return errorResponseHandler(
+        "Squad cannot match with itself",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Check if user is admin of the squad
+    const sourceSquad = await isSquadAdmin(squadId, userId);
+    if (!sourceSquad) {
+      return errorResponseHandler(
+        "You don't have permission to match this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Check if target squad exists and is active
+    const targetSquad = await Squad.findOne({ 
+      _id: targetSquadId,
+      status: SquadStatus.ACTIVE
+    });
+    
+    if (!targetSquad) {
+      return errorResponseHandler("Target squad not found or inactive", httpStatusCode.NOT_FOUND, res);
+    }
+
+    // Check if already matched
+    const alreadyMatched = sourceSquad.matchedSquads.some(
+      (match : any) => match?.squad?.toString() === targetSquadId
+    );
+    
+    if (alreadyMatched) {
+      return errorResponseHandler("Squads are already matched", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Add match to source squad
+    sourceSquad.matchedSquads.push({
+      squad: new Types.ObjectId(targetSquadId),
+      matchedAt: new Date(),
+    });
+    await sourceSquad.save();
+
+    // Add match to target squad (mutual matching)
+    if (!targetSquad.matchedSquads.some((match) => match?.squad?.toString() === squadId)) {
+      targetSquad.matchedSquads.push({
+        squad: new Types.ObjectId(squadId),
+        matchedAt: new Date(),
+      });
+      await targetSquad.save();
+    }
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: "Squads matched successfully",
+    });
+  } catch (error) {
+    console.error("Match squad error:", error);
+    return errorResponseHandler("Failed to match squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Unmatch from another squad
+ */
+export const unmatchSquadService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+    
+    // Validate squadId and targetSquadId
+    const { error, value } = validateRequest(
+      Joi.object({
+        squadId: squadIdSchema.extract('squadId'),
+        targetSquadId: targetSquadSchema.extract('targetSquadId')
+      }),
+      req.params
+    );
+    
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId, targetSquadId } = value;
+
+    // Check if user is admin of the squad
+    const sourceSquad = await isSquadAdmin(squadId, userId);
+    if (!sourceSquad) {
+      return errorResponseHandler(
+        "You don't have permission to unmatch this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Remove match from source squad
+    const matchIndex = sourceSquad.matchedSquads.findIndex(
+      (match : any) => match?.squad?.toString() === targetSquadId
+    );
+
+    if (matchIndex === -1) {
+      return errorResponseHandler("Squads are not matched", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    sourceSquad.matchedSquads.splice(matchIndex, 1);
+    await sourceSquad.save();
+
+    // Remove match from target squad (mutual unmatching)
+    const targetSquad = await Squad.findById(targetSquadId);
+    if (targetSquad) {
+      const targetMatchIndex = targetSquad.matchedSquads.findIndex(
+        (match) => match?.squad?.toString() === squadId
+      );
+      if (targetMatchIndex !== -1) {
+        targetSquad.matchedSquads.splice(targetMatchIndex, 1);
+        await targetSquad.save();
+      }
+    }
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: "Squads unmatched successfully",
+    });
+  } catch (error) {
+    console.error("Unmatch squad error:", error);
+    return errorResponseHandler("Failed to unmatch squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Get matched squads
+ */
+export const getMatchedSquadsService = async (req: any, res: Response) => {
+  try {
+    if (!authenticateUser(req, res)) return;
+
+    const { id: userId } = req.user;
+    
+    // Validate params
+    const { error, value } = validateRequest(squadIdSchema, req.params);
+    if (error) {
+      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+    }
+
+    const { squadId } = value;
+
+    // Check if user is a member of the squad
+    const squad = await isSquadMember(squadId, userId);
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to view this squad's matches",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Get matched squads with details
+    const populatedSquad = await Squad.findById(squadId).populate({
+      path: "matchedSquads.squad",
+      populate: {
+        path: "members.user",
+        select: "userName photos",
+      },
+    });
+
+    if (!populatedSquad) {
+      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      matches: populatedSquad.matchedSquads,
+    });
+  } catch (error) {
+    console.error("Get matched squads error:", error);
+    return errorResponseHandler("Failed to fetch matched squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Find potential squad matches by interests
+ */
+export const findPotentialMatchesService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user;
+  const { squadId } = req.params as { squadId: string };
+  const { page = "1", limit = "10" } = req.query as { page?: string; limit?: string };
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  if (!squadId) {
+    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  try {
+    // Check if user is a member of the squad
+    const squad = await Squad.findOne({
+      _id: squadId,
+      "members.user": userId,
+    });
+
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to find matches for this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Get already matched squad IDs to exclude them
+    const matchedSquadIds = squad.matchedSquads.map((match) => match.squad);
+
+    // Find squads with similar interests
+    const query = {
+      _id: { $ne: squadId, $nin: matchedSquadIds },
+      status: SquadStatus.ACTIVE,
+      squadInterest: { $in: squad.squadInterest },
+    };
+
+    const potentialMatches = await Squad.find(query)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Squad.countDocuments(query);
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      potentialMatches,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    return errorResponseHandler("Failed to find potential matches", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Change member role (promote to admin or demote to member)
+ */
+export const changeMemberRoleService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user;
+  const { squadId, memberId } = req.params as { squadId: string; memberId: string };
+  const { role } = req.body as { role: "admin" | "member" };
+
+  if (!squadId || !memberId || !role) {
+    return errorResponseHandler("Squad ID, member ID, and role are required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  if (!["admin", "member"].includes(role)) {
+    return errorResponseHandler("Role must be either 'admin' or 'member'", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  try {
+    // Check if user is admin of the squad
+    const squad = await Squad.findOne({
+      _id: squadId,
+      "members.user": userId,
+      "members.role": "admin",
+    });
+
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to change member roles in this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Check if target user is a member
+    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === memberId);
+
+    if (memberIndex === -1) {
+      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Check if trying to demote the creator
+    if (squad.creator.toString() === memberId && role === "member") {
+      return errorResponseHandler("Cannot demote the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Update member role
+    squad.members[memberIndex].role = role;
+    await squad.save();
+
+    const updatedSquad = await Squad.findById(squadId)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: `Member role updated to ${role} successfully`,
+      squad: updatedSquad,
+    });
+  } catch (error) {
+    return errorResponseHandler("Failed to change member role", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
@@ -266,14 +1016,13 @@ export const leaveSquadService = async (req: any, res: Response) => {
   }
 
   const { id: userId } = req.user;
-  const { squadId } = req.params;
+  const { squadId } = req.params as { squadId: string };
 
   if (!squadId) {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
   try {
-    // Find the squad
     const squad = await Squad.findById(squadId);
 
     if (!squad) {
@@ -281,318 +1030,118 @@ export const leaveSquadService = async (req: any, res: Response) => {
     }
 
     // Check if user is a member
-    const memberIndex = squad.members.findIndex(
-      member => member?.user?.toString() === userId
-    );
+    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
 
     if (memberIndex === -1) {
       return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
     }
 
-    // Check if user is the creator/admin
-    const isCreator = squad.creator.toString() === userId;
-    const isAdmin = squad.members[memberIndex].role === "admin";
-
-    if (isCreator) {
-      // If creator leaves, transfer ownership to another admin or the oldest member
-      const otherAdmins = squad.members.filter(
-        member => member?.user?.toString() !== userId && member.role === "admin"
+    // Check if user is the creator
+    if (squad.creator.toString() === userId) {
+      return errorResponseHandler(
+        "As the creator, you cannot leave the squad. You must delete it or transfer ownership first.",
+        httpStatusCode.BAD_REQUEST,
+        res
       );
-
-      if (otherAdmins.length > 0) {
-        // Transfer to another admin
-        if (otherAdmins[0]?.user) {
-          squad.creator = otherAdmins[0].user;
-        } else {
-          throw new Error("No valid admin found to transfer ownership.");
-        }
-      } else if (squad.members.length > 1) {
-        // Transfer to oldest member
-        const oldestMember = [...squad.members]
-          .filter(member => member?.user?.toString() !== userId)
-          .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())[0];
-
-        if (oldestMember.user) {
-          squad.creator = oldestMember.user;
-        } else {
-          throw new Error("No valid user found to transfer ownership.");
-        }
-        
-        // Promote to admin
-        const oldestMemberIndex = squad.members.findIndex(
-          member => member?.user?.toString() === oldestMember?.user?.toString()
-        );
-        
-        if (oldestMemberIndex !== -1) {
-          squad.members[oldestMemberIndex].role = "admin";
-        }
-      } else {
-        // Last member, set squad to inactive
-        squad.status = SquadStatus.INACTIVE;
-      }
     }
 
     // Remove user from members
-    if (squad.status !== SquadStatus.INACTIVE) {
-      squad.members.splice(memberIndex, 1);
-    }
-
-    await squad.save();
-
-    return {
-      success: true,
-      message: "Successfully left the squad"
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Get squad members
- */
-export const getSquadMembersService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    const squad = await Squad.findById(squadId)
-      .populate("members.user", "userName photos about");
-
-    if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
-
-    return {
-      success: true,
-      members: squad.members
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Invite a member to a squad
- */
-export const inviteMemberService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-  const { targetUserId } = req.body;
-
-  if (!squadId || !targetUserId) {
-    return errorResponseHandler("Squad ID and target user ID are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is a member of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId
-    });
-
-    if (!squad) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.FORBIDDEN, res);
-    }
-
-    // Check if squad is full
-    if (squad.members.length >= squad.maxMembers) {
-      return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Check if target user exists
-    const targetUser = await usersModel.findById(targetUserId);
-    if (!targetUser) {
-      return errorResponseHandler("Target user not found", httpStatusCode.NOT_FOUND, res);
-    }
-
-    // Check if target user is already a member
-    if (squad.members.some(member => member?.user?.toString() === targetUserId)) {
-      return errorResponseHandler("User is already a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Add user to squad
-    squad.members.push({
-      user: targetUserId,
-      role: "member",
-      joinedAt: new Date()
-    });
-
-    await squad.save();
-
-    // TODO: Send notification to target user
-
-    return {
-      success: true,
-      message: "User invited to the squad successfully",
-      invitationCode: squad.invitationCode
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Remove a member from a squad
- */
-export const removeMemberService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId, memberId } = req.params;
-
-  if (!squadId || !memberId) {
-    return errorResponseHandler("Squad ID and member ID are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin"
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to remove members from this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Check if target user is a member
-    const memberIndex = squad.members.findIndex(
-      member => member?.user?.toString() === memberId
-    );
-
-    if (memberIndex === -1) {
-      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Check if trying to remove the creator
-    if (squad.creator.toString() === memberId) {
-      return errorResponseHandler(
-        "Cannot remove the creator of the squad",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-
-    // Remove member
     squad.members.splice(memberIndex, 1);
     await squad.save();
 
-    return {
+    res.status(httpStatusCode.OK).json({
       success: true,
-      message: "Member removed successfully"
-    };
+      message: "You have left the squad successfully",
+    });
   } catch (error) {
-    throw error;
+    return errorResponseHandler("Failed to leave squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
 /**
- * Get all squads (with pagination and filters)
+ * Transfer squad ownership to another member
  */
-export const getSquadsService = async (req: any, res: Response) => {
+export const transferOwnershipService = async (req: any, res: Response) => {
   if (!req.user) {
     return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
 
-  const { page = 1, limit = 10, status } = req.query;
-  const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+  const { id: userId } = req.user;
+  const { squadId } = req.params as { squadId: string };
+  const { newOwnerId } = req.body as { newOwnerId: string };
+
+  if (!squadId || !newOwnerId) {
+    return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
+  }
 
   try {
-    const query: any = { status: { $ne: SquadStatus.INACTIVE } };
-    
-    if (status) {
-      query.status = status;
+    // Check if user is creator of the squad
+    const squad = await Squad.findOne({
+      _id: squadId,
+      creator: userId,
+    });
+
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to transfer ownership of this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
     }
 
-    const squads = await Squad.find(query)
+    // Check if new owner is a member
+    const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
+
+    if (newOwnerIndex === -1) {
+      return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Update creator and member roles
+    squad.creator = new Types.ObjectId(newOwnerId);
+
+    // Find current owner in members and set role to member
+    const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+    if (currentOwnerIndex !== -1) {
+      squad.members[currentOwnerIndex].role = "member";
+    }
+
+    // Set new owner's role to admin
+    squad.members[newOwnerIndex].role = "admin";
+
+    await squad.save();
+
+    const updatedSquad = await Squad.findById(squadId)
       .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit as string));
+      .populate("members.user", "userName photos");
 
-    const total = await Squad.countDocuments(query);
-
-    return {
+    res.status(httpStatusCode.OK).json({
       success: true,
-      squads,
-      pagination: {
-        total,
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        pages: Math.ceil(total / parseInt(limit as string))
-      }
-    };
+      message: "Squad ownership transferred successfully",
+      squad: updatedSquad,
+    });
   } catch (error) {
-    throw error;
+    return errorResponseHandler("Failed to transfer ownership", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
 /**
- * Get squads for the current user
+ * Update squad interests
  */
-export const getUserSquadsService = async (req: any, res: Response) => {
+export const updateSquadInterestsService = async (req: any, res: Response) => {
   if (!req.user) {
     return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
 
   const { id: userId } = req.user;
+  const { squadId } = req.params as { squadId: string };
+  const { squadInterest } = req.body as { squadInterest: string[] };
 
-  try {
-    const squads = await Squad.find({
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    })
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 });
-
-    return {
-      success: true,
-      squads
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Update squad media (add/remove photos)
- */
-export const updateSquadMediaService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-  const { media, action } = req.body;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  if (!media || !Array.isArray(media)) {
-    return errorResponseHandler("Media array is required", httpStatusCode.BAD_REQUEST, res);
+  if (!squadId || !squadInterest || !Array.isArray(squadInterest)) {
+    return errorResponseHandler(
+      "Squad ID and squad interests array are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
@@ -600,447 +1149,44 @@ export const updateSquadMediaService = async (req: any, res: Response) => {
     const squad = await Squad.findOne({
       _id: squadId,
       "members.user": userId,
-      "members.role": "admin"
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to update this squad's media",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    let updatedSquad;
-
-    if (action === "remove") {
-      // Remove specified media
-      updatedSquad = await Squad.findByIdAndUpdate(
-        squadId,
-        {
-          $pull: { media: { $in: media } }
-        },
-        { new: true }
-      );
-    } else {
-      // Add new media
-      updatedSquad = await Squad.findByIdAndUpdate(
-        squadId,
-        {
-          $addToSet: { media: { $each: media } }
-        },
-        { new: true }
-      );
-    }
-
-    return {
-      success: true,
-      message: "Squad media updated successfully",
-      squad: updatedSquad
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Get squads by location (for discovery)
- */
-export const getSquadsByLocationService = async (req: any, res: Response) => {
-  // if (!req.user) {
-  //   return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  // }
-
-  // const { longitude, latitude, maxDistance = 50000, page = 1, limit = 10 } = req.query;
-  // const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-  // if (!longitude || !latitude) {
-  //   return errorResponseHandler("Longitude and latitude are required", httpStatusCode.BAD_REQUEST, res);
-  // }
-
-  // try {
-  //   const squads = await Squad.find({
-  //     status: { $ne: SquadStatus.INACTIVE },
-  //     location: {
-  //       $near: {
-  //         $geometry: {
-  //           type: "Point",
-  //           coordinates: [parseFloat(longitude as string), parseFloat(latitude as string)]
-  //         },
-  //         $maxDistance: parseInt(maxDistance as string)
-  //       }
-  //     }
-  //   })
-  //     .populate("creator", "userName photos")
-  //     .populate("members.user", "userName photos")
-  //     .skip(skip)
-  //     .limit(parseInt(limit as string));
-
-  //   return {
-  //     success: true,
-  //     squads
-  //   };
-  // } catch (error) {
-  //   throw error;
-  // }
-};
-
-/**
- * Like a squad (for squad matching)
- */
-export const likeSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId, targetSquadId } = req.params;
-
-  if (!squadId || !targetSquadId) {
-    return errorResponseHandler("Squad ID and target squad ID are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is a member of the squad
-    const userSquad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!userSquad) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.FORBIDDEN, res);
-    }
-
-    // Check if target squad exists and is active
-    const targetSquad = await Squad.findOne({
-      _id: targetSquadId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!targetSquad) {
-      return errorResponseHandler("Target squad not found or inactive", httpStatusCode.NOT_FOUND, res);
-    }
-
-    // Check if already matched
-    const alreadyMatched = userSquad.matchedSquads.some(
-      match => match?.squad?.toString() === targetSquadId
-    );
-
-    if (alreadyMatched) {
-      return errorResponseHandler("Squads are already matched", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Check if target squad has liked user's squad
-    const targetHasLiked = targetSquad.matchedSquads.some(
-      match => match?.squad?.toString() === squadId
-    );
-
-    // Add target squad to user squad's matches
-    userSquad.matchedSquads.push({
-      squad: targetSquadId,
-      matchedAt: new Date()
-    });
-
-    await userSquad.save();
-
-    // If mutual like, add user squad to target squad's matches
-    if (targetHasLiked) {
-      // It's a match!
-      return {
-        success: true,
-        message: "It's a match! Both squads have liked each other.",
-        isMatch: true
-      };
-    }
-
-    return {
-      success: true,
-      message: "Squad liked successfully",
-      isMatch: false
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Get squad matches
- */
-export const getSquadMatchesService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is a member of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!squad) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.FORBIDDEN, res);
-    }
-
-    // Get all matched squads
-    const matchedSquads = await Squad.find({
-      _id: { $in: squad.matchedSquads.map(match => match.squad) },
-      status: { $ne: SquadStatus.INACTIVE }
-    })
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
-
-    return {
-      success: true,
-      matches: matchedSquads.map(matchedSquad => {
-        const matchInfo = squad.matchedSquads.find(
-          match => match?.squad?.toString() === matchedSquad._id.toString()
-        );
-        
-        return {
-          squad: matchedSquad,
-          matchedAt: matchInfo?.matchedAt
-        };
-      })
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Get recommended squads for matching
- */
-export const getRecommendedSquadsService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-  const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is a member of the squad
-    const userSquad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!userSquad) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.FORBIDDEN, res);
-    }
-
-    // Get IDs of squads that are already matched or the user's own squad
-    const excludedSquadIds = [
-      squadId,
-      ...userSquad.matchedSquads.map(match => match?.squad?.toString())
-    ];
-
-    // Find squads that are not already matched and not the user's squad
-    const recommendedSquads = await Squad.find({
-      _id: { $nin: excludedSquadIds },
-      status: { $ne: SquadStatus.INACTIVE }
-    })
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit as string));
-
-    const total = await Squad.countDocuments({
-      _id: { $nin: excludedSquadIds },
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    return {
-      success: true,
-      squads: recommendedSquads,
-      pagination: {
-        total,
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        pages: Math.ceil(total / parseInt(limit as string))
-      }
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Unmatch a squad
- */
-export const unmatchSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId, targetSquadId } = req.params;
-
-  if (!squadId || !targetSquadId) {
-    return errorResponseHandler("Squad ID and target squad ID are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is an admin of the squad
-    const userSquad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
       "members.role": "admin",
-      status: { $ne: SquadStatus.INACTIVE }
     });
 
-    if (!userSquad) {
+    if (!squad) {
       return errorResponseHandler(
-        "You don't have permission to unmatch this squad",
+        "You don't have permission to update this squad's interests",
         httpStatusCode.FORBIDDEN,
         res
       );
     }
 
-    // Check if squads are matched
-    const isMatched = userSquad.matchedSquads.some(
-      match => match?.squad?.toString() === targetSquadId
-    );
-
-    if (!isMatched) {
+    // Validate interests
+    const validInterests = Object.values(InterestCategory);
+    const invalidInterests = squadInterest.filter((interest) => !validInterests.includes(interest as InterestCategory));
+    if (invalidInterests.length > 0) {
       return errorResponseHandler(
-        "Squads are not matched",
+        `Invalid interests: ${invalidInterests.join(", ")}`,
         httpStatusCode.BAD_REQUEST,
         res
       );
     }
 
-    // Remove match from user's squad
-    await Squad.updateOne(
-      { _id: squadId },
-      { $pull: { matchedSquads: { squad: targetSquadId } } }
-    );
-
-    // Remove match from target squad
-    await Squad.updateOne(
-      { _id: targetSquadId },
-      { $pull: { matchedSquads: { squad: squadId } } }
-    );
-
-    return {
-      success: true,
-      message: "Squad unmatched successfully"
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Get squad invitation code
- */
-export const getSquadInvitationCodeService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is a member of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You are not a member of this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    return {
-      success: true,
-      invitationCode: squad.invitationCode
-    };
-  } catch (error) {
-    throw error;
-  }
-};
-
-/**
- * Regenerate squad invitation code
- */
-export const regenerateInvitationCodeService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params;
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin",
-      status: { $ne: SquadStatus.INACTIVE }
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to regenerate the invitation code",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Generate a new invitation code
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-
-    // Update the squad with the new code
+    // Update squad interests
     const updatedSquad = await Squad.findByIdAndUpdate(
       squadId,
-      { $set: { invitationCode: code } },
+      { $set: { squadInterest } },
       { new: true }
-    );
+    )
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
 
-    return {
+    res.status(httpStatusCode.OK).json({
       success: true,
-      message: "Invitation code regenerated successfully",
-      invitationCode: updatedSquad?.invitationCode
-    };
+      message: "Squad interests updated successfully",
+      squad: updatedSquad,
+    });
   } catch (error) {
-    throw error;
+    return errorResponseHandler("Failed to update squad interests", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
+

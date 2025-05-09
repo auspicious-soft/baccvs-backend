@@ -3,6 +3,7 @@ import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, 
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
+import { createSquad } from "src/controllers/squad/squad-controller";
 
 
 const router = Router();
@@ -38,5 +39,9 @@ router.post("/dislike-user/:id", userDislikeController);
 router.get("/matches/user", getUserMatchesController);
 router.get("/feed/user", getUserFeedController);
 router.get("/match-stats", getUserMatchStatsController);
+
+
+// Squad api
+router.post("/create/squad", createSquad);
 
 export { router }

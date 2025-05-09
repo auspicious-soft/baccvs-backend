@@ -10,7 +10,7 @@ export const sendEmailVerificationCode = async (email: string, token: string) =>
     return await resend.emails.send({
          from: process.env.COMPANY_RESEND_GMAIL_ACCOUNT as string,
          to: email,
-         subject: "Reset your password",
+         subject: "Verify your email",
          react: VerificationEmail({ otp: token }),
      })
  }

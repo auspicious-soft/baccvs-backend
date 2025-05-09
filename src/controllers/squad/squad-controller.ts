@@ -6,17 +6,10 @@ import {
   getSquadByIdService,
   updateSquadService,
   deleteSquadService,
-  joinSquadService,
-  leaveSquadService,
-  getSquadMembersService,
-  inviteMemberService,
-  removeMemberService,
   getSquadsService,
   getUserSquadsService,
-  updateSquadMediaService,
-  getSquadsByLocationService,
-  likeSquadService,
-  getSquadMatchesService
+  addMemberService,
+  removeMemberService
 } from "src/services/squad/squad-service";
 
 /**
@@ -80,81 +73,6 @@ export const deleteSquad = async (req: Request, res: Response) => {
 };
 
 /**
- * Join a squad using invitation code
- */
-export const joinSquad = async (req: Request, res: Response) => {
-  try {
-    const response = await joinSquadService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Leave a squad
- */
-export const leaveSquad = async (req: Request, res: Response) => {
-  try {
-    const response = await leaveSquadService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Get squad members
- */
-export const getSquadMembers = async (req: Request, res: Response) => {
-  try {
-    const response = await getSquadMembersService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Invite a member to a squad
- */
-export const inviteMember = async (req: Request, res: Response) => {
-  try {
-    const response = await inviteMemberService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Remove a member from a squad
- */
-export const removeMember = async (req: Request, res: Response) => {
-  try {
-    const response = await removeMemberService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
  * Get all squads (with pagination and filters)
  */
 export const getSquads = async (req: Request, res: Response) => {
@@ -185,11 +103,11 @@ export const getUserSquads = async (req: Request, res: Response) => {
 };
 
 /**
- * Update squad media (add/remove photos)
+ * Add member to squad
  */
-export const updateSquadMedia = async (req: Request, res: Response) => {
+export const addMember = async (req: Request, res: Response) => {
   try {
-    const response = await updateSquadMediaService(req, res);
+    const response = await addMemberService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);
@@ -200,41 +118,11 @@ export const updateSquadMedia = async (req: Request, res: Response) => {
 };
 
 /**
- * Get squads by location (for discovery)
+ * Remove member from squad
  */
-export const getSquadsByLocation = async (req: Request, res: Response) => {
+export const removeMember = async (req: Request, res: Response) => {
   try {
-    const response = await getSquadsByLocationService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Like a squad (for squad matching)
- */
-export const likeSquad = async (req: Request, res: Response) => {
-  try {
-    const response = await likeSquadService(req, res);
-    return res.status(httpStatusCode.OK).json(response);
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res
-      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Get squad matches
- */
-export const getSquadMatches = async (req: Request, res: Response) => {
-  try {
-    const response = await getSquadMatchesService(req, res);
+    const response = await removeMemberService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);
