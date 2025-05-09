@@ -333,7 +333,7 @@ export const updateSquadService = async (req: any, res: Response) => {
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
-     
+    
     // Validate params
     const paramsResult = validateRequest(squadIdSchema, req.params);
     if (paramsResult.error) {
