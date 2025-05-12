@@ -9,7 +9,10 @@ import {
   getSquadsService,
   getUserSquadsService,
   addMemberService,
-  removeMemberService
+  removeMemberService,
+  changeMemberRoleService,
+  leaveSquadService,
+  transferOwnershipService
 } from "src/services/squad/squad-service";
 
 /**
@@ -131,3 +134,40 @@ export const removeMember = async (req: Request, res: Response) => {
       .json({ success: false, message: message || "An error occurred" });
   }
 };
+
+export const  changeMemberRole = async (req: Request, res: Response) => {
+  try {
+    const response = await changeMemberRoleService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+
+export const leaveSquad = async (req: Request, res: Response) => {
+  try {
+    const response = await leaveSquadService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+
+export const transferOwnership = async (req: Request, res: Response) => {
+  try {
+    const response = await transferOwnershipService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+

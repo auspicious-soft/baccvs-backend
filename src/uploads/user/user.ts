@@ -183,7 +183,7 @@ export const verifyEmailService = async (payload: any, res: Response) => {
   // Generate new token
   const genId = customAlphabet('0123456789', 6);
   const token = genId();
-  const expires = new Date(new Date().getTime() + 3600 * 1000); // 1 hour expiry
+  const expires = new Date(new Date().getTime() + 60 * 1000); // 1 hour expiry
   
   // Create new token
   const newPasswordResetToken = new passwordResetTokenModel({
@@ -207,17 +207,16 @@ export const verifyEmailService = async (payload: any, res: Response) => {
 
 export const verifyOtpEmailService = async (payload: any, res: Response) => {
   if(!payload.otp || !payload.email) return errorResponseHandler("Both Field is required", httpStatusCode.BAD_REQUEST, res)  
-  const { otp,email } = payload
-    const existingToken = await getPasswordResetTokenByToken(otp,email)
-    if (!existingToken) return errorResponseHandler("Invalid OTP", httpStatusCode.BAD_REQUEST, res)
+  const { otp, email } = payload
+  
+  // Parameters in correct order (email, token)
+  const existingToken = await getPasswordResetTokenByToken(email, otp)
+  if (!existingToken) return errorResponseHandler("Invalid OTP", httpStatusCode.BAD_REQUEST, res)
 
-        // console.log("existingToken", existingToken);
+  const hasExpired = new Date(existingToken.expires) < new Date()
+  if (hasExpired) return errorResponseHandler("OTP expired", httpStatusCode.BAD_REQUEST, res)
 
-    const hasExpired = new Date(existingToken.expires) < new Date()
-    if (hasExpired) return errorResponseHandler("OTP expired", httpStatusCode.BAD_REQUEST, res)
-
-        // await passwordResetTokenModel.findByIdAndDelete(existingToken._id)
-        return { success: true, message: "OTP verified successfully" }    
+  return { success: true, message: "OTP verified successfully" }    
 }
 
 export const forgotPasswordService = async (payload: any, res: Response) => {

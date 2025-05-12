@@ -7,75 +7,6 @@ import Joi from "joi";
 import { usersModel } from "src/models/user/user-schema";
 
 // Validation schemas
-// const createSquadSchema = Joi.object({
-//   title: Joi.string().trim().min(3).max(100).required()
-//     .messages({
-//       'string.base': 'Title must be a string',
-//       'string.empty': 'Title is required',
-//       'string.min': 'Title must be at least 3 characters long',
-//       'string.max': 'Title cannot exceed 100 characters',
-//       'any.required': 'Title is required'
-//     }),
-//   about: Joi.string().trim().max(500).required()
-//     .messages({
-//       'string.base': 'About must be a string',
-//       'string.empty': 'About is required',
-//       'string.max': 'About cannot exceed 500 characters',
-//       'any.required': 'About is required'
-//     }),
-//   // Change the media validation to accept strings
-//   media: Joi.array().items(
-//     Joi.string().uri()
-//   ).default([]),
-//   squadInterest: Joi.array().items(
-//     Joi.string().valid(...Object.values(InterestCategory))
-//   ).min(1).required()
-//     .messages({
-//       'array.base': 'Squad interests must be an array',
-//       'array.min': 'At least one interest must be selected',
-//       'any.required': 'Squad interests are required',
-//       'any.only': 'Invalid interest category'
-//     }),
-//   membersToAdd: Joi.array().items(
-//     Joi.string().pattern(/^[0-9a-fA-F]{24}$/).message('Invalid user ID format')
-//   ).default([])
-// });
-
-// const updateSquadSchema = Joi.object({
-//   title: Joi.string().trim().min(3).max(100)
-//     .messages({
-//       'string.base': 'Title must be a string',
-//       'string.min': 'Title must be at least 3 characters long',
-//       'string.max': 'Title cannot exceed 100 characters'
-//     }),
-//   about: Joi.string().trim().max(500)
-//     .messages({
-//       'string.base': 'About must be a string',
-//       'string.max': 'About cannot exceed 500 characters'
-//     }),
-//   // Changed to accept strings instead of objects
-//   media: Joi.array().items(
-//     Joi.string().uri()
-//   ),
-//   squadInterest: Joi.array().items(
-//     Joi.string().valid(...Object.values(InterestCategory))
-//   ).min(1)
-//     .messages({
-//       'array.base': 'Squad interests must be an array',
-//       'array.min': 'At least one interest must be selected',
-//       'any.only': 'Invalid interest category'
-//     })
-// });
-
-const memberIdSchema = Joi.object({
-  memberId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
-    .messages({
-      'string.base': 'Member ID must be a string',
-      'string.empty': 'Member ID is required',
-      'string.pattern.base': 'Invalid member ID format',
-      'any.required': 'Member ID is required'
-    })
-});
 
 const squadIdSchema = Joi.object({
   squadId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
@@ -95,45 +26,6 @@ const targetSquadSchema = Joi.object({
       'string.pattern.base': 'Invalid target squad ID format',
       'any.required': 'Target Squad ID is required'
     })
-});
-
-const roleSchema = Joi.object({
-  role: Joi.string().valid('admin', 'member').required()
-    .messages({
-      'string.base': 'Role must be a string',
-      'string.empty': 'Role is required',
-      'any.only': 'Role must be either "admin" or "member"',
-      'any.required': 'Role is required'
-    })
-});
-
-const newOwnerSchema = Joi.object({
-  newOwnerId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
-    .messages({
-      'string.base': 'New owner ID must be a string',
-      'string.empty': 'New owner ID is required',
-      'string.pattern.base': 'Invalid new owner ID format',
-      'any.required': 'New owner ID is required'
-    })
-});
-
-const squadInterestSchema = Joi.object({
-  squadInterest: Joi.array().items(
-    Joi.string().valid(...Object.values(InterestCategory))
-  ).min(1).required()
-    .messages({
-      'array.base': 'Squad interests must be an array',
-      'array.min': 'At least one interest must be selected',
-      'any.required': 'Squad interests are required',
-      'any.only': 'Invalid interest category'
-    })
-});
-
-const paginationSchema = Joi.object({
-  page: Joi.number().integer().min(1).default(1),
-  limit: Joi.number().integer().min(1).max(100).default(10),
-  status: Joi.string().valid(...Object.values(SquadStatus)).optional(),
-  interest: Joi.string().valid(...Object.values(InterestCategory)).optional()
 });
 
 // Helper function to validate request data
@@ -163,8 +55,12 @@ const authenticateUser = (req: any, res: Response): boolean => {
 const isSquadAdmin = async (squadId: string, userId: string) => {
   return await Squad.findOne({
     _id: squadId,
-    "members.user": userId,
-    "members.role": "admin",
+    members: {
+      $elemMatch: {
+        user: userId,
+        role: "admin"
+      }
+    }
   });
 };
 
@@ -330,7 +226,15 @@ export const updateSquadService = async (req: any, res: Response) => {
     }
 
     // Check if user is admin of the squad
-    const squad = await isSquadAdmin(squadId, userId);
+    const squad = await Squad.findOne({
+      _id: squadId,
+      members: {
+        $elemMatch: {
+          user: userId,
+          role: "admin"
+        }
+      }
+    });
     if (!squad) {
       return errorResponseHandler(
         "You don't have permission to update this squad",
@@ -432,18 +336,12 @@ export const updateSquadService = async (req: any, res: Response) => {
  * Delete a squad (set to inactive)
  */
 export const deleteSquadService = async (req: any, res: Response) => {
-  try {
+  
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
-    
-    // Validate params
-    const { error, value } = validateRequest(squadIdSchema, req.params);
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
 
-    const { squadId } = value;
+    const { id: squadId } = req.params;
 
     // Check if user is admin of the squad
     const squad = await isSquadAdmin(squadId, userId);
@@ -456,40 +354,30 @@ export const deleteSquadService = async (req: any, res: Response) => {
     }
 
     // Set squad status to inactive
-    const deletedSquad = await Squad.findByIdAndUpdate(
-      squadId,
-      { $set: { status: SquadStatus.INACTIVE } },
-      { new: true }
+    const deletedSquad = await Squad.findByIdAndDelete(
+      squadId
     );
 
     if (!deletedSquad) {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Squad deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete squad error:", error);
-    return errorResponseHandler("Failed to delete squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
+  
 };
 
 /**
  * Get all squads (with pagination and filters)
  */
 export const getSquadsService = async (req: any, res: Response) => {
-  try {
+ 
     if (!authenticateUser(req, res)) return;
 
-    // Validate query params
-    const { error, value } = validateRequest(paginationSchema, req.query);
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
-
-    const { page = 1, limit = 10, status, interest } = value;
+  
+    const { page = 1, limit = 10, status, interest } = req.query;
     const skip = (page - 1) * limit;
 
     const query: any = {
@@ -513,8 +401,9 @@ export const getSquadsService = async (req: any, res: Response) => {
 
     const total = await Squad.countDocuments(query);
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
+      message: "All Squads retrieved successfully",
       squads,
       pagination: {
         total,
@@ -522,18 +411,15 @@ export const getSquadsService = async (req: any, res: Response) => {
         limit,
         pages: Math.ceil(total / limit),
       },
-    });
-  } catch (error) {
-    console.error("Get squads error:", error);
-    return errorResponseHandler("Failed to fetch squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
+ 
 };
 
 /**
  * Get squads for the current user
  */
 export const getUserSquadsService = async (req: any, res: Response) => {
-  try {
+
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
@@ -547,39 +433,24 @@ export const getUserSquadsService = async (req: any, res: Response) => {
       .populate("matchedSquads.squad")
       .sort({ createdAt: -1 });
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
+      message: "User Squads retrieved successfully",
       squads,
-    });
-  } catch (error) {
-    console.error("Get user squads error:", error);
-    return errorResponseHandler("Failed to fetch user squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
+ 
 };
 
 /**
  * Add member to squad
  */
 export const addMemberService = async (req: any, res: Response) => {
-  try {
+
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
-    
-    // Validate params
-    const paramsResult = validateRequest(squadIdSchema, req.params);
-    if (paramsResult.error) {
-      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Validate body
-    const bodyResult = validateRequest(memberIdSchema, req.body);
-    if (bodyResult.error) {
-      return errorResponseHandler(bodyResult.error, httpStatusCode.BAD_REQUEST, res);
-    }
-
-    const { squadId } = paramsResult.value;
-    const { memberId } = bodyResult.value;
+    const { id: squadId } = req.params;
+    const  memberId  = req.body;
 
     // Check if user is admin of the squad
     const squad = await isSquadAdmin(squadId, userId);
@@ -606,9 +477,22 @@ export const addMemberService = async (req: any, res: Response) => {
       return errorResponseHandler("You cannot add yourself as a member", httpStatusCode.BAD_REQUEST, res);
     }
 
+    // check if user exists
+    console.log("memberId received:", memberId);
+    
+    // Extract memberId if it's an object
+    const memberIdToCheck = typeof memberId === 'object' && memberId.memberId 
+        ? memberId.memberId 
+        : memberId;
+        
+    const userExists = await usersModel.findById(memberIdToCheck);
+    if (!userExists) {
+      return errorResponseHandler("User does not exist", httpStatusCode.BAD_REQUEST, res);
+    }
+
     // Add member
     squad.members.push({
-      user: new Types.ObjectId(memberId),
+      user: new Types.ObjectId(memberIdToCheck),
       role: "member",
       joinedAt: new Date(),
     });
@@ -623,40 +507,24 @@ export const addMemberService = async (req: any, res: Response) => {
       return errorResponseHandler("Failed to retrieve updated squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
     }
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Member added successfully",
       squad: updatedSquad,
-    });
-  } catch (error) {
-    console.error("Add member error:", error);
-    return errorResponseHandler("Failed to add member", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
 };
 
 /**
  * Remove a member from a squad
  */
 export const removeMemberService = async (req: any, res: Response) => {
-  try {
+ 
     if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
-    
-    // Validate squadId and memberId
-    const { error, value } = validateRequest(
-      Joi.object({
-        squadId: squadIdSchema.extract('squadId'),
-        memberId: memberIdSchema.extract('memberId')
-      }),
-      req.params
-    );
-    
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
+    const { id: userId } = req.user;  
 
-    const { squadId, memberId } = value;
+    const { id : squadId } = req.params;
+    const { memberId } = req.body;
 
     // Check if user is admin of the squad
     const squad = await isSquadAdmin(squadId, userId);
@@ -668,8 +536,22 @@ export const removeMemberService = async (req: any, res: Response) => {
       );
     }
 
+    // Extract memberId if it's an object
+    const memberIdToCheck = typeof memberId === 'object' && memberId.memberId 
+        ? memberId.memberId 
+        : memberId;
+    
+    console.log("Checking for member:", memberIdToCheck);
+    console.log("Squad members:", squad.members.map(m => ({ 
+        id: m?.user?.toString(),
+        role: m.role 
+    })));
+    
     // Check if target user is a member
-    const memberIndex = squad.members.findIndex((member : any) => member?.user?.toString() === memberId);
+    const memberIndex = squad.members.findIndex(
+        (member: any) => member.user.toString() === memberIdToCheck
+    );
+    
     if (memberIndex === -1) {
       return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
     }
@@ -678,18 +560,202 @@ export const removeMemberService = async (req: any, res: Response) => {
     if (squad.creator.toString() === memberId) {
       return errorResponseHandler("Cannot remove the creator of the squad", httpStatusCode.BAD_REQUEST, res);
     }
+    // check if creator trying to remove themselves
+    if (userId === memberId) {
+      return errorResponseHandler("Cannot remove yourself from the squad", httpStatusCode.BAD_REQUEST, res);
+    }
 
     // Remove member
     squad.members.splice(memberIndex, 1);
     await squad.save();
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Member removed successfully",
+    };
+ 
+};
+
+/**
+ * Change member role (promote to admin or demote to member)
+ */
+export const changeMemberRoleService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user;
+  const { squadId, memberId } = req.params as { squadId: string; memberId: string };
+  const { role } = req.body as { role: "admin" | "member" };
+
+  if (!squadId || !memberId || !role) {
+    return errorResponseHandler("Squad ID, member ID, and role are required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  if (!["admin", "member"].includes(role)) {
+    return errorResponseHandler("Role must be either 'admin' or 'member'", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  try {
+    // Check if user is admin of the squad
+    const squad = await Squad.findOne({
+      _id: squadId,
+      "members.user": userId,
+      "members.role": "admin",
+    });
+
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to change member roles in this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Check if target user is a member
+    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === memberId);
+
+    if (memberIndex === -1) {
+      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Check if trying to demote the creator
+    if (squad.creator.toString() === memberId && role === "member") {
+      return errorResponseHandler("Cannot demote the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Update member role
+    squad.members[memberIndex].role = role;
+    await squad.save();
+
+    const updatedSquad = await Squad.findById(squadId)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: `Member role updated to ${role} successfully`,
+      squad: updatedSquad,
     });
   } catch (error) {
-    console.error("Remove member error:", error);
-    return errorResponseHandler("Failed to remove member", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+    return errorResponseHandler("Failed to change member role", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Leave a squad
+ */
+export const leaveSquadService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user;
+  const { id: squadId } = req.params
+
+  if (!squadId) {
+    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  try {
+    const squad = await Squad.findById(squadId);
+
+    if (!squad) {
+      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    // Check if user is a member
+    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+
+    if (memberIndex === -1) {
+      return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Check if user is the creator
+    if (squad.creator.toString() === userId) {
+      return errorResponseHandler(
+        "As the creator, you cannot leave the squad. You must delete it or transfer ownership first.",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Remove user from members
+    squad.members.splice(memberIndex, 1);
+    await squad.save();
+
+    return {
+      success: true,
+      message: "You have left the squad successfully",
+    };
+  } catch (error) {
+    return errorResponseHandler("Failed to leave squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
+};
+
+/**
+ * Transfer squad ownership to another member
+ */
+export const transferOwnershipService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user;
+  const { id: squadId } = req.params ;
+  const { newOwnerId } = req.body;
+
+  if (!squadId || !newOwnerId) {
+    return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  try {
+    // Check if user is creator of the squad
+    const squad = await Squad.findOne({
+      _id: squadId,
+      creator: userId,
+    });
+
+    if (!squad) {
+      return errorResponseHandler(
+        "You don't have permission to transfer ownership of this squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Check if new owner is a member
+    const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
+
+    if (newOwnerIndex === -1) {
+      return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Update creator and member roles
+    squad.creator = new Types.ObjectId(newOwnerId);
+
+    // Find current owner in members and set role to member
+    const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+    if (currentOwnerIndex !== -1) {
+      squad.members[currentOwnerIndex].role = "member";
+    }
+
+    // Set new owner's role to admin
+    squad.members[newOwnerIndex].role = "admin";
+
+    await squad.save();
+
+    const updatedSquad = await Squad.findById(squadId)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+
+    res.status(httpStatusCode.OK).json({
+      success: true,
+      message: "Squad ownership transferred successfully",
+      squad: updatedSquad,
+    });
+  } catch (error) {
+    return errorResponseHandler("Failed to transfer ownership", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
@@ -739,7 +805,7 @@ export const matchSquadService = async (req: any, res: Response) => {
     // Check if target squad exists and is active
     const targetSquad = await Squad.findOne({ 
       _id: targetSquadId,
-      status: SquadStatus.ACTIVE
+      status: { $or: [SquadStatus.ACTIVE, SquadStatus.FULL]}
     });
     
     if (!targetSquad) {
@@ -962,189 +1028,6 @@ export const findPotentialMatchesService = async (req: any, res: Response) => {
     });
   } catch (error) {
     return errorResponseHandler("Failed to find potential matches", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
-};
-
-/**
- * Change member role (promote to admin or demote to member)
- */
-export const changeMemberRoleService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId, memberId } = req.params as { squadId: string; memberId: string };
-  const { role } = req.body as { role: "admin" | "member" };
-
-  if (!squadId || !memberId || !role) {
-    return errorResponseHandler("Squad ID, member ID, and role are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  if (!["admin", "member"].includes(role)) {
-    return errorResponseHandler("Role must be either 'admin' or 'member'", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin",
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to change member roles in this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Check if target user is a member
-    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === memberId);
-
-    if (memberIndex === -1) {
-      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Check if trying to demote the creator
-    if (squad.creator.toString() === memberId && role === "member") {
-      return errorResponseHandler("Cannot demote the creator of the squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Update member role
-    squad.members[memberIndex].role = role;
-    await squad.save();
-
-    const updatedSquad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
-
-    res.status(httpStatusCode.OK).json({
-      success: true,
-      message: `Member role updated to ${role} successfully`,
-      squad: updatedSquad,
-    });
-  } catch (error) {
-    return errorResponseHandler("Failed to change member role", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
-};
-
-/**
- * Leave a squad
- */
-export const leaveSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params as { squadId: string };
-
-  if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    const squad = await Squad.findById(squadId);
-
-    if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
-
-    // Check if user is a member
-    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
-
-    if (memberIndex === -1) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Check if user is the creator
-    if (squad.creator.toString() === userId) {
-      return errorResponseHandler(
-        "As the creator, you cannot leave the squad. You must delete it or transfer ownership first.",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-
-    // Remove user from members
-    squad.members.splice(memberIndex, 1);
-    await squad.save();
-
-    res.status(httpStatusCode.OK).json({
-      success: true,
-      message: "You have left the squad successfully",
-    });
-  } catch (error) {
-    return errorResponseHandler("Failed to leave squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
-};
-
-/**
- * Transfer squad ownership to another member
- */
-export const transferOwnershipService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
-
-  const { id: userId } = req.user;
-  const { squadId } = req.params as { squadId: string };
-  const { newOwnerId } = req.body as { newOwnerId: string };
-
-  if (!squadId || !newOwnerId) {
-    return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  try {
-    // Check if user is creator of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      creator: userId,
-    });
-
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to transfer ownership of this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Check if new owner is a member
-    const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
-
-    if (newOwnerIndex === -1) {
-      return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Update creator and member roles
-    squad.creator = new Types.ObjectId(newOwnerId);
-
-    // Find current owner in members and set role to member
-    const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
-    if (currentOwnerIndex !== -1) {
-      squad.members[currentOwnerIndex].role = "member";
-    }
-
-    // Set new owner's role to admin
-    squad.members[newOwnerIndex].role = "admin";
-
-    await squad.save();
-
-    const updatedSquad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
-
-    res.status(httpStatusCode.OK).json({
-      success: true,
-      message: "Squad ownership transferred successfully",
-      squad: updatedSquad,
-    });
-  } catch (error) {
-    return errorResponseHandler("Failed to transfer ownership", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
 
