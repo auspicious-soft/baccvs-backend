@@ -18,7 +18,7 @@ export const errorParser = (error: any) => {
     } catch (e) {
         return {
             code: httpStatusCode.INTERNAL_SERVER_ERROR,
-            message: "An unexpected error occurred in parser"
+            message:error.message
         };
     }
 }

@@ -187,18 +187,14 @@ export const createSquadService = async (req: any, res: Response) => {
 
   
   const { title, about, media, squadInterest, membersToAdd } = req.body;
+  if (!title || !about || !squadInterest) {
+    return errorResponseHandler(
+      "Title, about, and squad interests are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
   
-  // Convert media strings to media objects based on file extension
-  const formattedMedia = media.map((url: string) => {
-    // Determine media type based on file extension or URL pattern
-    const isVideo = url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i) || 
-                    url.includes('video');
-    
-    return {
-      url: url,
-      type: isVideo ? 'video' : 'image' // Default to image if not identifiable as video
-    };
-  });
   
   // Set maxMembers to fixed value of 4 on the backend
   const maxMembers = 4;
@@ -260,7 +256,7 @@ export const createSquadService = async (req: any, res: Response) => {
     creator: userId,
     members: squadMembers,
     maxMembers,
-    media: formattedMedia || [], // Use the converted media objects
+    media: media || [], // Use the converted media objects
     squadInterest: squadInterest || [],
     status: SquadStatus.ACTIVE,
   });
@@ -292,59 +288,40 @@ export const createSquadService = async (req: any, res: Response) => {
  * Get a squad by ID
  */
 export const getSquadByIdService = async (req: any, res: Response) => {
-  try {
     if (!authenticateUser(req, res)) return;
 
-    // Validate params
-    const { error, value } = validateRequest(squadIdSchema, req.params);
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
-
-    const { squadId } = value;
+    const squadId  = req.params.id;
 
     const squad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
+      .populate("creator")
+      .populate("members.user")
       .populate("matchedSquads.squad");
 
     if (!squad) {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    res.status(httpStatusCode.OK).json({
+     return {
       success: true,
+      message: "Squad retrieved successfully",
       squad,
-    });
-  } catch (error) {
-    console.error("Get squad error:", error);
-    if (error instanceof mongoose.Error.CastError) {
-      return errorResponseHandler("Invalid squad ID format", httpStatusCode.BAD_REQUEST, res);
-    }
-    return errorResponseHandler("Failed to fetch squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
 };
 
-/**
- * Update a squad
- */
 export const updateSquadService = async (req: any, res: Response) => {
-  try {
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
+   
+    const squadId = req.params.id;
+    const updateData = {...req.body};
+    const { membersToAdd } = req.body;
     
-    // Validate params
-    const paramsResult = validateRequest(squadIdSchema, req.params);
-    if (paramsResult.error) {
-      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
-    }
-     
-    const { squadId } = paramsResult.value;
-    const updateData = req.body;
+    // Remove membersToAdd from updateData since we'll handle it separately
+    delete updateData.membersToAdd;
 
     // Check if at least one field is being updated
-    if (Object.keys(updateData).length === 0) {
+    if (Object.keys(updateData).length === 0 && !membersToAdd) {
       return errorResponseHandler(
         "At least one field must be provided for update",
         httpStatusCode.BAD_REQUEST,
@@ -362,21 +339,75 @@ export const updateSquadService = async (req: any, res: Response) => {
       );
     }
 
-    // Format media if it exists in the update data
-    if (updateData.media && Array.isArray(updateData.media)) {
-      updateData.media = updateData.media.map((url: string) => {
-        // Determine media type based on file extension or URL pattern
-        const isVideo = url.match(/\.(mp4|mov|avi|wmv|flv|mkv|webm)$/i) || 
-                      url.includes('video');
+    // Handle replacing members if provided
+    if (membersToAdd && Array.isArray(membersToAdd)) {
+      // Check if the total number of members would exceed the limit
+      // +1 for the creator who must remain in the squad
+      if (membersToAdd.length + 1 > squad.maxMembers) {
+        return errorResponseHandler(
+          `Cannot have ${membersToAdd.length + 1} members. Max members is ${squad.maxMembers}.`,
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+      
+      // Check for duplicate member IDs
+      const uniqueMemberIds = new Set(membersToAdd);
+      if (uniqueMemberIds.size !== membersToAdd.length) {
+        return errorResponseHandler(
+          "Duplicate member IDs found",
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+
+      // Check if members exist
+      for (const memberId of membersToAdd) {
+        const userExists = await usersModel.findById(memberId);
+        if (!userExists) {
+          return errorResponseHandler(
+            `User with ID ${memberId} does not exist`,
+            httpStatusCode.BAD_REQUEST,
+            res
+          );
+        }
+      }
+
+      // Get the creator's member object to preserve
+      const creatorMember = squad.members.find((member: any) => 
+        member.user.toString() === squad.creator.toString()
+      );
+      
+      if (!creatorMember) {
+        return errorResponseHandler(
+          "Creator not found in squad members",
+          httpStatusCode.INTERNAL_SERVER_ERROR,
+          res
+        );
+      }
+
+      // Create new members array with creator and new members
+      const newMembers = [creatorMember];
+      
+      // Add each provided member ID (excluding the creator if they're in the list)
+      for (const memberId of membersToAdd) {
+        // Skip if it's the creator (already added)
+        if (memberId === squad.creator.toString()) continue;
         
-        return {
-          url: url,
-          type: isVideo ? 'video' : 'image' // Default to image if not identifiable as video
-        };
-      });
+        // Add as a regular member
+        newMembers.push(squad.members.create({
+          user: new mongoose.Types.ObjectId(memberId),
+          role: "member",
+          joinedAt: new Date()
+        }));
+      }
+      
+      // Replace the members array
+      squad.members = newMembers;
+      await squad.save();
     }
 
-    // Update squad
+    // Update other squad fields
     const updatedSquad = await Squad.findByIdAndUpdate(
       squadId,
       { $set: updateData },
@@ -390,18 +421,11 @@ export const updateSquadService = async (req: any, res: Response) => {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Squad updated successfully",
       squad: updatedSquad
-    });
-  } catch (error) {
-    console.error("Update squad error:", error);
-    if (error instanceof mongoose.Error.ValidationError) {
-      return errorResponseHandler(error.message, httpStatusCode.BAD_REQUEST, res);
-    }
-    return errorResponseHandler("Failed to update squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+    };
 };
 
 /**
