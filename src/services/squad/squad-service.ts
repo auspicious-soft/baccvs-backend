@@ -759,6 +759,75 @@ export const transferOwnershipService = async (req: any, res: Response) => {
   }
 };
 
+
+/**
+ * Join a squad
+ */
+export const joinSquadService = async (req: any, res: Response) => {
+  if (!authenticateUser(req, res)) return;
+
+  const { id: userId } = req.user;
+  const { id: squadId } = req.params;
+
+  if (!squadId) {
+    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+  }
+
+    // Find the squad
+    const squad = await Squad.findById(squadId);
+
+    if (!squad) {
+      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    // Check if user is already a member
+    if (squad.members.some((member: any) => member.user.toString() === userId)) {
+      return errorResponseHandler(
+        "You are already a member of this squad",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Check if squad is active
+    if (squad.status !== SquadStatus.ACTIVE) {
+      return errorResponseHandler(
+        "This squad is not accepting new members",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Check if squad is full
+    if (squad.members.length >= squad.maxMembers) {
+      return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Add user to squad members
+    squad.members.push({
+      user: new mongoose.Types.ObjectId(userId),
+      role: "member",
+      joinedAt: new Date()
+    });
+
+    // If squad is now full, update status
+    if (squad.members.length >= squad.maxMembers) {
+      squad.status = SquadStatus.FULL;
+    }
+
+    await squad.save();
+
+    const updatedSquad = await Squad.findById(squadId)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+
+    return {
+      success: true,
+      message: "You have joined the squad successfully",
+      squad: updatedSquad
+    };
+};
+
 /**
  * Match with another squad
  */
@@ -1096,4 +1165,5 @@ export const updateSquadInterestsService = async (req: any, res: Response) => {
     return errorResponseHandler("Failed to update squad interests", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
+
 

@@ -12,7 +12,8 @@ import {
   removeMemberService,
   changeMemberRoleService,
   leaveSquadService,
-  transferOwnershipService
+  transferOwnershipService,
+  joinSquadService
 } from "src/services/squad/squad-service";
 
 /**
@@ -162,6 +163,21 @@ export const leaveSquad = async (req: Request, res: Response) => {
 export const transferOwnership = async (req: Request, res: Response) => {
   try {
     const response = await transferOwnershipService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+
+/**
+ * Join a squad
+ */
+export const joinSquad = async (req: Request, res: Response) => {
+  try {
+    const response = await joinSquadService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);

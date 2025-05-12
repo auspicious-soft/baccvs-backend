@@ -3,7 +3,7 @@ import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, 
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
-import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
+import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, joinSquad, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
 
 
 const router = Router();
@@ -53,5 +53,6 @@ router.patch("/remove/member/:id", removeMember);
 router.patch("/change/:squadId/members/:memberId/role", changeMemberRole);
 router.patch("/leave/squad/:id", leaveSquad);
 router.patch("/transfer/ownership/:id", transferOwnership);
+router.patch("/join/squad/:id", joinSquad);
 
 export { router }
