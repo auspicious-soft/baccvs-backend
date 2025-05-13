@@ -5,13 +5,21 @@ import bcrypt from "bcryptjs"
 import { generatePasswordResetToken, generatePasswordResetTokenByPhone, getPasswordResetTokenByToken } from "../../utils/mails/token"
 import { sendEmailVerificationCode, sendPasswordResetEmail } from "../../utils/mails/mail"
 import { generatePasswordResetTokenByPhoneWithTwilio } from "../../utils/sms/sms"
-import { httpStatusCode } from "../../lib/constant"
+import { FollowRelationshipStatus, httpStatusCode, PostVisibility } from "../../lib/constant"
 import { customAlphabet } from "nanoid"
 import jwt, { JwtPayload } from "jsonwebtoken"
 import { configDotenv } from 'dotenv';
 import { createReferralCodeService, generateUserToken, getReferralCodeCreator, getSignUpQueryByAuthType, handleExistingUser, hashPasswordIfEmailAuth, validatePassword, validateUserForLogin } from "src/utils/userAuth/signUpAuth"
 import { ReferralCodeModel } from "src/models/referalcode/referal-schema"
 import { passwordResetTokenModel } from "src/models/password-token-schema"
+import { followModel } from "src/models/follow/follow-schema"
+import { storyModel } from "src/models/story/story-schema"
+import { postModels } from "src/models/post/post-schema"
+import { LikeModel } from "src/models/like/like-schema"
+import { RepostModel } from "src/models/repost/repost-schema"
+import { eventModel } from "src/models/event/event-schema"
+import { UserMatch } from "src/models/usermatch/usermatch-schema"
+import { Comment } from "src/models/comment/comment-schema"
 configDotenv()
 
 
@@ -481,30 +489,277 @@ export const editUserInfoService = async (id: string, payload: any, req: any, re
 }
 
 // Dashboard
-export const getDashboardStatsService = async (payload: any, res: Response) => {
-    // //Ongoing project count
-    // const userId = payload.currentUser
-
-    // // console.log("userid",userId);
-
-    // const ongoingProjectCount = await projectsModel.countDocuments({ userId, status: { $ne: "1" } })
-
-    // const completedProjectCount = await projectsModel.countDocuments({ userId,status: "1" })
-
-    // const workingProjectDetails = await projectsModel.find({ userId, status: { $ne: "1" } }).select("projectName projectimageLink status"); // Adjust the fields as needed
-    
-
-    // const response = {
-    //     success: true,
-    //     message: "Dashboard stats fetched successfully",
-    //     data: {
-    //         ongoingProjectCount,
-    //         completedProjectCount,
-    //          workingProjectDetails,
-    //     }
-    // }
-
-    // return response
+export const getDashboardStatsService = async (req: any, res: Response) => {
+    try {
+        const { id: userId } = req.user;
+        
+        // Get users the current user follows
+        const following = await followModel.find({
+            follower_id: userId,
+            relationship_status: FollowRelationshipStatus.FOLLOWING,
+            is_approved: true
+        }).select('following_id');
+        
+        const followingIds = following.map(f => f.following_id);
+        
+        // ===== STORIES SECTION =====
+        // Get current user's own stories
+        const userStories = await storyModel
+            .find({
+                user: userId,
+                // expiresAt: { $gt: new Date() }
+            })
+            .sort({ createdAt: -1 })
+            .populate('user', 'userName photos');
+            
+        // Get stories from users the current user follows
+        const followingStories = await storyModel
+            .find({
+                user: { $in: followingIds },
+                // expiresAt: { $gt: new Date() }
+            })
+            .sort({ createdAt: -1 })
+            .populate('user', 'userName photos')
+            .limit(10);
+            
+        // Combine stories with user's own stories first
+        const stories = [...userStories, ...followingStories];
+        
+        // ===== POSTS SECTION =====
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const skip = (page - 1) * limit;
+        
+        // First get posts from followed users
+        const followingPosts = await postModels
+            .find({
+                user: { $in: followingIds }
+            })
+            .sort({ createdAt: -1 })
+            .populate('user', 'userName photos');
+            
+        // If we don't have enough posts from followed users, get public posts
+        let publicPosts : any[] = [];
+        if (followingPosts.length < limit) {
+            const neededPublicPosts = limit - followingPosts.length;
+            
+            publicPosts = await postModels
+                .find({
+                    user: { $nin: [...followingIds, userId] }, // Exclude followed users and self
+                    visibility: PostVisibility.PUBLIC
+                })
+                .sort({ createdAt: -1 })
+                .limit(neededPublicPosts)
+                .populate('user', 'userName photos');
+        }
+        
+        // Combine followed posts with public posts
+        const allPosts = [...followingPosts, ...publicPosts];
+        
+        // Apply pagination to the combined posts
+        const paginatedPosts = allPosts.slice(skip, skip + limit);
+        
+        // Get post engagement stats
+        const postIds = paginatedPosts.map(post => post._id);
+        
+        // Get likes for these posts
+        const likes = await LikeModel.find({
+            targetType: 'posts',
+            target: { $in: postIds }
+        });
+        
+        // Get comments for these posts
+        const comments = await Comment.find({
+            post: { $in: postIds },
+            isDeleted: false
+        });
+        
+        // Get reposts for these posts
+        const reposts = await RepostModel.find({
+            originalPost: { $in: postIds }
+        });
+        
+        // Create a map of engagement stats
+        const engagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
+        postIds.forEach(postId => {
+            engagementStats[postId.toString()] = {
+                likes: 0,
+                comments: 0,
+                reposts: 0
+            };
+        });
+        
+        // Fill in the engagement stats
+        likes.forEach(like => {
+            const postId = like.target.toString();
+            if (engagementStats[postId]) {
+                engagementStats[postId].likes += 1;
+            }
+        });
+        
+        comments.forEach(comment => {
+            const postId = comment.post.toString();
+            if (engagementStats[postId]) {
+                engagementStats[postId].comments += 1;
+            }
+        });
+        
+        reposts.forEach(repost => {
+            const postId = repost.originalPost.toString();
+            if (engagementStats[postId]) {
+                engagementStats[postId].reposts += 1;
+            }
+        });
+        
+        // Enrich posts with engagement data
+        const enrichedPosts = paginatedPosts.map(post => {
+            const postId = post._id.toString();
+            const engagement = engagementStats[postId] || { likes: 0, comments: 0, reposts: 0 };
+            
+            // Convert ObjectId to string for proper comparison
+            const postUserId = post.user._id.toString();
+            
+            // Check if this post's author is in the followingIds array
+            const isFollowed = followingIds.some(followingId => 
+                followingId.toString() === postUserId
+            );
+            
+            return {
+                _id: post._id,
+                content: post.content,
+                photos: post.photos,
+                createdAt: post.createdAt,
+                user: post.user,
+                visibility: post.visibility,
+                likesCount: engagement.likes,
+                commentsCount: engagement.comments,
+                repostsCount: engagement.reposts,
+                isFollowedUser: isFollowed
+            };
+        });
+        
+        // ===== EVENTS SECTION =====
+        const userLocation = await usersModel.findById(userId).select('location');
+        
+        let nearbyEvents = [];
+        if (userLocation?.location && 'coordinates' in userLocation.location) {
+            const coordinates = userLocation.location.coordinates as [number, number];
+            const [longitude, latitude] = coordinates;
+            
+            // Find events within 50km
+            nearbyEvents = await eventModel.aggregate([
+                {
+                    $geoNear: {
+                        near: {
+                            type: "Point",
+                            coordinates: [longitude, latitude]
+                        },
+                        distanceField: "distance",
+                        maxDistance: 50000, // 50km in meters
+                        spherical: true
+                    }
+                },
+                {
+                    $match: {
+                        date: { $gte: new Date() }, // Only future events
+                        status: "ACTIVE"
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "creator",
+                        foreignField: "_id",
+                        as: "creator"
+                    }
+                },
+                {
+                    $unwind: "$creator"
+                },
+                {
+                    $project: {
+                        title: 1,
+                        aboutEvent: 1,
+                        date: 1,
+                        startTime: 1,
+                        endTime: 1,
+                        venue: 1,
+                        location: 1,
+                        media: 1,
+                        distance: 1,
+                        "creator._id": 1,
+                        "creator.userName": 1,
+                        "creator.photos": 1
+                    }
+                },
+                {
+                    $sort: { date: 1 }
+                },
+                {
+                    $limit: 5
+                }
+            ]);
+            
+            // Convert distance to km
+            nearbyEvents = nearbyEvents.map(event => ({
+                ...event,
+                distanceInKm: Math.round((event.distance / 1000) * 10) / 10
+            }));
+        }
+        
+        // ===== STATS SECTION =====
+        // Get user match stats
+        const matchStats = {
+            likesSent: await UserMatch.countDocuments({
+                fromUser: userId,
+                type: "like",
+                subType: null
+            }),
+            matches: await UserMatch.countDocuments({
+                fromUser: userId,
+                type: "like",
+                isMatch: true
+            })
+        };
+        
+        // Get follow stats
+        const followStats = {
+            followers: await followModel.countDocuments({
+                following_id: userId,
+                relationship_status: FollowRelationshipStatus.FOLLOWING
+            }),
+            following: following.length
+        };
+        
+        return {
+            success: true,
+            message: "Dashboard feed fetched successfully",
+            data: {
+                stories: {
+                    userStories,
+                    followingStories,
+                    all: stories
+                },
+                posts: enrichedPosts,
+                suggestedEvents: nearbyEvents,
+                stats: {
+                    matches: matchStats,
+                    follows: followStats
+                },
+                pagination: {
+                    total: allPosts.length,
+                    page,
+                    limit,
+                    pages: Math.ceil(allPosts.length / limit),
+                    hasNext: page * limit < allPosts.length,
+                    hasPrev: page > 1
+                }
+            }
+        };
+    } catch (error) {
+        console.error("Error in getDashboardStatsService:", error);
+        throw error;
+    }
 }
 
 export const verifyCurrentPasswordService = async (req : any, res: Response) => {
@@ -801,5 +1056,4 @@ export const changePasswordService = async (req: any, res: Response) => {
     message: "Password changed successfully"
   };
 }
-
 
