@@ -153,12 +153,6 @@ export const getDashboardStats = async (req: Request, res: Response) => {
 
 // First screen - Verify password
 export const verifyCurrentPassword = async (req: Request, res: Response) => {
-    const validation = verifyPasswordSchema.safeParse(req.body);
-    if (!validation.success) {
-        return res.status(httpStatusCode.BAD_REQUEST)
-            .json({ success: false, message: formatZodErrors(validation.error) });
-    }
-
     try {
         const response = await verifyCurrentPasswordService( req, res);
         return res.status(httpStatusCode.OK).json(response);
