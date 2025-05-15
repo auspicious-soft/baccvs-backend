@@ -568,6 +568,16 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             target: { $in: postIds }
         });
         
+        // Get user's likes to determine which posts the user has already liked
+        const userLikes = await LikeModel.find({
+            user: userId,
+            targetType: 'posts',
+            target: { $in: postIds }
+        });
+        
+        // Create a set of post IDs that the user has liked for quick lookup
+        const userLikedPostIds = new Set(userLikes.map(like => like.target.toString()));
+        
         // Get comments for these posts
         const comments = await Comment.find({
             post: { $in: postIds },
@@ -624,6 +634,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 followingId.toString() === postUserId
             );
             
+            // Check if the current user has liked this post
+            const isLikedByUser = userLikedPostIds.has(postId);
+            
             return {
                 _id: post._id,
                 content: post.content,
@@ -634,7 +647,8 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 likesCount: engagement.likes,
                 commentsCount: engagement.comments,
                 repostsCount: engagement.reposts,
-                isFollowedUser: isFollowed
+                isFollowedUser: isFollowed,
+                isLikedByUser: isLikedByUser // Add this flag
             };
         });
         

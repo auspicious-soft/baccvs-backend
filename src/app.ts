@@ -4,12 +4,16 @@ import cors from "cors"
 import path from "path"
 import { fileURLToPath } from 'url'
 import connectDB from "./configF/db"
-import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user } from "./routes"
+import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes } from "./routes"
+import { Server } from "socket.io"
+import http from "http"
+import { setupSocketServer } from "./socket/socket-handler"
 import { checkValidAdminRole } from "./utils"
 import bodyParser from 'body-parser'
 import {  verifyOtpPasswordReset, newPassswordAfterOTPVerified, login, signup, verifyEmail, verifyingEmailOtp, forgotPassword, resetPasswordWithToken } from "./controllers/user/user";
 import { configDotenv } from 'dotenv';
 import { checkAuth } from "./middleware/check-auth"
+import { socketAuthMiddleware } from "./middleware/socket-auth";
 
 configDotenv()
 // Create __dirname equivalent for ES modules
@@ -18,6 +22,20 @@ const __dirname = path.dirname(__filename)        // <-- Define __dirname
 
 const PORT = process.env.PORT || 8000
 const app = express()
+const server = http.createServer(app)
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+})
+
+// Apply socket authentication middleware
+io.use(socketAuthMiddleware);
+
+// Setup Socket.IO
+setupSocketServer(io);
+
 app.set("trust proxy", true)
 app.use(bodyParser.json({
     verify: (req: any, res, buf) => {
@@ -75,14 +93,8 @@ app.post("/api/email-otp", verifyEmail)
 app.post("/api/verify-email", verifyingEmailOtp)
 app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
+app.use("/api/chat", checkAuth, chatRoutes);
 
 // First screen - verify password
 
-app.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
-
-
-
-
-
-
-
+server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
