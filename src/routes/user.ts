@@ -5,6 +5,7 @@ import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions,
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
 import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, joinSquad, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
 import { userDislikeSquadController, userLikeSquadController } from "src/controllers/squadMatch/squadMatch-controller";
+import { getConversationMessages, getUserConversations, markMessagesAsRead, sendMessage } from "src/controllers/chat/chat-controller";
 
 
 const router = Router();
@@ -60,5 +61,20 @@ router.patch("/change/:squadId/members/:memberId/role", changeMemberRole);
 router.patch("/leave/squad/:id", leaveSquad);
 router.patch("/transfer/ownership/:id", transferOwnership);
 router.patch("/join/squad/:id", joinSquad);
+
+
+// chat individual
+// Get all conversations for the current user
+router.get("/conversations/user", getUserConversations);
+
+// Get messages for a specific conversation
+router.get("/conversations/:conversationId/messages", getConversationMessages);
+
+// Send a message to another user
+router.post("/conversation/send", sendMessage);
+
+// Mark messages as read
+router.post("/conversations/:conversationId/read", markMessagesAsRead);
+
 
 export { router }
