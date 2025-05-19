@@ -44,6 +44,9 @@ export const createCommunityService = async (req: any, res: Response) => {
     await community.save();
 
     // Create community conversation using the dedicated service
+    if (!community._id) {
+      throw new Error("Community not created");
+    }
     const communityConversation = await createCommunityConversationService(community._id.toString());
 
     // Populate the member details for the response
