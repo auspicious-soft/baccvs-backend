@@ -6,7 +6,7 @@ import { getUserFeedController, getUserMatchesController, getUserMatchStatsContr
 import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, joinSquad, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
 import { userDislikeSquadController, userLikeSquadController } from "src/controllers/squadMatch/squadMatch-controller";
 import { getConversationMessages, getUserConversations, markMessagesAsRead, sendMessage } from "src/controllers/chat/chat-controller";
-
+import { getSquadMessagesController, sendSquadMessageController, getUserSquadConversationsController, markSquadMessagesAsReadController } from "src/controllers/chat/squad-chat-controller";
 
 const router = Router();
 
@@ -34,7 +34,6 @@ router.patch("/toggle/promotion/:id",togglePromotionStatus)
 router.patch("/toggle/twofactor",toggleTwoFactorAuthentication)
 router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
 
-
 // Dating App api
 router.post("/like-user/:id", userLikeController);
 router.post("/dislike-user/:id", userDislikeController);
@@ -42,11 +41,9 @@ router.get("/matches/user", getUserMatchesController);
 router.get("/feed/user", getUserFeedController);
 router.get("/match-stats", getUserMatchStatsController);
 
-
 // Squad Match api
 router.post("/like-squad/:id", userLikeSquadController);
 router.post("/dislike-squad/:id", userDislikeSquadController);
-
 
 // Squad api
 router.post("/create/squad", createSquad);
@@ -62,19 +59,24 @@ router.patch("/leave/squad/:id", leaveSquad);
 router.patch("/transfer/ownership/:id", transferOwnership);
 router.patch("/join/squad/:id", joinSquad);
 
-
 // chat individual
 // Get all conversations for the current user
 router.get("/conversations/user", getUserConversations);
-
 // Get messages for a specific conversation
 router.get("/conversations/:conversationId/messages", getConversationMessages);
-
 // Send a message to another user
 router.post("/conversation/send", sendMessage);
-
 // Mark messages as read
 router.post("/conversations/:conversationId/read", markMessagesAsRead);
 
+// Squad chat routes
+// Get all squad conversations for the current user
+router.get("/squad/conversations", getUserSquadConversationsController);
+// Get messages for a specific squad conversation
+router.get("/squad/:squadId/messages", getSquadMessagesController);
+// Send a message to a squad
+router.post("/squad/send-message", sendSquadMessageController);
+// Mark squad messages as read
+router.post("/squad/:squadId/read", markSquadMessagesAsReadController);
 
 export { router }

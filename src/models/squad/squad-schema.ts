@@ -75,7 +75,11 @@ const SquadSchema = new Schema(
         type: Date,
         default: Date.now
       }
-    }]
+    }],
+    conversation: {
+      type: Schema.Types.ObjectId,
+      ref: 'SquadConversation'
+    }
   },
   {
     timestamps: true

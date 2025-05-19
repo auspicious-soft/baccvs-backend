@@ -200,7 +200,7 @@ export const sendMessageService = async (req: any, res: Response) => {
     await message.save();
 
     // Update conversation with last message
-    conversation.lastMessage = message._id;
+    conversation.lastMessage = message._id as mongoose.Types.ObjectId;
     await conversation.save();
 
     // Populate message for response
