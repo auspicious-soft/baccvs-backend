@@ -1,15 +1,20 @@
 import { Request, Response } from "express";
-import { Community, CommunityStatus, CommunityType } from "../../models/community/community-schema";
-import { CommunityConversation } from "../../models/chat/community-conversation-schema";
+import { Community, CommunityStatus, CommunityType, InterestCategory } from "../../models/community/community-schema";
 import { httpStatusCode } from "../../lib/constant";
 import { errorResponseHandler } from "../../lib/errors/error-response-handler";
-import mongoose from "mongoose";
 import { createCommunityConversationService } from "../chat/community-chat-service";
+import mongoose from "mongoose";
+import { usersModel } from "../../models/user/user-schema";
 
 // Create a new community
 export const createCommunityService = async (req: any, res: Response) => {
   const userId = req.user.id;
-  const { name, description, type = CommunityType.PUBLIC, media } = req.body;
+  const { 
+    name, 
+    description, 
+    squadInterest = [],
+    members = [] // Array of user IDs to add as members
+  } = req.body;
 
   if (!name) {
     return errorResponseHandler(
@@ -19,7 +24,35 @@ export const createCommunityService = async (req: any, res: Response) => {
     );
   }
 
-  try {
+ 
+    // Validate interest categories
+    for (const interest of squadInterest) {
+      if (!Object.values(InterestCategory).includes(interest)) {
+        return errorResponseHandler(
+          `Invalid interest category: ${interest}`,
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+    }
+    // check for duplicate members
+    const uniqueMembers = new Set(members);
+    if (uniqueMembers.size !== members.length) {
+      return errorResponseHandler(
+        "Duplicate member IDs found",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    // check for dublicate userId
+    if (members.includes(userId)) {
+      return errorResponseHandler(
+        "You cannot add yourself as a member",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
     // Create initial members array with creator as admin
     const communityMembers = [
       {
@@ -28,16 +61,40 @@ export const createCommunityService = async (req: any, res: Response) => {
         joinedAt: new Date()
       }
     ];
+    
+
+    // Validate and add additional members
+    if (members.length > 0) {
+      // Check if all user IDs exist
+      const userIds = members.filter((id: string) => id !== userId); // Remove creator if included
+      const existingUsers = await usersModel.find({ _id: { $in: userIds } }).select('_id');
+      
+      if (existingUsers.length !== userIds.length) {
+        return errorResponseHandler(
+          "One or more user IDs are invalid",
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+
+      // Add members to the array
+      for (const memberId of userIds) {
+        communityMembers.push({
+          user: memberId,
+          role: "member",
+          joinedAt: new Date()
+        });
+      }
+    }
 
     // Create new community
     const community = new Community({
       name,
       description,
       creator: userId,
-      admins: [userId],
       members: communityMembers,
-      media: media || [],
-      type,
+      squadInterest,
+      type: CommunityType.PUBLIC,
       status: CommunityStatus.ACTIVE,
     });
 
@@ -49,10 +106,13 @@ export const createCommunityService = async (req: any, res: Response) => {
     }
     const communityConversation = await createCommunityConversationService(community._id.toString());
 
+    // Update community with conversation ID
+    community.conversation = new mongoose.Types.ObjectId(communityConversation._id as string);
+    await community.save();
+
     // Populate the member details for the response
     const populatedCommunity = await Community.findById(community._id)
       .populate("creator", "userName photos")
-      .populate("admins", "userName photos")
       .populate("members.user", "userName photos");
 
     if (!populatedCommunity) {
@@ -68,46 +128,68 @@ export const createCommunityService = async (req: any, res: Response) => {
       message: "Community created successfully",
       community: populatedCommunity,
     };
-  } catch (error) {
-    console.error("Error creating community:", error);
-    return errorResponseHandler(
-      "Failed to create community",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
-// Get all communities (with optional filters)
-export const getCommunitiesService = async (req: any, res: Response) => {
-  const { search, type } = req.query;
-  
+// Get all communities with optional filters
+export const getCommunitiesService = async (req: Request, res: Response) => {
+  const { 
+    search, 
+    type, 
+    status, 
+    interest,
+    limit = 10, 
+    page = 1 
+  } = req.query;
+
   try {
-    let query: any = { status: CommunityStatus.ACTIVE };
-    
-    // Add search filter if provided
+    const query: any = {};
+
+    // Apply filters if provided
     if (search) {
-      query.$text = { $search: search };
+      query.$text = { $search: search as string };
     }
-    
-    // Add type filter if provided
-    if (type && Object.values(CommunityType).includes(type)) {
+
+    if (type) {
       query.type = type;
     }
-    
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (interest) {
+      query.squadInterest = interest;
+    }
+
+    // Calculate pagination
+    const skip = (Number(page) - 1) * Number(limit);
+
+    // Get communities with pagination
     const communities = await Community.find(query)
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 });
-      
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    // Get total count for pagination
+    const totalCount = await Community.countDocuments(query);
+
     return {
       success: true,
-      communities
+      communities,
+      pagination: {
+        total: totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(totalCount / Number(limit))
+      }
     };
   } catch (error) {
-    console.error("Error fetching communities:", error);
+    console.error("Error getting communities:", error);
     return errorResponseHandler(
-      "Failed to fetch communities",
+      "Failed to get communities",
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
@@ -117,24 +199,23 @@ export const getCommunitiesService = async (req: any, res: Response) => {
 // Get communities the user is a member of
 export const getUserCommunitiesService = async (req: any, res: Response) => {
   const userId = req.user.id;
-  
+
   try {
     const communities = await Community.find({
-      "members.user": userId,
-      status: CommunityStatus.ACTIVE
+      "members.user": userId
     })
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos")
-      .sort({ updatedAt: -1 });
-      
+      .sort({ createdAt: -1 });
+
     return {
       success: true,
       communities
     };
   } catch (error) {
-    console.error("Error fetching user communities:", error);
+    console.error("Error getting user communities:", error);
     return errorResponseHandler(
-      "Failed to fetch user communities",
+      "Failed to get user communities",
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
@@ -142,18 +223,14 @@ export const getUserCommunitiesService = async (req: any, res: Response) => {
 };
 
 // Get a specific community by ID
-export const getCommunityByIdService = async (req: any, res: Response) => {
+export const getCommunityByIdService = async (req: Request, res: Response) => {
   const { id } = req.params;
-  
+
   try {
-    const community = await Community.findOne({
-      _id: id,
-      status: CommunityStatus.ACTIVE
-    })
+    const community = await Community.findById(id)
       .populate("creator", "userName photos")
-      .populate("admins", "userName photos")
       .populate("members.user", "userName photos");
-      
+
     if (!community) {
       return errorResponseHandler(
         "Community not found",
@@ -161,15 +238,15 @@ export const getCommunityByIdService = async (req: any, res: Response) => {
         res
       );
     }
-    
+
     return {
       success: true,
       community
     };
   } catch (error) {
-    console.error("Error fetching community:", error);
+    console.error("Error getting community:", error);
     return errorResponseHandler(
-      "Failed to fetch community",
+      "Failed to get community",
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
@@ -180,8 +257,8 @@ export const getCommunityByIdService = async (req: any, res: Response) => {
 export const joinCommunityService = async (req: any, res: Response) => {
   const userId = req.user.id;
   const { id } = req.params;
+
   
-  try {
     const community = await Community.findById(id);
     
     if (!community) {
@@ -206,7 +283,6 @@ export const joinCommunityService = async (req: any, res: Response) => {
     }
     
     // For private communities, we would implement approval logic here
-    // For now, users can join public communities directly
     if (community.type === CommunityType.PRIVATE) {
       // Implement request to join logic here
       return errorResponseHandler(
@@ -218,7 +294,7 @@ export const joinCommunityService = async (req: any, res: Response) => {
     
     // Add user to members
     community.members.push({
-      user: userId,
+      user: new mongoose.Types.ObjectId(userId),
       role: "member",
       joinedAt: new Date()
     });
@@ -234,22 +310,15 @@ export const joinCommunityService = async (req: any, res: Response) => {
       message: "Successfully joined community",
       community: updatedCommunity
     };
-  } catch (error) {
-    console.error("Error joining community:", error);
-    return errorResponseHandler(
-      "Failed to join community",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Leave a community
 export const leaveCommunityService = async (req: any, res: Response) => {
   const userId = req.user.id;
   const { id } = req.params;
+
   
-  try {
     const community = await Community.findById(id);
     
     if (!community) {
@@ -276,7 +345,7 @@ export const leaveCommunityService = async (req: any, res: Response) => {
     // Check if user is the creator
     if (community.creator.toString() === userId) {
       return errorResponseHandler(
-        "Community creator cannot leave. Transfer ownership first or delete the community.",
+        "As the creator, you cannot leave the community. Transfer ownership first or delete the community.",
         httpStatusCode.BAD_REQUEST,
         res
       );
@@ -285,27 +354,335 @@ export const leaveCommunityService = async (req: any, res: Response) => {
     // Remove user from members
     community.members.splice(memberIndex, 1);
     
-    // Remove from admins if they are an admin
-    const adminIndex = community.admins.findIndex(
-      admin => admin.toString() === userId
+    await community.save();
+    
+    const updatedCommunity = await Community.findById(id)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+      
+    return {
+      success: true,
+      message: "Successfully left community",
+      community: updatedCommunity
+    };
+  
+};
+
+// Add a member to a community (admin only)
+export const addMemberService = async (req: any, res: Response) => {
+  const adminId = req.user.id;
+  const { id } = req.params;
+  const { userId, role = "member" } = req.body;
+
+  if (!userId) {
+    return errorResponseHandler(
+      "User ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  
+    const community = await Community.findById(id);
+    
+    if (!community) {
+      return errorResponseHandler(
+        "Community not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+    
+    // Check if requester is an admin
+    const isAdmin = community.members.some(
+      member => member.user.toString() === adminId && member.role === "admin"
     );
     
-    if (adminIndex !== -1) {
-      community.admins.splice(adminIndex, 1);
+    if (!isAdmin) {
+      return errorResponseHandler(
+        "Only admins can add members",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+    
+    // Check if user is already a member
+    const isMember = community.members.some(
+      member => member.user.toString() === userId
+    );
+    
+    if (isMember) {
+      return errorResponseHandler(
+        "User is already a member of this community",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Validate role
+    if (!["admin", "moderator", "member"].includes(role)) {
+      return errorResponseHandler(
+        "Invalid role. Must be admin, moderator, or member",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Add user to members
+    community.members.push({
+      user: new mongoose.Types.ObjectId(userId),
+      role,
+      joinedAt: new Date()
+    });
+    
+    await community.save();
+    
+    const updatedCommunity = await Community.findById(id)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+      
+    return {
+      success: true,
+      message: "Successfully added member to community",
+      community: updatedCommunity
+    };
+ 
+};
+
+// Remove a member from a community (admin only)
+export const removeMemberService = async (req: any, res: Response) => {
+  const adminId = req.user.id;
+  const { id } = req.params;
+  const { userId } = req.body;
+
+  if (!userId) {
+    return errorResponseHandler(
+      "User ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+ 
+    const community = await Community.findById(id);
+    
+    if (!community) {
+      return errorResponseHandler(
+        "Community not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+    
+    // Check if requester is an admin
+    const isAdmin = community.members.some(
+      member => member.user.toString() === adminId && member.role === "admin"
+    );
+    
+    if (!isAdmin) {
+      return errorResponseHandler(
+        "Only admins can remove members",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+    
+    // Check if user is the creator
+    if (community.creator.toString() === userId) {
+      return errorResponseHandler(
+        "Cannot remove the creator of the community",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Check if user is a member
+    const memberIndex = community.members.findIndex(
+      member => member.user.toString() === userId
+    );
+    
+    if (memberIndex === -1) {
+      return errorResponseHandler(
+        "User is not a member of this community",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Remove user from members
+    community.members.splice(memberIndex, 1);
+    
+    await community.save();
+    
+    const updatedCommunity = await Community.findById(id)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+      
+    return {
+      success: true,
+      message: "Successfully removed member from community",
+      community: updatedCommunity
+    };
+};
+
+// Change a member's role in a community (admin only)
+export const changeMemberRoleService = async (req: any, res: Response) => {
+  const adminId = req.user.id;
+  const { communityId, memberId } = req.params;
+  const { role } = req.body;
+
+  if (!role) {
+    return errorResponseHandler(
+      "Role is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Validate role
+  if (!["admin", "moderator", "member"].includes(role)) {
+    return errorResponseHandler(
+      "Invalid role. Must be admin, moderator, or member",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  
+    const community = await Community.findById(communityId);
+    
+    if (!community) {
+      return errorResponseHandler(
+        "Community not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+    
+    // Check if requester is an admin
+    const isAdmin = community.members.some(
+      member => member.user.toString() === adminId && member.role === "admin"
+    );
+    
+    if (!isAdmin) {
+      return errorResponseHandler(
+        "Only admins can change member roles",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+    
+    // Check if target user is the creator
+    if (community.creator.toString() === memberId) {
+      return errorResponseHandler(
+        "Cannot change the role of the community creator",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Find the member
+    const memberIndex = community.members.findIndex(
+      member => member.user.toString() === memberId
+    );
+    
+    if (memberIndex === -1) {
+      return errorResponseHandler(
+        "User is not a member of this community",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Update the member's role
+    community.members[memberIndex].role = role;
+    
+    await community.save();
+    
+    const updatedCommunity = await Community.findById(communityId)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+      
+    return {
+      success: true,
+      message: "Successfully updated member role",
+      community: updatedCommunity
+    };
+ 
+};
+
+// Transfer ownership of a community (creator only)
+export const transferOwnershipService = async (req: any, res: Response) => {
+  const creatorId = req.user.id;
+  const { id } = req.params;
+  const { newOwnerId } = req.body;
+
+  if (!newOwnerId) {
+    return errorResponseHandler(
+      "New owner ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  
+    const community = await Community.findById(id);
+    
+    if (!community) {
+      return errorResponseHandler(
+        "Community not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+    
+    // Check if requester is the creator
+    if (community.creator.toString() !== creatorId) {
+      return errorResponseHandler(
+        "Only the creator can transfer ownership",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+    
+    // Check if new owner is a member
+    const newOwnerIndex = community.members.findIndex(
+      member => member.user.toString() === newOwnerId
+    );
+    
+    if (newOwnerIndex === -1) {
+      return errorResponseHandler(
+        "New owner must be a member of the community",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    
+    // Update creator
+    community.creator = new mongoose.Types.ObjectId(newOwnerId);
+    
+    // Update member roles
+    community.members[newOwnerIndex].role = "admin";
+    
+    // Find current creator in members and change role to admin (not creator anymore)
+    const oldCreatorIndex = community.members.findIndex(
+      member => member.user.toString() === creatorId
+    );
+    
+    if (oldCreatorIndex !== -1) {
+      community.members[oldCreatorIndex].role = "admin";
     }
     
     await community.save();
     
+    const updatedCommunity = await Community.findById(id)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+      
     return {
       success: true,
-      message: "Successfully left community"
+      message: "Successfully transferred community ownership",
+      community: updatedCommunity
     };
-  } catch (error) {
-    console.error("Error leaving community:", error);
-    return errorResponseHandler(
-      "Failed to leave community",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
 };
+

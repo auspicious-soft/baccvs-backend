@@ -9,6 +9,15 @@ export enum CommunityType {
   PUBLIC = "public",
   PRIVATE = "private"
 }
+export enum InterestCategory {
+  NIGHTLIFE_PARTIES = "Nightlife & Parties",
+  LOCAL_HANGOUTS = "Local Hangouts",
+  DATING_RELATIONSHIP = "Dating & Relationship",
+  BOOK_CLUBS = "Book Clubs",
+  GAME_NIGHTS = "Game Nights",
+  MOVIE_TV_SHOWS = "Movie & TV Shows",
+  FLIRTING = "Flirting",
+}
 
 export interface ICommunity extends Document {
   name: string;
@@ -44,10 +53,11 @@ const CommunitySchema = new Schema(
       ref: 'users',
       required: true
     },
-    admins: [{
-      type: Schema.Types.ObjectId,
-      ref: 'users'
-    }],
+     squadInterest:[{
+          type: String,
+          enum: Object.values(InterestCategory),
+          default: []
+        }],
     members: [{
       user: {
         type: Schema.Types.ObjectId,
@@ -63,18 +73,10 @@ const CommunitySchema = new Schema(
         default: Date.now
       }
     }],
-    media: [{
-      type: String
-    }],
     status: {
       type: String,
       enum: Object.values(CommunityStatus),
       default: CommunityStatus.ACTIVE
-    },
-    type: {
-      type: String,
-      enum: Object.values(CommunityType),
-      default: CommunityType.PUBLIC
     },
     conversation: {
       type: Schema.Types.ObjectId,

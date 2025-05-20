@@ -504,7 +504,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         
         // ===== STORIES SECTION =====
         // Get current user's own stories
-        const userStories = await storyModel
+        const userStoriesRaw = await storyModel
             .find({
                 user: userId,
                 // expiresAt: { $gt: new Date() }
@@ -512,8 +512,17 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos');
             
+        // Group user's own stories
+        let userStories = null;
+        if (userStoriesRaw.length > 0) {
+            userStories = {
+                user: userStoriesRaw[0].user,
+                stories: userStoriesRaw
+            };
+        }
+            
         // Get stories from users the current user follows
-        const followingStories = await storyModel
+        const followingStoriesRaw = await storyModel
             .find({
                 user: { $in: followingIds },
                 // expiresAt: { $gt: new Date() }
@@ -521,9 +530,27 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
             .limit(10);
+        
+        // Group following stories by user
+        const followingStoriesByUser: { [key: string]: { user: any; stories: any[] } } = {};
+        followingStoriesRaw.forEach(story => {
+            const storyUserId = story.user._id.toString();
             
-        // Combine stories with user's own stories first
-        const stories = [...userStories, ...followingStories];
+            if (!followingStoriesByUser[storyUserId]) {
+                followingStoriesByUser[storyUserId] = {
+                    user: story.user,
+                    stories: []
+                };
+            }
+            
+            followingStoriesByUser[storyUserId].stories.push(story);
+        });
+        
+        // Convert to array for easier frontend handling
+        const followingStories = Object.values(followingStoriesByUser);
+        
+        // // Combine all stories (user's stories first, then following stories)
+        // const allStories = userStories ? [userStories, ...followingStories] : followingStories;
         
         // ===== POSTS SECTION =====
         const page = parseInt(req.query.page as string) || 1;
@@ -750,9 +777,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             message: "Dashboard feed fetched successfully",
             data: {
                 stories: {
-                    userStories,
-                    followingStories,
-                    all: stories
+                    userStories: userStories, // Now a single object with user info and stories array
+                    followingStories: followingStories, // Array of objects, each with user info and stories array
+                    // all: allStories // Combined array for convenience
                 },
                 posts: enrichedPosts,
                 suggestedEvents: nearbyEvents,

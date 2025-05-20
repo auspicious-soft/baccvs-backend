@@ -36,7 +36,6 @@ export const createCommunityConversationService = async (communityId: string) =>
 export const getUserCommunityConversationsService = async (req: any, res: Response) => {
   const userId = req.user.id;
 
-  try {
     // Find all communities the user is a member of
     const userCommunities = await Community.find({
       "members.user": userId
@@ -60,7 +59,7 @@ export const getUserCommunityConversationsService = async (req: any, res: Respon
       })
       .populate({
         path: "community",
-        select: "name media members",
+        select: "name members",
         populate: {
           path: "members.user",
           select: "userName photos"
@@ -72,14 +71,6 @@ export const getUserCommunityConversationsService = async (req: any, res: Respon
       success: true,
       communityConversations
     };
-  } catch (error) {
-    console.error("Error fetching community conversations:", error);
-    return errorResponseHandler(
-      "Failed to fetch community conversations",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
 };
 
 // Get messages for a specific community
@@ -88,7 +79,6 @@ export const getCommunityMessagesService = async (req: any, res: Response) => {
   const { communityId } = req.params;
   const { page = 1, limit = 20 } = req.query;
 
-  try {
     // Check if user is a member of the community
     const community = await Community.findOne({
       _id: communityId,
@@ -158,14 +148,7 @@ export const getCommunityMessagesService = async (req: any, res: Response) => {
       },
       communityConversation: communityConversation._id
     };
-  } catch (error) {
-    console.error("Error fetching community messages:", error);
-    return errorResponseHandler(
-      "Failed to fetch community messages",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Send a message to a community
@@ -198,7 +181,7 @@ export const sendCommunityMessageService = async (req: any, res: Response) => {
     );
   }
 
-  try {
+ 
     // Check if user is a member of the community
     const community = await Community.findOne({
       _id: communityId,
@@ -252,12 +235,5 @@ export const sendCommunityMessageService = async (req: any, res: Response) => {
       message: populatedMessage,
       communityConversation: communityConversation._id
     };
-  } catch (error) {
-    console.error("Error sending community message:", error);
-    return errorResponseHandler(
-      "Failed to send message",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };

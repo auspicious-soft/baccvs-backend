@@ -7,6 +7,8 @@ import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, ge
 import { userDislikeSquadController, userLikeSquadController } from "src/controllers/squadMatch/squadMatch-controller";
 import { getConversationMessages, getUserConversations, markMessagesAsRead, sendMessage } from "src/controllers/chat/chat-controller";
 import { getSquadMessagesController, sendSquadMessageController, getUserSquadConversationsController, markSquadMessagesAsReadController } from "src/controllers/chat/squad-chat-controller";
+import { createCommunity, getCommunities, getUserCommunities, getCommunityById, joinCommunity, leaveCommunity, addcommunityMember, removeCommunityMember, changeCommunityMemberRole } from "src/controllers/community/community-controller";
+import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
 
 const router = Router();
 
@@ -78,5 +80,25 @@ router.get("/squad/:squadId/messages", getSquadMessagesController);
 router.post("/squad/send-message", sendSquadMessageController);
 // Mark squad messages as read
 router.post("/squad/:squadId/read", markSquadMessagesAsReadController);
+
+// Community routes
+// Community management
+router.post("/create/community", createCommunity);
+router.get("/get/communities", getCommunities);
+router.get("/get/user/communities", getUserCommunities);
+router.get("/get/community/:id", getCommunityById);
+router.patch("/join/community/:id", joinCommunity);
+router.patch("/leave/community/:id", leaveCommunity);
+router.patch("/add/community/member/:id", addcommunityMember);
+router.patch("/remove/community/member/:id", removeCommunityMember);
+router.patch("/change/community/:communityId/members/:memberId/role", changeCommunityMemberRole);
+
+// Community chat routes
+// Get all community conversations for the current user
+router.get("/community/conversations", getUserCommunityConversations);
+// Get messages for a specific community
+router.get("/community/:communityId/messages", getCommunityMessages);
+// Send a message to a community
+router.post("/community/send-message", sendCommunityMessage);
 
 export { router }

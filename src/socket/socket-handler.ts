@@ -312,6 +312,41 @@ export const setupSocketServer = (io: Server) => {
       }
     });
 
+    // Handle community typing status
+    socket.on("community_typing", (data: { 
+      communityId: string, 
+      userId: string, 
+      isTyping: boolean 
+    }) => {
+      const { communityId, userId, isTyping } = data;
+      
+      try {
+        // Get community conversation
+        CommunityConversation.findOne({ community: communityId })
+          .then(communityConversation => {
+            if (!communityConversation) {
+              socket.emit("error", { message: "Community conversation not found" });
+              return;
+            }
+            
+            // Broadcast typing status to community conversation
+            socket.to(`community:${communityConversation._id}`).emit("user_community_typing", {
+              communityId,
+              communityConversationId: communityConversation._id,
+              userId,
+              isTyping
+            });
+          })
+          .catch(error => {
+            console.error("Error handling community typing:", error);
+            socket.emit("error", { message: "Failed to broadcast typing status" });
+          });
+      } catch (error) {
+        console.error("Error handling community typing:", error);
+        socket.emit("error", { message: "Failed to broadcast typing status" });
+      }
+    });
+
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
@@ -331,7 +366,3 @@ export const setupSocketServer = (io: Server) => {
     });
   });
 };
-
-
-
-
