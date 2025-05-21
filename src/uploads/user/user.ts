@@ -703,7 +703,6 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 {
                     $match: {
                         date: { $gte: new Date() }, // Only future events
-                        status: "ACTIVE"
                     }
                 },
                 {
