@@ -2,7 +2,8 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 // Define interfaces for proper typing
 interface IComment extends Document {
-  post: mongoose.Types.ObjectId;
+  post?: mongoose.Types.ObjectId;
+  repost?: mongoose.Types.ObjectId;
   user: mongoose.Types.ObjectId;
   parentComment: mongoose.Types.ObjectId | null;
   type: 'text' | 'audio';
@@ -25,10 +26,20 @@ interface ICommentModel extends Model<IComment> {
 
 const CommentSchema = new Schema(
   {
+    // Either post or repost must be provided, but not both
     post: {
       type: Schema.Types.ObjectId,
       ref: 'posts',
-      required: true
+      required: function(this: any) {
+        return !this.repost;
+      }
+    },
+    repost: {
+      type: Schema.Types.ObjectId,
+      ref: 'reposts',
+      required: function(this: any) {
+        return !this.post;
+      }
     },
     user: {
       type: Schema.Types.ObjectId,
@@ -56,15 +67,24 @@ const CommentSchema = new Schema(
       type: Boolean,
       default: false
     },
-    likes: [{
-      type: Schema.Types.ObjectId,
-      ref: 'users'
-    }]
   },
   {
     timestamps: true
   }
 );
+
+// Validate that either post or repost is provided, but not both
+CommentSchema.pre('validate', function(next) {
+  if (this.post && this.repost) {
+    const error = new Error('Comment cannot be associated with both a post and a repost');
+    return next(error);
+  }
+  if (!this.post && !this.repost) {
+    const error = new Error('Comment must be associated with either a post or a repost');
+    return next(error);
+  }
+  next();
+});
 
 CommentSchema.pre('save', function(next) {
   if (this.type === "text" && !this.text) {
@@ -80,7 +100,7 @@ CommentSchema.pre('save', function(next) {
 
 // Add methods to fetch replies
 CommentSchema.methods.getReplies = async function(this: IComment) {
-  return await mongoose.model<IComment, ICommentModel>('Comment').find({ 
+  return await mongoose.model<IComment, ICommentModel>('comments').find({ 
     parentComment: this._id,
     isDeleted: false 
   }).sort({ createdAt: 1 });
@@ -98,5 +118,11 @@ CommentSchema.statics.findWithReplies = async function(commentId: string) {
   }
   return { comment, replies: [] };
 };
+
+// Add a compound index to ensure a comment is either for a post or a repost
+CommentSchema.index({ post: 1, repost: 1 }, { 
+  sparse: true,
+  unique: false
+});
 
 export const Comment = mongoose.model<IComment, ICommentModel>('comments', CommentSchema);

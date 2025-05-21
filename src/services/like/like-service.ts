@@ -6,6 +6,7 @@ import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { JwtPayload } from "jsonwebtoken";
 import { postModels } from "src/models/post/post-schema";
 import { Comment } from "src/models/comment/comment-schema";
+import { RepostModel } from "src/models/repost/repost-schema";
 
 // Toggle like (create/delete)
 export const toggleLikeService = async (req: Request, res: Response) => {
@@ -22,7 +23,7 @@ export const toggleLikeService = async (req: Request, res: Response) => {
   }
 
   // Validate targetType
-  if (!["posts", "comments"].includes(targetType)) {
+  if (!["posts", "comments", "reposts"].includes(targetType)) {
     return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
   }
 
@@ -32,19 +33,23 @@ export const toggleLikeService = async (req: Request, res: Response) => {
   }
 
   try {
-     // Check if target exists based on type
+    // Check if target exists based on type
     let targetExists: boolean = false;
     
     if (targetType === "posts") {
       const post = await postModels.findOne({ _id: targetId }).exec();
       targetExists = !!post;
-    } else {
+    } else if (targetType === "comments") {
       const comment = await Comment.findOne({ _id: targetId }).exec();
       targetExists = !!comment;
+    } else if (targetType === "reposts") {
+      const repost = await RepostModel.findOne({ _id: targetId }).exec();
+      targetExists = !!repost;
     }
+
     if (!targetExists) {
       return errorResponseHandler(
-        `${targetType.charAt(0).toUpperCase() + targetType.slice(1)} not found`,
+        `${targetType.charAt(0).toUpperCase() + targetType.slice(1, -1)} not found`,
         httpStatusCode.NOT_FOUND,
         res
       );
@@ -62,7 +67,7 @@ export const toggleLikeService = async (req: Request, res: Response) => {
       await LikeModel.findByIdAndDelete(existingLike._id);
       return {
         success: true,
-        message: `${targetType} unliked successfully`,
+        message: `${targetType.slice(0, -1)} unliked successfully`,
         liked: false
       };
     } else {
@@ -75,7 +80,7 @@ export const toggleLikeService = async (req: Request, res: Response) => {
       await newLike.save();
       return {
         success: true,
-        message: `${targetType} liked successfully`,
+        message: `${targetType.slice(0, -1)} liked successfully`,
         liked: true
       };
     }
@@ -122,16 +127,22 @@ export const getLikesByUserService = async (req: Request, res: Response) => {
   const { id: userId } = req.user as JwtPayload;
   const { targetType } = req.query;
 
-  const query: any = { userId };
+  const query: any = { user: userId }; // Changed from userId to user to match schema
   if (targetType) {
-    if (!["posts", "comments"].includes(targetType as string)) {
+    if (!["posts", "comments", "reposts"].includes(targetType as string)) {
       return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
     }
     query.targetType = targetType;
   }
 
   const likes = await LikeModel.find(query)
-    .populate('targetId')
+    .populate({
+      path: 'target',
+      populate: {
+        path: 'user',
+        select: '-password'
+      }
+    })
     .sort({ createdAt: -1 });
 
   return {
@@ -140,12 +151,12 @@ export const getLikesByUserService = async (req: Request, res: Response) => {
   };
 };
 
-// Get likes for a specific target (post/comment)
+// Get likes for a specific target (post/comment/repost)
 export const getLikesByTargetService = async (req: Request, res: Response) => {
   const { targetType, targetId } = req.params;
 
   // Validate targetType
-  if (!["posts", "comments"].includes(targetType)) {
+  if (!["posts", "comments", "reposts"].includes(targetType)) {
     return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
   }
 
@@ -154,7 +165,7 @@ export const getLikesByTargetService = async (req: Request, res: Response) => {
     return errorResponseHandler("Invalid target ID", httpStatusCode.BAD_REQUEST, res);
   }
 
-  const likes = await LikeModel.find({ targetType,  target: targetId  })
+  const likes = await LikeModel.find({ targetType, target: targetId })
     .populate('user', '-password')
     .populate('target')
     .sort({ createdAt: -1 });
@@ -165,3 +176,5 @@ export const getLikesByTargetService = async (req: Request, res: Response) => {
     count: likes.length
   };
 };
+
+

@@ -635,8 +635,8 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         });
         
         comments.forEach(comment => {
-            const postId = comment.post.toString();
-            if (engagementStats[postId]) {
+            const postId = comment.post?.toString() || comment.repost?.toString();
+            if (postId && engagementStats[postId]) {
                 engagementStats[postId].comments += 1;
             }
         });

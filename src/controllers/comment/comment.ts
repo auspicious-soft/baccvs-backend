@@ -1,7 +1,17 @@
 import { Request, Response } from "express"
 import { httpStatusCode } from "src/lib/constant"
 import { errorParser } from "src/lib/errors/error-response-handler"
-import { countPostCommentsService, createCommentService, deleteCommentService, getCommentService, getPostCommentsService, getUserCommentsService, updateCommentService } from "src/services/comment/comment-service"
+import { 
+  countCommentsService, 
+  countPostCommentsService, 
+  createCommentService, 
+  deleteCommentService, 
+  getCommentRepliesService, 
+  getCommentService, 
+  getCommentsService, 
+  getPostCommentsService, 
+  updateCommentService 
+} from "src/services/comment/comment-service"
 
 
 
@@ -14,6 +24,17 @@ export const createComment = async (req: Request, res: Response) =>{
           return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
+export const getComments = async (req: Request, res: Response) =>{
+  try {
+     const response: any = await getCommentsService(req, res)
+            return res.status(httpStatusCode.OK).json(response)
+  } catch (error) {
+      const { code, message } = errorParser(error)
+          return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
+    }
+}
+
+// For backward compatibility
 export const getPostComments = async (req: Request, res: Response) =>{
   try {
      const response: any = await getPostCommentsService(req, res)
@@ -23,7 +44,8 @@ export const getPostComments = async (req: Request, res: Response) =>{
           return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
-export const getComments = async (req: Request, res: Response) =>{
+
+export const getSingleComment = async (req: Request, res: Response) =>{
   try {
      const response: any = await getCommentService(req, res)
             return res.status(httpStatusCode.OK).json(response)
@@ -32,6 +54,17 @@ export const getComments = async (req: Request, res: Response) =>{
           return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
+
+export const getCommentReplies = async (req: Request, res: Response) =>{
+  try {
+     const response: any = await getCommentRepliesService(req, res)
+            return res.status(httpStatusCode.OK).json(response)
+  } catch (error) {
+      const { code, message } = errorParser(error)
+          return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
+    }
+}
+
 export const updateComment = async (req: Request, res: Response) =>{
   try {
      const response: any = await updateCommentService(req, res)
@@ -50,15 +83,17 @@ export const deleteComment = async (req: Request, res: Response) =>{
           return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
-export const getUserComments = async (req: Request, res: Response) =>{
+export const countComments = async (req: Request, res: Response) =>{
   try {
-     const response: any = await getUserCommentsService(req, res)
+     const response: any = await countCommentsService(req, res)
             return res.status(httpStatusCode.OK).json(response)
   } catch (error) {
       const { code, message } = errorParser(error)
           return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
+
+// For backward compatibility
 export const countPostComments = async (req: Request, res: Response) =>{
   try {
      const response: any = await countPostCommentsService(req, res)
