@@ -493,6 +493,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     try {
         const { id: userId } = req.user;
         
+        // Check if user has posted any content
+        const hasUserPostedContent = await postModels.exists({ user: userId });
+        
         // Get users the current user follows
         const following = await followModel.find({
             follower_id: userId,
@@ -893,6 +896,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             success: true,
             message: "Dashboard feed fetched successfully",
             data: {
+                userActivity: {
+                    hasPosted: !!hasUserPostedContent
+                },
                 stories: {
                     userStories: userStories,
                     followingStories: followingStories
