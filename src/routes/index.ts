@@ -12,3 +12,4 @@ export { router as repost } from './repost-routes'
 export { router as locationRoutes } from './location-routes';
 export { router as story } from './story-routes';
 export { router as chatRoutes } from './chat-routes';
+export { router as subscription } from './subscription-routes';

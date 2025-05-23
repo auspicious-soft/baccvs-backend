@@ -20,6 +20,7 @@ import { RepostModel } from "src/models/repost/repost-schema"
 import { eventModel } from "src/models/event/event-schema"
 import { UserMatch } from "src/models/usermatch/usermatch-schema"
 import { Comment } from "src/models/comment/comment-schema"
+import { DatingSubscription } from "src/models/subscriptions/dating-subscription-schema"
 configDotenv()
 
 
@@ -78,6 +79,17 @@ export const signUpService = async (userData: any, authType: string, res: Respon
       // Create user
       let user = await usersModel.create(newUserData);
   
+      // Create default dating subscription for the user
+      await DatingSubscription.create({
+        user: user._id,
+        plan: "FREE",
+        price: 0,
+        startDate: null,
+        endDate: null,
+        isActive: false,
+        autoRenew: false
+      });
+
       // Handle referral code updates
       if (user._id && newUserData.referredBy) {
         await Promise.all([
