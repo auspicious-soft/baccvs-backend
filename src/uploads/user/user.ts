@@ -507,7 +507,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const userStoriesRaw = await storyModel
             .find({
                 user: userId,
-                // expiresAt: { $gt: new Date() }
+                expiresAt: { $gt: new Date() }
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos');
@@ -525,7 +525,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const followingStoriesRaw = await storyModel
             .find({
                 user: { $in: followingIds },
-                // expiresAt: { $gt: new Date() }
+                expiresAt: { $gt: new Date() }
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
@@ -548,9 +548,6 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         
         // Convert to array for easier frontend handling
         const followingStories = Object.values(followingStoriesByUser);
-        
-        // // Combine all stories (user's stories first, then following stories)
-        // const allStories = userStories ? [userStories, ...followingStories] : followingStories;
         
         // ===== POSTS SECTION =====
         const page = parseInt(req.query.page as string) || 1;
@@ -586,72 +583,182 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         // Apply pagination to the combined posts
         const paginatedPosts = allPosts.slice(skip, skip + limit);
         
-        // Get post engagement stats
-        const postIds = paginatedPosts.map(post => post._id);
+        // ===== REPOSTS SECTION =====
+        // Get reposts from followed users
+        const followingReposts = await RepostModel.find({
+            user: { $in: followingIds }
+        })
+        .sort({ createdAt: -1 })
+        .populate('user', 'userName photos')
+        .populate({
+            path: 'originalPost',
+            populate: {
+                path: 'user',
+                select: 'userName photos'
+            }
+        });
         
-        // Get likes for these posts
-        const likes = await LikeModel.find({
+        // Apply pagination to reposts
+        const paginatedReposts = followingReposts.slice(skip, skip + limit);
+        
+        // Get post IDs for engagement stats
+        const postIds = paginatedPosts.map(post => post._id);
+        const repostIds = paginatedReposts.map(repost => repost._id);
+        const originalPostIds = paginatedReposts.map(repost => repost.originalPost._id);
+        
+        // Get likes for posts
+        const postLikes = await LikeModel.find({
             targetType: 'posts',
             target: { $in: postIds }
         });
         
-        // Get user's likes to determine which posts the user has already liked
-        const userLikes = await LikeModel.find({
+        // Get likes for reposts
+        const repostLikes = await LikeModel.find({
+            targetType: 'reposts',
+            target: { $in: repostIds }
+        });
+        
+        // Get likes for original posts in reposts
+        const originalPostLikes = await LikeModel.find({
+            targetType: 'posts',
+            target: { $in: originalPostIds }
+        });
+        
+        // Get user's likes to determine which posts/reposts the user has already liked
+        const userPostLikes = await LikeModel.find({
             user: userId,
             targetType: 'posts',
-            target: { $in: postIds }
+            target: { $in: [...postIds, ...originalPostIds] }
         });
         
-        // Create a set of post IDs that the user has liked for quick lookup
-        const userLikedPostIds = new Set(userLikes.map(like => like.target.toString()));
+        const userRepostLikes = await LikeModel.find({
+            user: userId,
+            targetType: 'reposts',
+            target: { $in: repostIds }
+        });
         
-        // Get comments for these posts
-        const comments = await Comment.find({
+        // Create sets of IDs that the user has liked for quick lookup
+        const userLikedPostIds = new Set(userPostLikes.map(like => like.target.toString()));
+        const userLikedRepostIds = new Set(userRepostLikes.map(like => like.target.toString()));
+        
+        // Get comments for posts
+        const postComments = await Comment.find({
             post: { $in: postIds },
             isDeleted: false
         });
         
-        // Get reposts for these posts
-        const reposts = await RepostModel.find({
+        // Get comments for reposts
+        const repostComments = await Comment.find({
+            repost: { $in: repostIds },
+            isDeleted: false
+        });
+        
+        // Get comments for original posts in reposts
+        const originalPostComments = await Comment.find({
+            post: { $in: originalPostIds },
+            isDeleted: false
+        });
+        
+        // Get reposts for posts
+        const postsReposts = await RepostModel.find({
             originalPost: { $in: postIds }
         });
         
-        // Create a map of engagement stats
-        const engagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
+        // Get reposts for original posts in reposts
+        const originalPostsReposts = await RepostModel.find({
+            originalPost: { $in: originalPostIds }
+        });
+        
+        // Create maps of engagement stats
+        const postEngagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
         postIds.forEach(postId => {
-            engagementStats[postId.toString()] = {
+            postEngagementStats[postId.toString()] = {
                 likes: 0,
                 comments: 0,
                 reposts: 0
             };
         });
         
-        // Fill in the engagement stats
-        likes.forEach(like => {
+        const repostEngagementStats: { [key: string]: { likes: number; comments: number } } = {};
+        repostIds.forEach(repostId => {
+            repostEngagementStats[repostId.toString()] = {
+                likes: 0,
+                comments: 0
+            };
+        });
+        
+        const originalPostEngagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
+        originalPostIds.forEach(postId => {
+            originalPostEngagementStats[postId.toString()] = {
+                likes: 0,
+                comments: 0,
+                reposts: 0
+            };
+        });
+        
+        // Fill in the post engagement stats
+        postLikes.forEach(like => {
             const postId = like.target.toString();
-            if (engagementStats[postId]) {
-                engagementStats[postId].likes += 1;
+            if (postEngagementStats[postId]) {
+                postEngagementStats[postId].likes += 1;
             }
         });
         
-        comments.forEach(comment => {
-            const postId = comment.post?.toString() || comment.repost?.toString();
-            if (postId && engagementStats[postId]) {
-                engagementStats[postId].comments += 1;
+        postComments.forEach(comment => {
+            const postId = comment.post?.toString();
+            if (postId && postEngagementStats[postId]) {
+                postEngagementStats[postId].comments += 1;
             }
         });
         
-        reposts.forEach(repost => {
+        postsReposts.forEach(repost => {
             const postId = repost.originalPost.toString();
-            if (engagementStats[postId]) {
-                engagementStats[postId].reposts += 1;
+            if (postEngagementStats[postId]) {
+                postEngagementStats[postId].reposts += 1;
+            }
+        });
+        
+        // Fill in the repost engagement stats
+        repostLikes.forEach(like => {
+            const repostId = like.target.toString();
+            if (repostEngagementStats[repostId]) {
+                repostEngagementStats[repostId].likes += 1;
+            }
+        });
+        
+        repostComments.forEach(comment => {
+            const repostId = comment.repost?.toString();
+            if (repostId && repostEngagementStats[repostId]) {
+                repostEngagementStats[repostId].comments += 1;
+            }
+        });
+        
+        // Fill in the original post engagement stats for reposts
+        originalPostLikes.forEach(like => {
+            const postId = like.target.toString();
+            if (originalPostEngagementStats[postId]) {
+                originalPostEngagementStats[postId].likes += 1;
+            }
+        });
+        
+        originalPostComments.forEach(comment => {
+            const postId = comment.post?.toString();
+            if (postId && originalPostEngagementStats[postId]) {
+                originalPostEngagementStats[postId].comments += 1;
+            }
+        });
+        
+        originalPostsReposts.forEach(repost => {
+            const postId = repost.originalPost.toString();
+            if (originalPostEngagementStats[postId]) {
+                originalPostEngagementStats[postId].reposts += 1;
             }
         });
         
         // Enrich posts with engagement data
         const enrichedPosts = paginatedPosts.map(post => {
             const postId = post._id.toString();
-            const engagement = engagementStats[postId] || { likes: 0, comments: 0, reposts: 0 };
+            const engagement = postEngagementStats[postId] || { likes: 0, comments: 0, reposts: 0 };
             
             // Convert ObjectId to string for proper comparison
             const postUserId = post.user._id.toString();
@@ -675,7 +782,51 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 commentsCount: engagement.comments,
                 repostsCount: engagement.reposts,
                 isFollowedUser: isFollowed,
-                isLikedByUser: isLikedByUser // Add this flag
+                isLikedByUser: isLikedByUser
+            };
+        });
+        
+        // Enrich reposts with engagement data
+        const enrichedReposts = paginatedReposts.map(repost => {
+            const repostId = repost._id.toString();
+            const repostEngagement = repostEngagementStats[repostId] || { likes: 0, comments: 0 };
+            
+            const originalPostId = repost.originalPost._id.toString();
+            const originalPostEngagement = originalPostEngagementStats[originalPostId] || { likes: 0, comments: 0, reposts: 0 };
+            
+            // Convert ObjectId to string for proper comparison
+            const repostUserId = repost.user._id.toString();
+            
+            // Check if this repost's author is in the followingIds array
+            const isFollowed = followingIds.some(followingId => 
+                followingId.toString() === repostUserId
+            );
+            
+            // Check if the current user has liked this repost
+            const isLikedByUser = userLikedRepostIds.has(repostId);
+            
+            // Check if the current user has liked the original post
+            const isOriginalPostLikedByUser = userLikedPostIds.has(originalPostId);
+            
+            return {
+                _id: repost._id,
+                type: repost.type,
+                content: repost.content,
+                createdAt: repost.createdAt,
+                user: repost.user,
+                originalPost: {
+                    ...((repost.originalPost && typeof (repost.originalPost as any).toObject === 'function')
+                        ? (repost.originalPost as any).toObject()
+                        : { _id: repost.originalPost }),
+                    likesCount: originalPostEngagement.likes,
+                    commentsCount: originalPostEngagement.comments,
+                    repostsCount: originalPostEngagement.reposts,
+                    isLikedByUser: isOriginalPostLikedByUser
+                },
+                likesCount: repostEngagement.likes,
+                commentsCount: repostEngagement.comments,
+                isFollowedUser: isFollowed,
+                isLikedByUser: isLikedByUser
             };
         });
         
@@ -684,16 +835,13 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         
         let nearbyEvents = [];
         if (userLocation?.location && 'coordinates' in userLocation.location) {
-            const coordinates = userLocation.location.coordinates as [number, number];
-            const [longitude, latitude] = coordinates;
-            
-            // Find events within 50km
+            // Get nearby events (within 50km)
             nearbyEvents = await eventModel.aggregate([
                 {
                     $geoNear: {
                         near: {
                             type: "Point",
-                            coordinates: [longitude, latitude]
+                            coordinates: userLocation.location.coordinates as [number, number]
                         },
                         distanceField: "distance",
                         maxDistance: 50000, // 50km in meters
@@ -702,38 +850,8 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 },
                 {
                     $match: {
-                        date: { $gte: new Date() }, // Only future events
+                        startDate: { $gte: new Date() }
                     }
-                },
-                {
-                    $lookup: {
-                        from: "users",
-                        localField: "creator",
-                        foreignField: "_id",
-                        as: "creator"
-                    }
-                },
-                {
-                    $unwind: "$creator"
-                },
-                {
-                    $project: {
-                        title: 1,
-                        aboutEvent: 1,
-                        date: 1,
-                        startTime: 1,
-                        endTime: 1,
-                        venue: 1,
-                        location: 1,
-                        media: 1,
-                        distance: 1,
-                        "creator._id": 1,
-                        "creator.userName": 1,
-                        "creator.photos": 1
-                    }
-                },
-                {
-                    $sort: { date: 1 }
                 },
                 {
                     $limit: 5
@@ -776,22 +894,24 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             message: "Dashboard feed fetched successfully",
             data: {
                 stories: {
-                    userStories: userStories, // Now a single object with user info and stories array
-                    followingStories: followingStories, // Array of objects, each with user info and stories array
-                    // all: allStories // Combined array for convenience
+                    userStories: userStories,
+                    followingStories: followingStories
                 },
                 posts: enrichedPosts,
+                reposts: enrichedReposts,
                 suggestedEvents: nearbyEvents,
                 stats: {
                     matches: matchStats,
                     follows: followStats
                 },
                 pagination: {
-                    total: allPosts.length,
+                    total: allPosts.length + followingReposts.length,
+                    postsTotal: allPosts.length,
+                    repostsTotal: followingReposts.length,
                     page,
                     limit,
-                    pages: Math.ceil(allPosts.length / limit),
-                    hasNext: page * limit < allPosts.length,
+                    pages: Math.ceil((allPosts.length + followingReposts.length) / limit),
+                    hasNext: page * limit < (allPosts.length + followingReposts.length),
                     hasPrev: page > 1
                 }
             }

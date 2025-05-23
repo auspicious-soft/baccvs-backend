@@ -67,6 +67,25 @@ export const createCommentService = async (req: Request, res: Response) => {
       if (!parentComment) {
         return errorResponseHandler("Parent comment not found", httpStatusCode.NOT_FOUND, res);
       }
+      
+      // For replies, we need to ensure the reply is associated with the same post/repost as the parent
+      if (postId && parentComment.post && parentComment.post.toString() !== postId) {
+        return errorResponseHandler("Parent comment does not belong to the specified post", httpStatusCode.BAD_REQUEST, res);
+      }
+      
+      if (repostId && parentComment.repost && parentComment.repost.toString() !== repostId) {
+        return errorResponseHandler("Parent comment does not belong to the specified repost", httpStatusCode.BAD_REQUEST, res);
+      }
+      
+      // If parent comment has a post, use that post ID
+      if (parentComment.post && !postId) {
+        req.body.postId = parentComment.post.toString();
+      }
+      
+      // If parent comment has a repost, use that repost ID
+      if (parentComment.repost && !repostId) {
+        req.body.repostId = parentComment.repost.toString();
+      }
     }
 
     // Create comment based on type
@@ -77,10 +96,10 @@ export const createCommentService = async (req: Request, res: Response) => {
     };
     
     // Set either post or repost field
-    if (postId) {
-      commentData.post = postId;
+    if (postId || req.body.postId) {
+      commentData.post = postId || req.body.postId;
     } else {
-      commentData.repost = repostId;
+      commentData.repost = repostId || req.body.repostId;
     }
 
     if (type === 'text' && text) {
