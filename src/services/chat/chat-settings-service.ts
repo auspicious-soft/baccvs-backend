@@ -151,7 +151,7 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
   const { conversationId } = req.params;
   const { backgroundImage, backgroundColor } = req.body;
 
-  try {
+ 
     // Check if conversation exists and user is a participant
     const conversation = await Conversation.findOne({
       _id: conversationId,
@@ -176,16 +176,9 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
 
     return {
       success: true,
+      message: "Background updated successfully",
       backgroundSettings: conversation.backgroundSettings.get(userId)
-    };
-  } catch (error) {
-    console.error("Error updating conversation background:", error);
-    return errorResponseHandler(
-      "Failed to update background",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+    }; 
 };
 
 // Update background for squad conversation
@@ -208,7 +201,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
     // Check if user is a member of the squad
     const squad = await mongoose.model('Squad').findOne({
       _id: squadConversation.squad,
-      "members.user": userId
+      "members.user": userId 
     });
 
     if (!squad) {
@@ -220,7 +213,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
     }
 
     // Update background settings for this user
-    squadConversation.backgroundSettings.set(userId, {
+    (squadConversation as any).backgroundSettings.set(userId, {
       backgroundImage: backgroundImage || null,
       backgroundColor: backgroundColor || null
     });
@@ -229,7 +222,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
     return {
       success: true,
       message: "Background updated successfully",
-      backgroundSettings: squadConversation.backgroundSettings.get(userId)
+      backgroundSettings: (squadConversation as any).backgroundSettings.get(userId)
     };
   } catch (error) {
     console.error("Error updating squad conversation background:", error);

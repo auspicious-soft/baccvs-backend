@@ -53,7 +53,6 @@ export const togglePinCommunityConversation = async (req: Request, res: Response
 export const updateDirectConversationBackground = async (req: Request, res: Response) => {
   try {
     const response = await updateDirectConversationBackgroundService(req, res);
-    if (!response.success) return; // Error already handled by service
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);

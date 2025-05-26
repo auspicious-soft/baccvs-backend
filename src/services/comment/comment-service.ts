@@ -118,9 +118,9 @@ export const createCommentService = async (req: Request, res: Response) => {
 
     // Populate user information for response
     const populatedComment = await Comment.findById(newComment._id)
-      .populate('user', 'username profileImage')
-      .populate('post', 'title')
-      .populate('repost', 'content');
+      .populate('user', 'userName photos' )
+      .populate('post')
+      .populate('repost');
 
     return {
       success: true,
