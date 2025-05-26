@@ -1,12 +1,18 @@
 import { Router } from "express";
-import { 
-  getUserConversations, 
-  getConversationMessages, 
-  sendMessage, 
-  markMessagesAsRead 
-} from "../controllers/chat/chat-controller";
+import { checkAuth } from "../middleware/check-auth";
+import {
+  togglePinDirectConversation,
+  togglePinSquadConversation,
+  togglePinCommunityConversation,
+  updateDirectConversationBackground,
+  updateSquadConversationBackground,
+  updateCommunityConversationBackground
+} from "../controllers/chat/chat-settings-controller";
 
 const router = Router();
 
+
+
+// Community conversation routes
 
 export { router };

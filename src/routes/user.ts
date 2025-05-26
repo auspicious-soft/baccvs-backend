@@ -9,6 +9,7 @@ import { getConversationMessages, getUserConversations, markMessagesAsRead, send
 import { getSquadMessagesController, sendSquadMessageController, getUserSquadConversationsController, markSquadMessagesAsReadController } from "src/controllers/chat/squad-chat-controller";
 import { createCommunity, getCommunities, getUserCommunities, getCommunityById, joinCommunity, leaveCommunity, addcommunityMember, removeCommunityMember, changeCommunityMemberRole } from "src/controllers/community/community-controller";
 import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
+import { togglePinCommunityConversation, togglePinDirectConversation, togglePinSquadConversation, updateCommunityConversationBackground, updateDirectConversationBackground, updateSquadConversationBackground } from "src/controllers/chat/chat-settings-controller";
 
 const router = Router();
 
@@ -70,6 +71,9 @@ router.get("/conversations/:conversationId/messages", getConversationMessages);
 router.post("/conversation/send", sendMessage);
 // Mark messages as read
 router.post("/conversations/:conversationId/read", markMessagesAsRead);
+// Direct conversation routes
+router.post("/conversations/:conversationId/pin",  togglePinDirectConversation);
+router.post("/conversations/:conversationId/background",  updateDirectConversationBackground);
 
 // Squad chat routes
 // Get all squad conversations for the current user
@@ -80,6 +84,9 @@ router.get("/squad/:squadId/messages", getSquadMessagesController);
 router.post("/squad/send-message", sendSquadMessageController);
 // Mark squad messages as read
 router.post("/squad/:squadId/read", markSquadMessagesAsReadController);
+// Squad conversation routes
+router.post("/squad-conversations/:squadConversationId/pin", togglePinSquadConversation);
+router.post("/squad-conversations/:squadConversationId/background",updateSquadConversationBackground);
 
 // Community routes
 // Community management
@@ -100,5 +107,8 @@ router.get("/community/conversations", getUserCommunityConversations);
 router.get("/community/:communityId/messages", getCommunityMessages);
 // Send a message to a community
 router.post("/community/send-message", sendCommunityMessage);
+router.post("/community-conversations/:communityConversationId/pin",togglePinCommunityConversation);
+router.post("/community-conversations/:communityConversationId/background",updateCommunityConversationBackground);
+
 
 export { router }

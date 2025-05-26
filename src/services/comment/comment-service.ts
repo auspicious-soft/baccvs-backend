@@ -170,17 +170,28 @@ export const getCommentsService = async (req: Request, res: Response) => {
     // Get total count for pagination (only top-level comments)
     const totalComments = await Comment.countDocuments(query);
 
-    // For each comment, get the reply count
-    const commentsWithReplyCount = await Promise.all(comments.map(async (comment) => {
+    // For each comment, get the reply count and replies
+    const commentsWithReplies = await Promise.all(comments.map(async (comment) => {
+      // Get reply count
       const replyCount = await Comment.countDocuments({ 
         parentComment: comment._id,
         isDeleted: false
       });
       
+      // Get first few replies for each comment
+      const replies = await Comment.find({ 
+        parentComment: comment._id,
+        isDeleted: false
+      })
+        .sort({ createdAt: 1 })
+        .limit(3)
+        .populate('user', 'userName photos');
+      
       const commentObj = comment.toObject();
       return {
         ...commentObj,
-        replyCount
+        replyCount,
+        replies
       };
     }));
 
@@ -188,7 +199,7 @@ export const getCommentsService = async (req: Request, res: Response) => {
       success: true,
       message: "Comments retrieved successfully",
       data: {
-        comments: commentsWithReplyCount,
+        comments: commentsWithReplies,
         pagination: {
           totalComments,
           totalPages: Math.ceil(totalComments / limit),
