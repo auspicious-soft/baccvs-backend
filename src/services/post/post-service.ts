@@ -1,4 +1,4 @@
-import { httpStatusCode, PostVisibility } from "src/lib/constant";
+import { FollowRelationshipStatus, httpStatusCode, PostVisibility } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { postModels } from "src/models/post/post-schema";
 import { Request, Response } from "express";
@@ -6,6 +6,10 @@ import { JwtPayload } from "jsonwebtoken";
 import { object } from "webidl-conversions";
 import mongoose from 'mongoose';
 import { usersModel } from "src/models/user/user-schema";
+import { followModel } from "src/models/follow/follow-schema";
+import { LikeModel } from "src/models/like/like-schema";
+import { Comment } from "src/models/comment/comment-schema";
+import { RepostModel } from "src/models/repost/repost-schema";
 
 export const createPostService = async (req: any, res: Response) => {
   if (!req.user) {
@@ -95,23 +99,103 @@ export const getAllPostsService = async (req: Request, res: Response) => {
 // READ - Get single post by ID
 export const getPostByIdService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED,res);
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
 
+  const { id: userId } = req.user as JwtPayload;
+  const postId = req.params.id;
+
+  // Validate post ID
+  if (!mongoose.Types.ObjectId.isValid(postId)) {
+    return errorResponseHandler("Invalid post ID", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  // Get the post with user and tagged users
   const post = await postModels
-    .findById(req.params.id)
-    .populate('user', '-password ')
-    .populate('taggedUsers', '-password ');
+    .findById(postId)
+    .populate('user', '-password')
+    .populate('taggedUsers', '-password');
 
   if (!post) {
-    return errorResponseHandler("Post not found", httpStatusCode.NOT_FOUND,res);
+    return errorResponseHandler("Post not found", httpStatusCode.NOT_FOUND, res);
   }
+
+  // Check if current user follows the post author
+  const isFollowing = await followModel.findOne({
+    follower_id: userId,
+    following_id: post.user._id,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true
+  });
+
+  // Get likes for this post
+  const likes = await LikeModel.find({ targetType: 'posts', target: postId })
+    .populate('user', 'userName photos');
   
+  // Check if current user has liked this post
+  const userLiked = likes.some(like => like.user._id.toString() === userId);
+
+  // Get comments for this post
+  const comments = await Comment.find({ 
+    post: postId,
+    parentComment: null, // Only top-level comments
+    isDeleted: false
+  })
+  .populate('user', 'userName photos')
+  .sort({ createdAt: -1 });
+
+  // Get comment counts
+  const commentCount = await Comment.countDocuments({ 
+    post: postId,
+    isDeleted: false
+  });
+
+  // Get repost count
+  const repostCount = await RepostModel.countDocuments({ originalPost: postId });
+
+  // Enhance comments with reply counts and like counts
+  const enhancedComments = await Promise.all(comments.map(async (comment) => {
+    // Get reply count for this comment
+    const replyCount = await Comment.countDocuments({ 
+      parentComment: comment._id,
+      isDeleted: false
+    });
+
+    // Get likes for this comment
+    const commentLikes = await LikeModel.find({ 
+      targetType: 'comments', 
+      target: comment._id 
+    });
+
+    // Check if current user has liked this comment
+    const userLikedComment = commentLikes.some(like => 
+      like.user.toString() === userId
+    );
+
+    return {
+      ...comment.toObject(),
+      replyCount,
+      likesCount: commentLikes.length,
+      isLikedByUser: userLikedComment
+    };
+  }));
+
+  // Construct the enhanced post object
+  const enhancedPost = {
+    ...post.toObject(),
+    isFollowingAuthor: !!isFollowing,
+    isLikedByUser: userLiked,
+    likesCount: likes.length,
+    likes: likes,
+    commentsCount: commentCount,
+    comments: enhancedComments,
+    repostsCount: repostCount
+  };
 
   return {
     success: true,
     message: "Post retrieved successfully",
-    data: post
+    data: enhancedPost
   };
 };
 
