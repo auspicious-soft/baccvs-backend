@@ -11,7 +11,6 @@ export const togglePinDirectConversationService = async (req: any, res: Response
   const userId = req.user.id;
   const { conversationId } = req.params;
 
-  try {
     // Check if conversation exists and user is a participant
     const conversation = await Conversation.findOne({
       _id: conversationId,
@@ -37,14 +36,6 @@ export const togglePinDirectConversationService = async (req: any, res: Response
       message: "Pin status updated successfully",
       isPinned: !isPinned
     };
-  } catch (error) {
-    console.error("Error toggling pin status:", error);
-    return errorResponseHandler(
-      "Failed to update pin status",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
 };
 
 // Toggle pin status for a squad conversation
@@ -52,7 +43,6 @@ export const togglePinSquadConversationService = async (req: any, res: Response)
   const userId = req.user.id;
   const { squadConversationId } = req.params;
 
-  try {
     const squadConversation = await SquadConversation.findById(squadConversationId);
     
     if (!squadConversation) {
@@ -86,14 +76,7 @@ export const togglePinSquadConversationService = async (req: any, res: Response)
       success: true,
       isPinned: !isPinned
     };
-  } catch (error) {
-    console.error("Error toggling squad pin status:", error);
-    return errorResponseHandler(
-      "Failed to update pin status",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Toggle pin status for a community conversation
@@ -101,7 +84,6 @@ export const togglePinCommunityConversationService = async (req: any, res: Respo
   const userId = req.user.id;
   const { communityConversationId } = req.params;
 
-  try {
     const communityConversation = await CommunityConversation.findById(communityConversationId);
     
     if (!communityConversation) {
@@ -135,14 +117,7 @@ export const togglePinCommunityConversationService = async (req: any, res: Respo
       success: true,
       isPinned: !isPinned
     };
-  } catch (error) {
-    console.error("Error toggling community pin status:", error);
-    return errorResponseHandler(
-      "Failed to update pin status",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Update background for direct conversation
@@ -187,7 +162,6 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
   const { squadConversationId } = req.params;
   const { backgroundImage, backgroundColor } = req.body;
 
-  try {
     const squadConversation = await SquadConversation.findById(squadConversationId);
     
     if (!squadConversation) {
@@ -224,14 +198,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
       message: "Background updated successfully",
       backgroundSettings: (squadConversation as any).backgroundSettings.get(userId)
     };
-  } catch (error) {
-    console.error("Error updating squad conversation background:", error);
-    return errorResponseHandler(
-      "Failed to update background",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+  
 };
 
 // Update background for community conversation
@@ -240,7 +207,6 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
   const { communityConversationId } = req.params;
   const { backgroundImage, backgroundColor } = req.body;
 
-  try {
     const communityConversation = await CommunityConversation.findById(communityConversationId);
     
     if (!communityConversation) {
@@ -274,14 +240,8 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
 
     return {
       success: true,
+      message: "Background updated successfully",
       backgroundSettings: communityConversation.backgroundSettings.get(userId)
     };
-  } catch (error) {
-    console.error("Error updating community conversation background:", error);
-    return errorResponseHandler(
-      "Failed to update background",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+ 
 };

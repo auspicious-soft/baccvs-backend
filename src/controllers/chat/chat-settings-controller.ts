@@ -65,7 +65,6 @@ export const updateDirectConversationBackground = async (req: Request, res: Resp
 export const updateSquadConversationBackground = async (req: Request, res: Response) => {
   try {
     const response = await updateSquadConversationBackgroundService(req, res);
-    if (!response.success) return; // Error already handled by service
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);
@@ -78,7 +77,6 @@ export const updateSquadConversationBackground = async (req: Request, res: Respo
 export const updateCommunityConversationBackground = async (req: Request, res: Response) => {
   try {
     const response = await updateCommunityConversationBackgroundService(req, res);
-    if (!response.success) return; // Error already handled by service
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);
