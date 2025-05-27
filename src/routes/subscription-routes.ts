@@ -2,9 +2,14 @@ import { Router } from "express";
 import { checkAuth } from "src/middleware/check-auth";
 import { 
   createSubscriptionCheckout, 
-  handleSubscriptionWebhook,
+  cancelSubscription,
+  stripeSuccess,
+  stripeCancel,
+  getStripeProducts,
+  updateProductPrice,
+  getPlanIdFromProductId,
   getUserSubscription,
-  cancelSubscription
+  createPaymentIntent
 } from "src/controllers/subscription/subscription-controller";
 
 const router = Router();
@@ -12,15 +17,36 @@ const router = Router();
 // Create checkout session for subscription
 router.post("/checkout", checkAuth, createSubscriptionCheckout);
 
-// Get user subscription details
+// Handle successful Stripe checkout
+router.get("/success", checkAuth, stripeSuccess);
+
+// Handle cancelled Stripe checkout
+router.get("/cancel", checkAuth, stripeCancel);
+
+// Get all Stripe products
+router.get("/products", getStripeProducts);
+
+// Get plan ID from product ID
+router.get("/product/:productId/plan", getPlanIdFromProductId);
+
+// Update product price (admin only)
+router.put("/product/price", checkAuth, updateProductPrice);
+
 router.get("/", checkAuth, getUserSubscription);
 
 // Cancel subscription
 router.post("/cancel", checkAuth, cancelSubscription);
 
+// Add this route to your subscription routes
+router.post("/payment-intent", checkAuth, createPaymentIntent);
+
 // Stripe webhook handler - no auth check as it's called by Stripe
-// router.post("/webhook", handleSubscriptionWebhook);
-
-
+// Use raw body parser for Stripe webhooks
+// router.post(
+//   "/webhook", 
+//   bodyParser.raw({ type: 'application/json' }), 
+//   handleSubscriptionWebhook
+// );
 
 export { router };
+

@@ -4,7 +4,7 @@ import cors from "cors"
 import path from "path"
 import { fileURLToPath } from 'url'
 import connectDB from "./configF/db"
-import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, subscription } from "./routes"
+import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, subscription, stripeProduct } from "./routes"
 import { Server } from "socket.io"
 import http from "http"
 import { setupSocketServer } from "./socket/socket-handler"
@@ -21,7 +21,7 @@ configDotenv()
 const __filename = fileURLToPath(import.meta.url) // <-- Define __filename
 const __dirname = path.dirname(__filename)        // <-- Define __dirname
 
-const PORT = process.env.PORT || 8000
+const PORT = process.env.PORT || 8001
 const app = express()
 
   app.post("/api/subscription/webhook", bodyParser.raw({ type: "application/json" }), handleSubscriptionWebhook);
@@ -101,7 +101,7 @@ app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/subscription", subscription);
-
+app.use("/api/stripe-product", stripeProduct);
 // First screen - verify password
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

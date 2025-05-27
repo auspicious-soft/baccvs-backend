@@ -3,8 +3,8 @@ import mongoose, { Schema } from "mongoose";
 export enum DatingSubscriptionPlan {
   FREE = "FREE",
   BASIC = "BASIC",
-  PREMIUM = "ELITE",
-  VIP = "PRESTIGE"
+  ELITE = "ELITE",
+  PRESTIGE = "PRESTIGE"
 }
 
 const DatingSubscriptionSchema = new Schema(
@@ -85,5 +85,6 @@ DatingSubscriptionSchema.index({ stripeCustomerId: 1 });
 DatingSubscriptionSchema.index({ stripeSubscriptionId: 1 });
 
 export const DatingSubscription = mongoose.model("DatingSubscription", DatingSubscriptionSchema);
+
 
 
