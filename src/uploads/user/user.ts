@@ -55,14 +55,22 @@ export const signUpService = async (userData: any, authType: string, res: Respon
         return errorResponseHandler("Username already taken", httpStatusCode.BAD_REQUEST, res);
       }
   
+      // Process photos if they exist
+      let photos = userData.photos || [];
+      if (typeof photos === 'string') {
+        // If photos is a string (single photo), convert to array
+        photos = [photos];
+      }
+  
       // Prepare new user data
       const newUserData = { 
         ...userData,
         authType,
         email: userData.email?.toLowerCase(), // Ensure email is lowercase
         identifier: customAlphabet("0123456789", 5)(),
+        photos: photos
       };
-  
+
       // Hash password if email auth
       newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
   

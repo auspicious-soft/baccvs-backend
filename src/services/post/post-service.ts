@@ -17,11 +17,14 @@ export const createPostService = async (req: any, res: Response) => {
   }
 
   const { id: userId } = req.user;
-  const { content, photos, taggedUsers, visibility } = req.body;
+  const { content, taggedUsers, visibility } = req.body;
+  
+  // Get photos from req.body (uploaded by controller)
+  const photos = req.body.photos || [];
 
   // Basic field validation
-  if (!content || !photos || !taggedUsers || !visibility) {
-    return errorResponseHandler("All fields are required", httpStatusCode.BAD_REQUEST, res);
+  if (!content || !visibility) {
+    return errorResponseHandler("Content and visibility are required", httpStatusCode.BAD_REQUEST, res);
   }
 
   // Validate visibility
@@ -29,52 +32,63 @@ export const createPostService = async (req: any, res: Response) => {
     return errorResponseHandler("Invalid visibility value", httpStatusCode.BAD_REQUEST, res);
   }
 
-  // Validate taggedUsers array
-  if (!Array.isArray(taggedUsers)) {
-    return errorResponseHandler("Tagged users must be an array", httpStatusCode.BAD_REQUEST, res);
-  }
-
-  // Validate and filter tagged user IDs
+  // Validate taggedUsers array if provided
   let validatedTaggedUsers = [];
-  for (const id of taggedUsers) {
-    
-      const objectId = new mongoose.Types.ObjectId(id);
-      // Check if the user exists in the database
-      const userExists = await usersModel.findById(objectId).select('_id').lean();
-      if (userExists) {
-        validatedTaggedUsers.push(objectId);
-      } else {
+  if (taggedUsers && taggedUsers.length > 0) {
+    // If taggedUsers is a string (from form-data), try to parse it
+    const parsedTaggedUsers = typeof taggedUsers === 'string' 
+      ? JSON.parse(taggedUsers) 
+      : taggedUsers;
+      
+    if (!Array.isArray(parsedTaggedUsers)) {
+      return errorResponseHandler("Tagged users must be an array", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Validate and filter tagged user IDs
+    for (const id of parsedTaggedUsers) {
+      try {
+        const objectId = new mongoose.Types.ObjectId(id);
+        // Check if the user exists in the database
+        const userExists = await usersModel.findById(objectId).select('_id').lean();
+        if (userExists) {
+          validatedTaggedUsers.push(objectId);
+        } else {
+          return errorResponseHandler(
+            `User with ID ${id} does not exist`,
+            httpStatusCode.BAD_REQUEST,
+            res
+          );
+        }
+      } catch (error) {
         return errorResponseHandler(
-          `User with ID ${id} does not exist`,
+          `Invalid user ID format: ${id}`,
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
-   
+    }
   }
 
   // Create new post
   const newPost = new postModels({
     user: userId,
     content,
-    photos: photos || [],
+    photos: photos, // Use the S3 file paths
     taggedUsers: validatedTaggedUsers,
     visibility: visibility || PostVisibility.PUBLIC,
   });
 
-  
-    const savedPost = await newPost.save();
-    await savedPost.populate([
-      { path: 'user',select: '-password' },
-      { path: 'taggedUsers', select: '-password' },
-    ]);
+  const savedPost = await newPost.save();
+  await savedPost.populate([
+    { path: 'user', select: '-password' },
+    { path: 'taggedUsers', select: '-password' },
+  ]);
 
-    return {
-      success: true,
-      message: "Post created successfully",
-      data: savedPost,
-    };
- 
+  return {
+    success: true,
+    message: "Post created successfully",
+    data: savedPost,
+  };
 };
 
 // READ - Get all posts

@@ -10,7 +10,7 @@ import http from "http"
 import { setupSocketServer } from "./socket/socket-handler"
 import { checkValidAdminRole } from "./utils"
 import bodyParser from 'body-parser'
-import {  verifyOtpPasswordReset, newPassswordAfterOTPVerified, login, signup, verifyEmail, verifyingEmailOtp, forgotPassword, resetPasswordWithToken } from "./controllers/user/user";
+import {  verifyOtpPasswordReset, newPassswordAfterOTPVerified, login, signup, verifyEmail, verifyingEmailOtp, forgotPassword, resetPasswordWithToken, uploadUserPhotos } from "./controllers/user/user";
 import { configDotenv } from 'dotenv';
 import { checkAuth } from "./middleware/check-auth"
 import { socketAuthMiddleware } from "./middleware/socket-auth";
@@ -46,6 +46,7 @@ app.use(bodyParser.json({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+
 app.use(
     cors({
         origin: "*",
@@ -77,7 +78,7 @@ app.get("/", (_, res: any) => {
 });
 app.use("/api/referal",referal);
 app.use("/api/login", login);
-app.use("/api/signup", signup);
+app.use("/api/signup",uploadUserPhotos, signup);
 app.use("/api/user",checkAuth, user);
 app.use("/api/follow",checkAuth, follow);
 app.use("/api/post",checkAuth,post);

@@ -7,6 +7,11 @@ import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedServi
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
+import { generateMultipleSignedUrls } from "src/configF/s3"
+import { upload, uploadMultipleFilesToS3 } from "src/configF/multer";
+
+// Middleware for handling file uploads
+export const uploadUserPhotos = upload.array('photos', 5); // Allow up to 5 photos
 
 export const validateReferralCode = async (req: Request, res: Response) => {
     try {
@@ -20,12 +25,27 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 
 export const signup = async (req: Request, res: Response) => {
     try {
-        const response: any = await signUpService(req.body, req.body.authType, res)
-        return res.status(httpStatusCode.CREATED).json(response)
+        const userData = req.body;
+        
+        // Handle file uploads if files exist
+        if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+            // Upload files to S3
+            const filePaths = await uploadMultipleFilesToS3(req.files, userData.email);
+            
+            // Add file paths to user data
+            userData.photos = filePaths;
+        }
+        
+        // Continue with the regular signup process
+        const response: any = await signUpService(userData, userData.authType, res);
+        return res.status(httpStatusCode.CREATED).json(response);
     }
     catch (error: any) {
-        const { code, message } = errorParser(error)
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
+        const { code, message } = errorParser(error);
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ 
+            success: false, 
+            message: message || "An error occurred" 
+        });
     }
 }
 
@@ -287,4 +307,30 @@ export const changePassword = async (req: Request, res: Response) => {
   }
 }
 
+export const getSignedUrlsForSignup = async (req: Request, res: Response) => {
+    try {
+        const { files, email } = req.body;
+        
+        if (!files || !Array.isArray(files) || !email) {
+            return res.status(httpStatusCode.BAD_REQUEST).json({
+                success: false,
+                message: "Files array and email are required"
+            });
+        }
+        
+        const signedUrls = await generateMultipleSignedUrls(files, email);
+        
+        return res.status(httpStatusCode.OK).json({
+            success: true,
+            message: "Signed URLs generated successfully",
+            data: signedUrls
+        });
+    } catch (error: any) {
+        const { code, message } = errorParser(error);
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+            success: false,
+            message: message || "An error occurred generating signed URLs"
+        });
+    }
+}
 

@@ -30,3 +30,24 @@ export const generateSignedUrlToUploadOn = async (fileName: string, fileType: st
         throw error;
     }
 }
+
+export const generateMultipleSignedUrls = async (files: Array<{name: string, type: string}>, userEmail: string) => {
+    try {
+        const signedUrls = await Promise.all(
+            files.map(async (file) => {
+                const fileName = `${Date.now()}-${file.name}`;
+                const signedUrl = await generateSignedUrlToUploadOn(fileName, file.type, userEmail);
+                return {
+                    fileName: `projects/${userEmail}/my-projects/${fileName}`,
+                    signedUrl,
+                    originalName: file.name
+                };
+            })
+        );
+        return signedUrls;
+    } catch (error) {
+        console.error("Error generating multiple signed URLs:", error);
+        throw error;
+    }
+}
+
