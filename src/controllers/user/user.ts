@@ -3,7 +3,7 @@ import { httpStatusCode } from "../../lib/constant"
 import { errorParser } from "../../lib/errors/error-response-handler"
 import { passswordResetSchema, verifyOtpSchema, verifyPasswordSchema } from "../../validation/client-user"
 import { formatZodErrors } from "../../validation/format-zod-errors"
-import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllUsersService} from "../../uploads/user/user"
+import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService} from "../../uploads/user/user"
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
@@ -334,9 +334,9 @@ export const getSignedUrlsForSignup = async (req: Request, res: Response) => {
     }
 }
 
-export const getAllUsers = async (req: Request, res: Response) => {
+export const getAllFollowedUsers = async (req: Request, res: Response) => {
     try {
-        const response = await getAllUsersService(req, res);
+        const response = await getAllFollowedUsersService(req, res);
         return res.status(httpStatusCode.OK).json(response);
     } catch (error: any) {
         const { code, message } = errorParser(error);

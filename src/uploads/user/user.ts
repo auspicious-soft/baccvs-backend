@@ -1233,12 +1233,25 @@ export const changePasswordService = async (req: any, res: Response) => {
   };
 }
 
-export const getAllUsersService = async (req: any, res: Response) => {
+export const getAllFollowedUsersService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
   if (!userId) {
     return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
   }
-  const users = await usersModel.find().select('-password');
+  // check for both user follow each other
+  
+  const following = await followModel.find({
+    follower_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true
+  }).select('following_id');
+  if (!following) {
+    return errorResponseHandler("Users not found", httpStatusCode.NOT_FOUND, res);
+  }
+  const followingIds = following.map(f => f.following_id);
+  const users = await usersModel.find({
+    _id: { $in: followingIds }
+  }).select('-password');
   if (!users) {
     return errorResponseHandler("Users not found", httpStatusCode.NOT_FOUND, res);
   }
@@ -1247,4 +1260,5 @@ export const getAllUsersService = async (req: any, res: Response) => {
     message: "Users retrieved successfully",
     data: users
   };
+
 }

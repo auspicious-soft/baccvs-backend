@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllUsers } from "../controllers/user/user";
+import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers } from "../controllers/user/user";
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
@@ -38,7 +38,7 @@ router.patch("/toggle/twofactor",toggleTwoFactorAuthentication)
 router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
 
 // create api to get all user 
-router.get("/get/all/user", getAllUsers)
+router.get("/get/all/followedUser", getAllFollowedUsers)
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
