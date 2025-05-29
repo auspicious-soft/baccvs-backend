@@ -521,7 +521,8 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 expiresAt: { $gt: new Date() }
             })
             .sort({ createdAt: -1 })
-            .populate('user', 'userName photos');
+            .populate('user', 'userName photos')
+            .populate('viewedBy', 'userName photos'); // Add viewedBy population
             
         // Group user's own stories
         let userStories = null;
@@ -540,6 +541,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
+            .populate('viewedBy', 'userName photos') // Add viewedBy population
             .limit(10);
         
         // Group following stories by user
@@ -1231,3 +1233,18 @@ export const changePasswordService = async (req: any, res: Response) => {
   };
 }
 
+export const getAllUsersService = async (req: any, res: Response) => {
+  const { id: userId } = req.user;
+  if (!userId) {
+    return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+  }
+  const users = await usersModel.find().select('-password');
+  if (!users) {
+    return errorResponseHandler("Users not found", httpStatusCode.NOT_FOUND, res);
+  }
+  return {
+    success: true,
+    message: "Users retrieved successfully",
+    data: users
+  };
+}
