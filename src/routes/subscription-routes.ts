@@ -40,13 +40,7 @@ router.post("/cancel", checkAuth, cancelSubscription);
 // Add this route to your subscription routes
 router.post("/payment-intent", checkAuth, createPaymentIntent);
 
-// Stripe webhook handler - no auth check as it's called by Stripe
-// Use raw body parser for Stripe webhooks
-// router.post(
-//   "/webhook", 
-//   bodyParser.raw({ type: 'application/json' }), 
-//   handleSubscriptionWebhook
-// );
+
 
 export { router };
 
