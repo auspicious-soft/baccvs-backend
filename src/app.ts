@@ -65,18 +65,9 @@ app.use('/uploads', express.static(uploadsDir))
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Then define your routes
-app.get('/reset-password', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
-});
-
+// Password reset routes
 app.get('/reset-password/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
-});
-
-// Add this test route
-app.get('/test-route', (_, res:any) => {
-  res.send('Server is working correctly!');
 });
 
 connectDB();
@@ -106,7 +97,6 @@ app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
 app.post("/api/user/reset-password", resetPasswordWithToken);
-
 // First screen - verify password
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
