@@ -75,7 +75,7 @@ app.get('/reset-password/:token', (req, res) => {
 });
 
 // Add this test route
-app.get('/test-route', (req, res) => {
+app.get('/test-route', (_, res:any) => {
   res.send('Server is working correctly!');
 });
 
