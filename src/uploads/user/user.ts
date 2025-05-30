@@ -247,7 +247,7 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
         process.env.JWT_SECRET as string,
         { expiresIn: '1h' }
     );
-
+ 
     // Create reset link
     const resetLink = `${process.env.PASSWORD_RESET_URL}?token=${resetToken}`;
 

@@ -66,7 +66,7 @@ app.use('/uploads', express.static(uploadsDir))
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Password reset routes
-app.get('/reset-password/:token', (req, res) => {
+app.get('/reset-password', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
