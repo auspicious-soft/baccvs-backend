@@ -65,14 +65,18 @@ app.use('/uploads', express.static(uploadsDir))
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Password reset routes
+// Then define your routes
 app.get('/reset-password', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
-// Also add this to handle both formats
 app.get('/reset-password/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
+});
+
+// Add this test route
+app.get('/test-route', (req, res) => {
+  res.send('Server is working correctly!');
 });
 
 connectDB();

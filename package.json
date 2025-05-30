@@ -6,9 +6,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "tsx src/app.ts",
-    "dev": "tsx watch src/app.ts",
-    "build": "tsc"
+    "build": "tsc && cp -r src/public dist/",
+    "start": "node dist/app.js",
+    "dev": "nodemon --exec ts-node src/app.ts"
   },
   "keywords": [],
   "author": "",
@@ -59,3 +59,4 @@
     "zod": "^3.23.8"
   }
 }
+
