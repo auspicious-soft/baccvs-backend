@@ -3,7 +3,7 @@ import { createPost, deletepost, getAllPost, getAllPostOfCurrentUser, getPostByI
 
 const router = Router();
 
-router.post("/", uploadPostPhotos, createPost)
+router.post("/", createPost)
 router.get("/:id", getPostById)
 router.get("/get/AllPost", getAllPost)
 router.get("/get/PostOfUser", getAllPostOfCurrentUser)
