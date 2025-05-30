@@ -70,6 +70,11 @@ app.get('/reset-password', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
+// Also add this to handle both formats
+app.get('/reset-password/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
+});
+
 connectDB();
 
 
@@ -96,6 +101,7 @@ app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
+app.post("/api/user/reset-password", resetPasswordWithToken);
 
 // First screen - verify password
 

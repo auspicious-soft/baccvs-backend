@@ -247,12 +247,12 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
         process.env.JWT_SECRET as string,
         { expiresIn: '1h' }
     );
- 
-    // Create reset link
+
+    // Create reset link with query parameter format
     const resetLink = `${process.env.PASSWORD_RESET_URL}?token=${resetToken}`;
 
     // Send email with reset link
-    await sendPasswordResetEmail(email,resetLink);
+    await sendPasswordResetEmail(email, resetLink);
 
     return { 
         success: true, 

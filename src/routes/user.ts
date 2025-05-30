@@ -19,7 +19,7 @@ router.post("/change-phone/submit",submitNewPhone);
 router.post("/change-email/verify",verifyAndCompleteEmailChange);
 router.post("/change-phone/verify",verifyAndCompletePhoneChange);
 router.post("/forgot-password", forgotPassword)
-router.post("/reset-password", resetPasswordWithToken)
+// router.post("/reset-password", resetPasswordWithToken)
 router.post("/create/professionalId",createProfessionalProfile)
 router.post("/create/promotion",createPromotion)
 router.post("/change-password", changePassword)
