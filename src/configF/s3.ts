@@ -59,7 +59,7 @@ export const uploadStreamToS3Service = async (
   userEmail: string
 ): Promise<string> => {
   const timestamp = Date.now();
-  const imageKey = `users/${userEmail}/images/${timestamp}-${fileName}`;
+  const imageKey = `users/${userEmail}/${fileType}/${timestamp}-${fileName}`;
   
   // Convert stream to buffer
   const chunks: any[] = [];

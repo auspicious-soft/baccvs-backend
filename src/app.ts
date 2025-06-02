@@ -76,9 +76,10 @@ connectDB();
 app.get("/", (_, res: any) => {
     res.send("Hello world entry point 🚀✅");
 });
+app.post("/api/user/reset/password", resetPasswordWithToken);
 app.use("/api/referal",referal);
 app.use("/api/login", login);
-app.use("/api/signup",uploadUserPhotos, signup);
+app.use("/api/signup", signup);
 app.use("/api/user",checkAuth, user);
 app.use("/api/follow",checkAuth, follow);
 app.use("/api/post",checkAuth,post);
@@ -96,7 +97,6 @@ app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
-app.post("/api/user/reset-password", resetPasswordWithToken);
 // First screen - verify password
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

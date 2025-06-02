@@ -20,6 +20,9 @@ import { RepostModel } from "src/models/repost/repost-schema"
 import { eventModel } from "src/models/event/event-schema"
 import { UserMatch } from "src/models/usermatch/usermatch-schema"
 import { Comment } from "src/models/comment/comment-schema"
+import { Readable } from 'stream';
+import Busboy from 'busboy';
+import { uploadStreamToS3Service } from "src/configF/s3";
 configDotenv()
 
 
@@ -29,99 +32,291 @@ const sanitizeUser = (user: any) => {
   return sanitized;
 };
 
-export const signUpService = async (userData: any, authType: string, res: Response) => {
-  if(!userData) return errorResponseHandler("User data is required", httpStatusCode.BAD_REQUEST, res)  
- 
-      // Validate auth type
-      if (!authType) {
-        return errorResponseHandler("Auth type is required", httpStatusCode.BAD_REQUEST, res);
-      }
-  
-      if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
-        return errorResponseHandler("Invalid auth type", httpStatusCode.BAD_REQUEST, res);
-      }
-  
-      // Check for existing user
-      const query = getSignUpQueryByAuthType(userData, authType);
-      const existingUser = await usersModel.findOne(query);
-      const existingUserResponse = existingUser ? handleExistingUser(existingUser as any, authType, res) : null;
-      if (existingUserResponse) return existingUserResponse;
-      const existingNumber = await usersModel.findOne({ phoneNumber: userData.phoneNumber });
-      if (existingNumber) {
-        return errorResponseHandler("Phone number already registered", httpStatusCode.BAD_REQUEST, res);
-      }
-      const existingUserName = await usersModel.findOne({ userName: userData.userName });
-      if (existingUserName) {
-        return errorResponseHandler("Username already taken", httpStatusCode.BAD_REQUEST, res);
-      }
-  
-      // Process photos if they exist
-      let photos = userData.photos || [];
-      if (typeof photos === 'string') {
-        // If photos is a string (single photo), convert to array
-        photos = [photos];
-      }
-  
-      // Prepare new user data
-      const newUserData = { 
-        ...userData,
-        authType,
-        email: userData.email?.toLowerCase(), // Ensure email is lowercase
-        identifier: customAlphabet("0123456789", 5)(),
-        photos: photos
-      };
+export const signUpService = async (req: any, userData: any, authType: string, res: Response) => {
+  if (!userData) {
+    return {
+      success: false,
+      message: "User data is required",
+      code: httpStatusCode.BAD_REQUEST
+    };
+  }
 
-      // Hash password if email auth
-      newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
-  
-      // Get referral code if provided
-      if(!userData.referralCode) {
-        return errorResponseHandler("Referral code is required", httpStatusCode.BAD_REQUEST, res);
-      }
-      if (userData.referralCode) {
-        newUserData.referredBy = await getReferralCodeCreator(userData, res);
-        if (!newUserData.referredBy) return; // getReferralCodeCreator will handle the error response
-      }
-  
-      // Create user
-      let user = await usersModel.create(newUserData);
-  
-      // Handle referral code updates
-      if (user._id && newUserData.referredBy) {
-        await Promise.all([
-          ReferralCodeModel.findByIdAndUpdate(
-            newUserData.referredBy,
-            { 
-              $set: {
-                used: true, 
-                referredUser: user._id
-              }
-            },
-            { new: true }
-          ),
-          createReferralCodeService(user._id, res)
-        ]);
-      }
-  
-      // Generate token for non-email auth
-      if (!process.env.JWT_SECRET) {
-        return errorResponseHandler("JWT_SECRET is not defined", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-      }
-  
-      if (authType !== "Email") {
-        user.token = generateUserToken(user as any);
-      }
-  
-      // Populate and save
-      user = await user.populate('referredBy');
-      await user.save();
-  
-      return { 
-        success: true, 
-        message: authType === "Email" ? "User registered with Email successfully" : "Sign-up successfully", 
-        data: sanitizeUser(user) 
+  // Log incoming data for debugging
+  console.log('signUpService - userData:', userData);
+  console.log('signUpService - authType:', authType);
+
+  // Process file uploads if Content-Type is multipart/form-data
+  let photos: string[] = [];
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return new Promise((resolve, reject) => {
+      const busboy = Busboy({ headers: req.headers });
+      const uploadPromises: Promise<string>[] = [];
+      const parsedData: any = { ...userData }; // Copy userData to avoid overwriting
+
+      busboy.on('field', (fieldname: string, value: string) => {
+        // Handle location field specifically
+        if (fieldname === 'location') {
+          try {
+            const parsedLocation = JSON.parse(value);
+            // Validate GeoJSON format
+            if (
+              parsedLocation &&
+              parsedLocation.type === 'Point' &&
+              Array.isArray(parsedLocation.coordinates) &&
+              parsedLocation.coordinates.length === 2 &&
+              typeof parsedLocation.coordinates[0] === 'number' &&
+              typeof parsedLocation.coordinates[1] === 'number'
+            ) {
+              parsedData[fieldname] = parsedLocation;
+              console.log(`Busboy - Parsed location:`, parsedLocation); // Debug log
+            } else {
+              console.log(`Busboy - Invalid location format:`, value);
+              return reject({
+                success: false,
+                message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude] and optional address",
+                code: httpStatusCode.BAD_REQUEST
+              });
+            }
+          } catch (error) {
+            console.log(`Busboy - Failed to parse location:`, error.message);
+            return reject({
+              success: false,
+              message: "Failed to parse location. Must be a valid JSON string",
+              code: httpStatusCode.BAD_REQUEST
+            });
+          }
+        } else {
+          // Store other fields as strings
+          parsedData[fieldname] = value;
+        }
+        console.log(`Busboy - Parsed field: ${fieldname}=${value}`); // Debug log
+      });
+
+      busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
+        if (!['photos', 'videos'].includes(fieldname)) {
+          fileStream.resume(); // Skip non-photo/video files
+          return;
+        }
+
+        const { filename, mimeType } = fileInfo;
+
+        // Validate file type
+        const isImage = mimeType.startsWith('image/');
+        const isVideo = mimeType.startsWith('video/');
+        if (!isImage && !isVideo) {
+          fileStream.resume();
+          return reject({
+            success: false,
+            message: 'Only image or video files are allowed',
+            code: httpStatusCode.BAD_REQUEST
+          });
+        }
+
+        // Create a readable stream from the file stream
+        const readableStream = new Readable();
+        readableStream._read = () => {}; // Required implementation
+
+        fileStream.on('data', (chunk: any) => {
+          readableStream.push(chunk);
+        });
+
+        fileStream.on('end', () => {
+          readableStream.push(null); // End of stream
+        });
+
+        // Add upload promise to array
+        const uploadPromise = uploadStreamToS3Service(
+          readableStream,
+          filename,
+          mimeType,
+          parsedData.email || `user_${customAlphabet('0123456789', 5)()}`
+        );
+        uploadPromises.push(uploadPromise);
+      });
+
+      busboy.on('finish', async () => {
+        try {
+          // Wait for all file uploads to complete
+          photos = await Promise.all(uploadPromises);
+
+          // Use parsedData instead of userData
+          // Extract authType from parsedData if not provided
+          authType = authType || parsedData.authType;
+          console.log('Busboy - Final authType:', authType); // Debug log
+
+          // Validate auth type
+          if (!authType) {
+            return reject({
+              success: false,
+              message: "Auth type is required",
+              code: httpStatusCode.BAD_REQUEST
+            });
+          }
+
+          if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
+            return reject({
+              success: false,
+              message: "Invalid auth type",
+              code: httpStatusCode.BAD_REQUEST
+            });
+          }
+
+          // Continue with the original logic
+          resolve(await processUserData(parsedData, authType, photos, res));
+        } catch (error) {
+          console.error('Upload error:', error);
+          reject({
+            success: false,
+            message: error.message || 'Failed to upload files',
+            code: httpStatusCode.INTERNAL_SERVER_ERROR
+          });
+        }
+      });
+
+      busboy.on('error', (error: any) => {
+        console.error('Busboy error:', error);
+        reject({
+          success: false,
+          message: error.message || 'Error processing file uploads',
+          code: httpStatusCode.INTERNAL_SERVER_ERROR
+        });
+      });
+
+      req.pipe(busboy);
+    });
+  } else {
+    // If no multipart/form-data, process userData without file uploads
+    // Use authType from userData if not provided
+    authType = authType || userData.authType;
+    console.log('Non-multipart - Final authType:', authType); // Debug log
+
+    // Validate auth type
+    if (!authType) {
+      return {
+        success: false,
+        message: "Auth type is required",
+        code: httpStatusCode.BAD_REQUEST
       };
+    }
+
+    if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
+      return {
+        success: false,
+        message: "Invalid auth type",
+        code: httpStatusCode.BAD_REQUEST
+      };
+    }
+
+    return processUserData(userData, authType, photos, res);
+  }
+};
+
+// Helper function to process user data and continue original logic
+const processUserData = async (userData: any, authType: string, photos: string[], res: Response) => {
+  // Check for existing user
+  const query = getSignUpQueryByAuthType(userData, authType);
+  const existingUser = await usersModel.findOne(query);
+  const existingUserResponse = existingUser ? handleExistingUser(existingUser as any, authType, res) : null;
+  if (existingUserResponse) return existingUserResponse;
+  const existingNumber = await usersModel.findOne({ phoneNumber: userData.phoneNumber });
+  if (existingNumber) {
+    return {
+      success: false,
+      message: "Phone number already registered",
+      code: httpStatusCode.BAD_REQUEST
+    };
+  }
+  const existingUserName = await usersModel.findOne({ userName: userData.userName });
+  if (existingUserName) {
+    return {
+      success: false,
+      message: "Username already taken",
+      code: httpStatusCode.BAD_REQUEST
+    };
+  }
+
+  // Prepare new user data
+  const newUserData = {
+    ...userData,
+    authType,
+    email: userData.email?.toLowerCase(),
+    identifier: customAlphabet("0123456789", 5)(),
+    photos // Store S3 keys
   };
+
+  // Hash password if email auth
+  newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
+
+  // Get referral code if provided
+  if (!userData.referralCode) {
+    return {
+      success: false,
+      message: "Referral code is required",
+      code: httpStatusCode.BAD_REQUEST
+    };
+  }
+  if (userData.referralCode) {
+    newUserData.referredBy = await getReferralCodeCreator(userData, res);
+    if (!newUserData.referredBy) {
+      return {
+        success: false,
+        message: "Invalid referral code",
+        code: httpStatusCode.BAD_REQUEST
+      };
+    }
+  }
+
+  // Log newUserData before saving
+  console.log('processUserData - newUserData:', newUserData);
+
+  // Create user
+  let user = await usersModel.create(newUserData);
+
+  // Handle referral code updates
+  if (user._id && newUserData.referredBy) {
+    await Promise.all([
+      ReferralCodeModel.findByIdAndUpdate(
+        newUserData.referredBy,
+        {
+          $set: {
+            used: true,
+            referredUser: user._id
+          }
+        },
+        { new: true }
+      ),
+      createReferralCodeService(user._id, res)
+    ]);
+  }
+
+  // Generate token for non-email auth
+  if (!process.env.JWT_SECRET) {
+    return {
+      success: false,
+      message: "JWT_SECRET is not defined",
+      code: httpStatusCode.INTERNAL_SERVER_ERROR
+    };
+  }
+
+  if (authType !== "Email") {
+    user.token = generateUserToken(user as any);
+  }
+
+  // Populate and save
+  user = await user.populate('referredBy');
+  await user.save();
+
+  // Log saved user
+  console.log('processUserData - Saved user:', user);
+
+  return {
+    success: true,
+    message: authType === "Email" ? "User registered with Email successfully" : "Sign-up successfully",
+    data: sanitizeUser(user)
+  };
+};
+
+
 
 export const loginUserService = async (userData: any, authType: string, res: Response) => {
 if(!userData) return errorResponseHandler("User data is required", httpStatusCode.BAD_REQUEST, res)  
@@ -259,7 +454,7 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
         message: "Password reset link sent to email" 
     };
 }
- 
+
 export const resetPasswordWithTokenService = async (req: Request, res: Response) => {
   const { token, newPassword } = req.body;
 

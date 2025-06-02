@@ -26,18 +26,7 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 export const signup = async (req: Request, res: Response) => {
     try {
         const userData = req.body;
-        
-        // Handle file uploads if files exist
-        if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-            // Upload files to S3
-            const filePaths = await uploadMultipleFilesToS3(req.files, userData.email);
-            
-            // Add file paths to user data
-            userData.photos = filePaths;
-        }
-        
-        // Continue with the regular signup process
-        const response: any = await signUpService(userData, userData.authType, res);
+        const response: any = await signUpService(req,userData, userData.authType, res);
         return res.status(httpStatusCode.CREATED).json(response);
     }
     catch (error: any) {
