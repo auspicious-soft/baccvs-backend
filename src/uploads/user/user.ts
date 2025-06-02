@@ -259,7 +259,7 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
         message: "Password reset link sent to email" 
     };
 }
-
+ 
 export const resetPasswordWithTokenService = async (req: Request, res: Response) => {
   const { token, newPassword } = req.body;
 
