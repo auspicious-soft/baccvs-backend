@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers } from "../controllers/user/user";
+import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference } from "../controllers/user/user";
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
@@ -35,6 +35,7 @@ router.put("/update/professional/profile/:id",updateProfessionalProfile)
 router.patch("/toggle/notification",notificationSetting)
 router.patch("/toggle/promotion/:id",togglePromotionStatus)
 router.patch("/toggle/twofactor",toggleTwoFactorAuthentication)
+router.patch("/toggle/privacy",togglePrivacyPreference)
 router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
 
 // create api to get all user 

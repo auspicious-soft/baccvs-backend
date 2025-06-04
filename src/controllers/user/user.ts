@@ -3,7 +3,7 @@ import { httpStatusCode } from "../../lib/constant"
 import { errorParser } from "../../lib/errors/error-response-handler"
 import { passswordResetSchema, verifyOtpSchema, verifyPasswordSchema } from "../../validation/client-user"
 import { formatZodErrors } from "../../validation/format-zod-errors"
-import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService} from "../../uploads/user/user"
+import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService} from "../../uploads/user/user"
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
@@ -332,6 +332,18 @@ export const getAllFollowedUsers = async (req: Request, res: Response) => {
         return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
             success: false,
             message: message || "An error occurred fetching users"
+        });
+    }
+}
+export const togglePrivacyPreference = async (req: Request, res: Response) => {
+    try {
+        const response = await togglePrivacyPreferenceService(req, res);
+        return res.status(httpStatusCode.OK).json(response);
+    } catch (error: any) {
+        const { code, message } = errorParser(error);
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+            success: false,
+            message: message || "An error occurred toggling privacy preference"
         });
     }
 }

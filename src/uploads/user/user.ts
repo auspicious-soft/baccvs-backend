@@ -1,5 +1,5 @@
 import { Request, Response } from "express"
-import { errorResponseHandler } from "../../lib/errors/error-response-handler"
+import { errorParser, errorResponseHandler } from "../../lib/errors/error-response-handler"
 import { AtmosphereVibe, EventType, InterestCategory, MusicStyle, usersModel } from "../../models/user/user-schema"
 import bcrypt from "bcryptjs"
 import { generatePasswordResetToken, generatePasswordResetTokenByPhone, getPasswordResetTokenByToken } from "../../utils/mails/token"
@@ -78,7 +78,7 @@ export const signUpService = async (req: any, userData: any, authType: string, r
               });
             }
           } catch (error) {
-            console.log(`Busboy - Failed to parse location:`, error.message);
+            console.log(`Busboy - Failed to parse location:`, (error as any).message);
             return reject({
               success: false,
               message: "Failed to parse location. Must be a valid JSON string",
@@ -167,7 +167,7 @@ export const signUpService = async (req: any, userData: any, authType: string, r
           console.error('Upload error:', error);
           reject({
             success: false,
-            message: error.message || 'Failed to upload files',
+            message: (error as any).message || 'Failed to upload files',
             code: httpStatusCode.INTERNAL_SERVER_ERROR
           });
         }
@@ -1457,3 +1457,33 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
   };
 
 }
+
+export const togglePrivacyPreferenceService = async (req: any, res: Response) => {
+    const { id: userId } = req.user;
+    const { accountType } = req.body;
+
+    // Validate input
+    if (!userId) {
+      return errorResponseHandler("User ID is required", httpStatusCode.BAD_REQUEST, res);
+    }
+    if (!accountType || !["public", "matches", "follower"].includes(accountType)) {
+      return errorResponseHandler("Invalid or missing accountType. Must be one of: public, matches, follower", httpStatusCode.BAD_REQUEST, res);
+    }
+
+    // Update user's accountType
+    const user = await usersModel.findByIdAndUpdate(
+      userId,
+      { accountType },
+      { new: true }
+    ).select("-password");
+
+    if (!user) {
+      return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    return {
+      success: true,
+      message: "Privacy preference updated successfully",
+      data: user
+    };
+};
