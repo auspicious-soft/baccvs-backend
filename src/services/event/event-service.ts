@@ -19,7 +19,7 @@ export const createEventService = async (req: Request, res: Response) => {
       res
     );
   }
- 
+
   const { id: creatorId } = req.user as JwtPayload;
   let parsedData: any = {};
   let coverPhoto: string | null = null;
@@ -27,19 +27,29 @@ export const createEventService = async (req: Request, res: Response) => {
 
   // Handle multipart/form-data for file uploads
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
+    console.log("Processing multipart/form-data request");
+    console.log("Content-Type:", req.headers["content-type"]);
+
     return new Promise((resolve, reject) => {
       const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Promise<string>[] = [];
+      const uploadPromises: Array<{ promise: Promise<string>; fieldname: string }> = [];
+
+      console.log("Busboy instance created");
 
       busboy.on("field", (fieldname: string, value: string) => {
         if (
-          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(fieldname)
+          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(
+            fieldname
+          )
         ) {
           try {
             parsedData[fieldname] = JSON.parse(value);
             console.log(`Busboy - Parsed ${fieldname}:`, parsedData[fieldname]);
           } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, (error instanceof Error ? error.message : String(error)));
+            console.log(
+              `Busboy - Failed to parse ${fieldname}:`,
+              error instanceof Error ? error.message : String(error)
+            );
             return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
@@ -53,21 +63,32 @@ export const createEventService = async (req: Request, res: Response) => {
       });
 
       busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
+        console.log(
+          `Busboy - Processing file: fieldname=${fieldname}, filename=${fileInfo.filename}, mimeType=${fileInfo.mimeType}`
+        );
+
         if (!["coverPhoto", "videos"].includes(fieldname)) {
+          console.log(`Busboy - Skipping file with fieldname: ${fieldname}`);
           fileStream.resume();
           return;
         }
 
         const { filename, mimeType } = fileInfo;
 
-        // Validate file type
-        const isImage = mimeType.startsWith("image/") && fieldname === "coverPhoto";
+        // Validate file type with fallback for extension
+        const isImage =
+          (mimeType.startsWith("image/") || /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
+          fieldname === "coverPhoto";
         const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
+
+        console.log(`Busboy - File validation: isImage=${isImage}, isVideo=${isVideo}`);
+
         if (!isImage && !isVideo) {
+          console.log(`Busboy - Rejecting file: ${filename} with type ${mimeType} for field ${fieldname}`);
           fileStream.resume();
           return reject({
             success: false,
-            message: "Only image files are allowed for coverPhoto and video files for videos",
+            message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
             code: httpStatusCode.BAD_REQUEST,
           });
         }
@@ -77,6 +98,7 @@ export const createEventService = async (req: Request, res: Response) => {
         readableStream._read = () => {};
 
         fileStream.on("data", (chunk: any) => {
+          console.log(`Received ${chunk.length} bytes for ${filename}`);
           readableStream.push(chunk);
         });
 
@@ -84,27 +106,61 @@ export const createEventService = async (req: Request, res: Response) => {
           readableStream.push(null);
         });
 
-        // Upload to S3
+        // Upload to S3 and track which field it belongs to
+        console.log(`Busboy - Starting upload for ${fieldname}: ${filename}`);
         const uploadPromise = uploadStreamToS3Service(
           readableStream,
           filename,
           mimeType,
           parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        );
-        uploadPromises.push(uploadPromise);
+        ).catch((err) => {
+          console.error(`S3 upload failed for ${filename}:`, err);
+          throw err;
+        });
+
+        uploadPromises.push({ promise: uploadPromise, fieldname });
+        console.log(`Busboy - Added upload promise for ${fieldname}, total promises: ${uploadPromises.length}`);
       });
 
       busboy.on("finish", async () => {
+        console.log("Busboy finished processing");
+        console.log("Total upload promises created:", uploadPromises.length);
+
         try {
           // Wait for file uploads
-          const uploadedFiles = await Promise.all(uploadPromises);
-          uploadedFiles.forEach((url, index) => {
-            if (index === 0 && !coverPhoto && !parsedData.coverPhoto) {
-              coverPhoto = url;
-            } else {
-              videos.push(url);
-            }
-          });
+          if (uploadPromises.length > 0) {
+            console.log("Processing", uploadPromises.length, "file uploads...");
+            const uploadResults = await Promise.all(uploadPromises.map((item) => item.promise));
+
+            // Process uploads based on their fieldname
+            uploadResults.forEach((url, index) => {
+              const fieldname = uploadPromises[index].fieldname;
+              console.log(`Processing upload: ${fieldname} -> ${url}`);
+              if (fieldname === "coverPhoto") {
+                coverPhoto = url;
+              } else if (fieldname === "videos") {
+                videos.push(url);
+              }
+            });
+          } else {
+            console.log("No file uploads to process");
+          }
+
+          console.log("Final coverPhoto:", coverPhoto);
+          console.log("Final videos:", videos);
+          console.log("Parsed data coverPhoto:", parsedData.coverPhoto);
+
+          // Check if we have a coverPhoto from either upload or form field
+          const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
+          if (!finalCoverPhoto) {
+            console.log("ERROR: No coverPhoto found in uploads or form data");
+            return reject({
+              success: false,
+              message:
+                "Cover photo is required but was not provided or failed to upload. Please ensure you're sending a file with fieldname 'coverPhoto'",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
 
           // Proceed with event creation
           resolve(await processEventCreation(parsedData, creatorId, coverPhoto, videos, res));
@@ -127,6 +183,7 @@ export const createEventService = async (req: Request, res: Response) => {
         });
       });
 
+      console.log("Piping request to busboy...");
       req.pipe(busboy);
     });
   } else {
@@ -135,6 +192,7 @@ export const createEventService = async (req: Request, res: Response) => {
   }
 };
 
+// Process event creation logic
 const processEventCreation = async (
   data: any,
   creatorId: string,
@@ -228,7 +286,9 @@ const processEventCreation = async (
       };
     }
 
-    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: lineup } }).select("_id").lean();
+    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: lineup } })
+      .select("_id")
+      .lean();
     if (existingProfiles.length !== lineup.length) {
       const missingIds = lineup.filter(
         (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
@@ -289,8 +349,8 @@ const processEventCreation = async (
     eventVisibility: eventVisibility || EventVisibility.PUBLIC,
     invitedGuests: invitedGuests || [],
     media: {
-      coverPhoto: coverPhoto || data.coverPhoto ,
-      videos: videos.length > 0 ? videos : data.videos ,
+      coverPhoto: coverPhoto || data.coverPhoto,
+      videos: videos.length > 0 ? videos : data.videos || [],
     },
     coHosts: coHosts || [],
     lineup: lineup || [],
