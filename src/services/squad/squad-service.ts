@@ -5,6 +5,11 @@ import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import Joi from "joi";
 import { usersModel } from "src/models/user/user-schema";
+import { createSquadConversationService } from "../chat/squad-chat-service";
+import { Readable } from "stream";
+import { uploadStreamToS3Service } from "src/configF/s3";
+import busboy from "busboy";
+import { customAlphabet } from "nanoid";
 
 // Validation schemas
 
@@ -79,105 +84,347 @@ export const createSquadService = async (req: any, res: Response) => {
   
   if (!authenticateUser(req, res)) return;
 
-  const { id: userId } = req.user;
+  const { id: userId, email } = req.user;
 
-  
-  const { title, about, media, squadInterest, membersToAdd } = req.body;
-  if (!title || !about || !squadInterest) {
-    return errorResponseHandler(
-      "Title, about, and squad interests are required",
-      httpStatusCode.BAD_REQUEST,
-      res
-    );
-  }
-  
-  
-  // Set maxMembers to fixed value of 4 on the backend
-  const maxMembers = 4;
+  // Handle multipart/form-data for file uploads
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return new Promise((resolve, reject) => {
+      const busboyParser = busboy({ headers: req.headers });
+      let parsedData: any = { media: [], squadInterest: [], membersToAdd: [] };
+      let uploadedMedia: string[] = [];
+      let fileUploadPromises: Promise<void>[] = [];
 
-  // Initialize members array with creator as admin
-  const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+      busboyParser.on('field', (fieldname: string, value: string) => {
+        console.log(`Busboy - Received field: ${fieldname}=${value}`);
+        
+        if (['squadInterest', 'membersToAdd'].includes(fieldname)) {
+          try {
+            parsedData[fieldname] = JSON.parse(value);
+          } catch (error) {
+            console.log(`Busboy - Failed to parse ${fieldname}:`, error instanceof Error ? error.message : String(error));
+            return reject({
+              success: false,
+              message: `Failed to parse ${fieldname}. Must be a valid JSON array`,
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+        } else {
+          parsedData[fieldname] = value;
+        }
+      });
 
-  
-  // Add additional members if provided
-  if (membersToAdd && Array.isArray(membersToAdd)) {
-    // Check if the total number of members would exceed the limit
-    if (1 + membersToAdd.length > maxMembers) {
+      busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
+        console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
+        
+        if (fieldname !== 'media') {
+          console.log(`Skipping file field: ${fieldname}`);
+          fileStream.resume(); // Drain the stream
+          return;
+        }
+
+        const { filename, mimeType } = fileInfo;
+        console.log(`Processing file: ${filename}, type: ${mimeType}`);
+
+        // Validate file type (image or video)
+        const isImage = mimeType.startsWith('image/');
+        const isVideo = mimeType.startsWith('video/');
+        if (!isImage && !isVideo) {
+          console.log(`Invalid file type: ${mimeType}`);
+          fileStream.resume(); // Drain the stream
+          return reject({
+            success: false,
+            message: 'Only image or video files are allowed for squad media',
+            code: httpStatusCode.BAD_REQUEST,
+          });
+        }
+
+        // Create a promise for each file upload
+        const fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
+          // Collect file chunks
+          const chunks: Buffer[] = [];
+          
+          fileStream.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+
+          fileStream.on('end', async () => {
+            try {
+              console.log(`File stream ended. Total chunks: ${chunks.length}`);
+              
+              if (chunks.length === 0) {
+                return rejectUpload(new Error('No file data received'));
+              }
+
+              // Combine all chunks into a single buffer
+              const fileBuffer = Buffer.concat(chunks);
+              console.log(`File buffer size: ${fileBuffer.length} bytes`);
+
+              // Create readable stream from buffer
+              const readableStream = new Readable();
+              console.log('readableStream:', readableStream);
+              readableStream.push(fileBuffer);
+              readableStream.push(null); // End the stream
+
+              // Upload to S3
+              const uploadedMediaUrl = await uploadStreamToS3Service(
+                readableStream,
+                filename,
+                mimeType,
+                email|| `squad_${customAlphabet('0123456789', 5)()}`
+              );
+              
+              uploadedMedia.push(uploadedMediaUrl);
+              console.log(`File uploaded successfully: ${uploadedMediaUrl}`);
+              resolveUpload();
+            } catch (error) {
+              console.error('File processing error:', error);
+              rejectUpload(error);
+            }
+          });
+
+          fileStream.on('error', (error: any) => {
+            console.error('File stream error:', error);
+            rejectUpload(error);
+          });
+        });
+
+        fileUploadPromises.push(fileUploadPromise);
+      });
+
+      busboyParser.on('finish', async () => {
+        console.log('Busboy finished parsing');
+        console.log('Parsed data:', parsedData);
+        
+        try {
+          // Wait for all file uploads to complete
+          if (fileUploadPromises.length > 0) {
+            console.log('Waiting for file uploads to complete...');
+            await Promise.all(fileUploadPromises);
+          }
+          
+          console.log('Media uploaded:', uploadedMedia);
+          
+          // Validate required fields
+          const { title, about, squadInterest, membersToAdd } = parsedData;
+          if (!title || !about || !squadInterest) {
+            return reject({
+              success: false,
+              message: "Title, about, and squad interests are required",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+
+          // Set maxMembers to fixed value of 4 on the backend
+          const maxMembers = 4;
+
+          // Initialize members array with creator as admin
+          const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+
+          // Add additional members if provided
+          if (membersToAdd && Array.isArray(membersToAdd)) {
+            // Check if the total number of members would exceed the limit
+            if (1 + membersToAdd.length > maxMembers) {
+              return reject({
+                success: false,
+                message: `Cannot add ${membersToAdd.length} members. Max members is ${maxMembers} including the creator.`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
+            }
+            
+            // Check for duplicate member IDs
+            const uniqueMemberIds = new Set(membersToAdd);
+            if (uniqueMemberIds.size !== membersToAdd.length) {
+              return reject({
+                success: false,
+                message: "Duplicate member IDs found",
+                code: httpStatusCode.BAD_REQUEST,
+              });
+            }
+
+            // Check for member exists
+            for (const memberId of membersToAdd) {
+              const userExists = await usersModel.findById(memberId);
+              if (!userExists) {
+                return reject({
+                  success: false,
+                  message: `User with ID ${memberId} does not exist`,
+                  code: httpStatusCode.BAD_REQUEST,
+                });
+              }
+            }
+
+            // Add each provided member ID (excluding the creator if they're in the list)
+            for (const memberId of membersToAdd) {
+              // Skip if it's the creator (already added)
+              if (memberId === userId) continue;
+              
+              // Add as a regular member
+              squadMembers.push({
+                user: new mongoose.Types.ObjectId(memberId),
+                role: "member",
+                joinedAt: new Date()
+              });
+            }
+          }
+
+          // Create new squad with uploaded media URLs
+          const squad = new Squad({
+            title,
+            about,
+            creator: userId,
+            members: squadMembers,
+            maxMembers,
+            media: uploadedMedia, // Array of uploaded media URLs
+            squadInterest: squadInterest || [],
+            status: SquadStatus.ACTIVE,
+          });
+
+          await squad.save();
+
+          // Create squad conversation after squad is created
+          await createSquadConversationService((squad as any)._id);
+
+          // Populate the member details for the response
+          const populatedSquad = await Squad.findById(squad._id)
+            .populate("creator", "userName photos")
+            .populate("members.user", "userName photos");
+
+          if (!populatedSquad) {
+            return reject({
+              success: false,
+              message: "Failed to retrieve created squad",
+              code: httpStatusCode.INTERNAL_SERVER_ERROR,
+            });
+          }
+
+          resolve({
+            success: true,
+            message: "Squad created successfully",
+            squad: populatedSquad,
+          });
+
+        } catch (error) {
+          console.error('Squad creation error:', error);
+          reject({
+            success: false,
+            message: error instanceof Error ? error.message : 'Failed to create squad',
+            code: httpStatusCode.INTERNAL_SERVER_ERROR,
+          });
+        }
+      });
+
+      busboyParser.on('error', (error: any) => {
+        console.error('Busboy error:', error);
+        reject({
+          success: false,
+          message: error.message || 'Error processing file uploads',
+          code: httpStatusCode.INTERNAL_SERVER_ERROR,
+        });
+      });
+
+      req.pipe(busboyParser);
+    });
+  } else {
+    // Handle JSON request (original logic)
+    const { title, about, media, squadInterest, membersToAdd } = req.body;
+    
+    if (!title || !about || !squadInterest) {
       return errorResponseHandler(
-        `Cannot add ${membersToAdd.length} members. Max members is ${maxMembers} including the creator.`,
+        "Title, about, and squad interests are required",
         httpStatusCode.BAD_REQUEST,
         res
       );
     }
     
-    // Check for duplicate member IDs
-    const uniqueMemberIds = new Set(membersToAdd);
-    if (uniqueMemberIds.size !== membersToAdd.length) {
-      return errorResponseHandler(
-        "Duplicate member IDs found",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-    // check for member exists
-    for (const memberId of membersToAdd) {
-      const userExists = await usersModel.findById(memberId);
-      if (!userExists) {
+    // Set maxMembers to fixed value of 4 on the backend
+    const maxMembers = 4;
+
+    // Initialize members array with creator as admin
+    const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+
+    // Add additional members if provided
+    if (membersToAdd && Array.isArray(membersToAdd)) {
+      // Check if the total number of members would exceed the limit
+      if (1 + membersToAdd.length > maxMembers) {
         return errorResponseHandler(
-          `User with ID ${memberId} does not exist`,
+          `Cannot add ${membersToAdd.length} members. Max members is ${maxMembers} including the creator.`,
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
-    }
-
-    // Add each provided member ID (excluding the creator if they're in the list)
-    for (const memberId of membersToAdd) {
-      // Skip if it's the creator (already added)
-      if (memberId === userId) continue;
       
-      // Add as a regular member
-      squadMembers.push({
-        user: new mongoose.Types.ObjectId(memberId),
-        role: "member",
-        joinedAt: new Date()
-      });
+      // Check for duplicate member IDs
+      const uniqueMemberIds = new Set(membersToAdd);
+      if (uniqueMemberIds.size !== membersToAdd.length) {
+        return errorResponseHandler(
+          "Duplicate member IDs found",
+          httpStatusCode.BAD_REQUEST,
+          res
+        );
+      }
+
+      // Check for member exists
+      for (const memberId of membersToAdd) {
+        const userExists = await usersModel.findById(memberId);
+        if (!userExists) {
+          return errorResponseHandler(
+            `User with ID ${memberId} does not exist`,
+            httpStatusCode.BAD_REQUEST,
+            res
+          );
+        }
+      }
+
+      // Add each provided member ID (excluding the creator if they're in the list)
+      for (const memberId of membersToAdd) {
+        // Skip if it's the creator (already added)
+        if (memberId === userId) continue;
+        
+        // Add as a regular member
+        squadMembers.push({
+          user: new mongoose.Types.ObjectId(memberId),
+          role: "member",
+          joinedAt: new Date()
+        });
+      }
     }
+
+    // Create new squad
+    const squad = new Squad({
+      title,
+      about,
+      creator: userId,
+      members: squadMembers,
+      maxMembers,
+      media: media || [], // Use provided media URLs or empty array
+      squadInterest: squadInterest || [],
+      status: SquadStatus.ACTIVE,
+    });
+
+    await squad.save();
+
+    // Create squad conversation after squad is created
+    await createSquadConversationService((squad as any)._id);
+
+    // Populate the member details for the response
+    const populatedSquad = await Squad.findById(squad._id)
+      .populate("creator", "userName photos")
+      .populate("members.user", "userName photos");
+
+    if (!populatedSquad) {
+      return errorResponseHandler(
+        "Failed to retrieve created squad",
+        httpStatusCode.INTERNAL_SERVER_ERROR,
+        res
+      );
+    }
+
+    return {
+      success: true,
+      message: "Squad created successfully",
+      squad: populatedSquad,
+    };
   }
-
-  // Create new squad - use formattedMedia instead of media
-  const squad = new Squad({
-    title,
-    about,
-    creator: userId,
-    members: squadMembers,
-    maxMembers,
-    media: media || [], // Use the converted media objects
-    squadInterest: squadInterest || [],
-    status: SquadStatus.ACTIVE,
-  });
-
-  await squad.save();
-
-  // Populate the member details for the response
-  const populatedSquad = await Squad.findById(squad._id)
-    .populate("creator", "userName photos")
-    .populate("members.user", "userName photos");
-
-  if (!populatedSquad) {
-    return errorResponseHandler(
-      "Failed to retrieve created squad",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
-
-  return {
-    success: true,
-    message: "Squad created successfully",
-    squad: populatedSquad,
-  };
-
 };
 
 /**
@@ -307,7 +554,7 @@ export const updateSquadService = async (req: any, res: Response) => {
       }
       
       // Replace the members array
-      squad.members = newMembers;
+      (squad as any).members = newMembers;
       await squad.save();
     }
 
