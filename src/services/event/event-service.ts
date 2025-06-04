@@ -312,7 +312,7 @@ const processEventCreation = async (
       };
     }
   }
- 
+
   // Validate location
   if (location) {
     if (
@@ -344,7 +344,7 @@ const processEventCreation = async (
     eventPreferences: eventPreferences || {
       musicType: [],
       eventType: [],
-      venueType: [], // Changed from null to [] to store an array of strings
+      venueType: null,
     },
     eventVisibility: eventVisibility || EventVisibility.PUBLIC,
     invitedGuests: invitedGuests || [],
