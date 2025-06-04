@@ -312,7 +312,7 @@ const processEventCreation = async (
       };
     }
   }
-
+ 
   // Validate location
   if (location) {
     if (
