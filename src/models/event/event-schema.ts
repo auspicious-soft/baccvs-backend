@@ -81,9 +81,13 @@ const eventSchema = new Schema({
     ref: 'users'
   }],
   lineup: [{
-    type : mongoose.Schema.Types.ObjectId,
-    ref:"professionalProfiles"
-}],
+    artist: {
+      type: String
+    },
+    time: {
+      type: String
+    }
+  }],
   location: {
     type: {
       type: String,
@@ -92,11 +96,7 @@ const eventSchema = new Schema({
     coordinates: {
       type: [Number], // [longitude, latitude]
       required: true
-    },
-    address:{
-        type: String,
-        default: null
-      },
+    }
   }
 }, {
   timestamps: true

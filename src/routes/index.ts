@@ -12,6 +12,5 @@ export { router as repost } from './repost-routes'
 export { router as locationRoutes } from './location-routes';
 export { router as story } from './story-routes';
 export { router as chatRoutes } from './chat-routes';
-export { router as blockRoutes } from './block-routes';
-export { router as feedbackRoutes } from './feedback-routes';
-
+export { router as subscription } from './subscription-routes';
+export { router as stripeProduct } from './stripe-product-routes';

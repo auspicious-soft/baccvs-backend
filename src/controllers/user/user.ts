@@ -3,15 +3,10 @@ import { httpStatusCode } from "../../lib/constant"
 import { errorParser } from "../../lib/errors/error-response-handler"
 import { passswordResetSchema, verifyOtpSchema, verifyPasswordSchema } from "../../validation/client-user"
 import { formatZodErrors } from "../../validation/format-zod-errors"
-import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService} from "../../uploads/user/user"
+import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService} from "../../uploads/user/user"
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
-import { generateMultipleSignedUrls } from "src/configF/s3"
-import { upload, uploadMultipleFilesToS3 } from "src/configF/multer";
-
-// Middleware for handling file uploads
-export const uploadUserPhotos = upload.array('photos', 5); // Allow up to 5 photos
 
 export const validateReferralCode = async (req: Request, res: Response) => {
     try {
@@ -25,16 +20,12 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 
 export const signup = async (req: Request, res: Response) => {
     try {
-        const userData = req.body;
-        const response: any = await signUpService(req,userData, userData.authType, res);
-        return res.status(httpStatusCode.CREATED).json(response);
+        const response: any = await signUpService(req.body, req.body.authType, res)
+        return res.status(httpStatusCode.CREATED).json(response)
     }
     catch (error: any) {
-        const { code, message } = errorParser(error);
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ 
-            success: false, 
-            message: message || "An error occurred" 
-        });
+        const { code, message } = errorParser(error)
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
     }
 }
 
@@ -296,54 +287,4 @@ export const changePassword = async (req: Request, res: Response) => {
   }
 }
 
-export const getSignedUrlsForSignup = async (req: Request, res: Response) => {
-    try {
-        const { files, email } = req.body;
-        
-        if (!files || !Array.isArray(files) || !email) {
-            return res.status(httpStatusCode.BAD_REQUEST).json({
-                success: false,
-                message: "Files array and email are required"
-            });
-        }
-        
-        const signedUrls = await generateMultipleSignedUrls(files, email);
-        
-        return res.status(httpStatusCode.OK).json({
-            success: true,
-            message: "Signed URLs generated successfully",
-            data: signedUrls
-        });
-    } catch (error: any) {
-        const { code, message } = errorParser(error);
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
-            success: false,
-            message: message || "An error occurred generating signed URLs"
-        });
-    }
-}
 
-export const getAllFollowedUsers = async (req: Request, res: Response) => {
-    try {
-        const response = await getAllFollowedUsersService(req, res);
-        return res.status(httpStatusCode.OK).json(response);
-    } catch (error: any) {
-        const { code, message } = errorParser(error);
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
-            success: false,
-            message: message || "An error occurred fetching users"
-        });
-    }
-}
-export const togglePrivacyPreference = async (req: Request, res: Response) => {
-    try {
-        const response = await togglePrivacyPreferenceService(req, res);
-        return res.status(httpStatusCode.OK).json(response);
-    } catch (error: any) {
-        const { code, message } = errorParser(error);
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
-            success: false,
-            message: message || "An error occurred toggling privacy preference"
-        });
-    }
-}

@@ -130,11 +130,6 @@ const UserSchema  = new mongoose.Schema( {
       type: String,
       default: null,
     },
-    accountType:{
-      type:String,
-      enum:["public","matches","follower"],
-      default:"public"
-    },
     location:{
       type: {
         type: String,
@@ -236,7 +231,7 @@ const UserSchema  = new mongoose.Schema( {
     totalBoosts:{
       type: Number,
       default: 0
-    },    
+    },
   },
   {
     timestamps: true

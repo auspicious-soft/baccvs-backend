@@ -30,14 +30,3 @@ export const checkMulter = (err: any, req: any, res: any, next: any) => {
         next();
     }
 }
-
-export const formatErrorResponse = (res: Response, error: any) => {
-    const { code, message } = errorParser(error);
-    return res
-        .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-        .json({ 
-            success: false, 
-            message: message || "An error occurred",
-            timestamp: new Date().toISOString()
-        });
-};

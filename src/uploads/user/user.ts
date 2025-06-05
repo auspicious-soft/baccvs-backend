@@ -1,5 +1,5 @@
 import { Request, Response } from "express"
-import { errorParser, errorResponseHandler } from "../../lib/errors/error-response-handler"
+import { errorResponseHandler } from "../../lib/errors/error-response-handler"
 import { AtmosphereVibe, EventType, InterestCategory, MusicStyle, usersModel } from "../../models/user/user-schema"
 import bcrypt from "bcryptjs"
 import { generatePasswordResetToken, generatePasswordResetTokenByPhone, getPasswordResetTokenByToken } from "../../utils/mails/token"
@@ -20,9 +20,7 @@ import { RepostModel } from "src/models/repost/repost-schema"
 import { eventModel } from "src/models/event/event-schema"
 import { UserMatch } from "src/models/usermatch/usermatch-schema"
 import { Comment } from "src/models/comment/comment-schema"
-import { Readable } from 'stream';
-import Busboy from 'busboy';
-import { uploadStreamToS3Service } from "src/configF/s3";
+import { DatingSubscription } from "src/models/subscriptions/dating-subscription-schema"
 configDotenv()
 
 
@@ -32,291 +30,102 @@ const sanitizeUser = (user: any) => {
   return sanitized;
 };
 
-export const signUpService = async (req: any, userData: any, authType: string, res: Response) => {
-  if (!userData) {
-    return {
-      success: false,
-      message: "User data is required",
-      code: httpStatusCode.BAD_REQUEST
-    };
-  }
-
-  // Log incoming data for debugging
-  console.log('signUpService - userData:', userData);
-  console.log('signUpService - authType:', authType);
-
-  // Process file uploads if Content-Type is multipart/form-data
-  let photos: string[] = [];
-  if (req.headers['content-type']?.includes('multipart/form-data')) {
-    return new Promise((resolve, reject) => {
-      const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Promise<string>[] = [];
-      const parsedData: any = { ...userData }; // Copy userData to avoid overwriting
-
-      busboy.on('field', (fieldname: string, value: string) => {
-        // Handle location field specifically
-        if (fieldname === 'location') {
-          try {
-            const parsedLocation = JSON.parse(value);
-            // Validate GeoJSON format
-            if (
-              parsedLocation &&
-              parsedLocation.type === 'Point' &&
-              Array.isArray(parsedLocation.coordinates) &&
-              parsedLocation.coordinates.length === 2 &&
-              typeof parsedLocation.coordinates[0] === 'number' &&
-              typeof parsedLocation.coordinates[1] === 'number'
-            ) {
-              parsedData[fieldname] = parsedLocation;
-              console.log(`Busboy - Parsed location:`, parsedLocation); // Debug log
-            } else {
-              console.log(`Busboy - Invalid location format:`, value);
-              return reject({
-                success: false,
-                message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude] and optional address",
-                code: httpStatusCode.BAD_REQUEST
-              });
-            }
-          } catch (error) {
-            console.log(`Busboy - Failed to parse location:`, (error as any).message);
-            return reject({
-              success: false,
-              message: "Failed to parse location. Must be a valid JSON string",
-              code: httpStatusCode.BAD_REQUEST
-            });
-          }
-        } else {
-          // Store other fields as strings
-          parsedData[fieldname] = value;
-        }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`); // Debug log
-      });
-
-      busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
-        if (!['photos', 'videos'].includes(fieldname)) {
-          fileStream.resume(); // Skip non-photo/video files
-          return;
-        }
-
-        const { filename, mimeType } = fileInfo;
-
-        // Validate file type
-        const isImage = mimeType.startsWith('image/');
-        const isVideo = mimeType.startsWith('video/');
-        if (!isImage && !isVideo) {
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: 'Only image or video files are allowed',
-            code: httpStatusCode.BAD_REQUEST
-          });
-        }
-
-        // Create a readable stream from the file stream
-        const readableStream = new Readable();
-        readableStream._read = () => {}; // Required implementation
-
-        fileStream.on('data', (chunk: any) => {
-          readableStream.push(chunk);
-        });
-
-        fileStream.on('end', () => {
-          readableStream.push(null); // End of stream
-        });
-
-        // Add upload promise to array
-        const uploadPromise = uploadStreamToS3Service(
-          readableStream,
-          filename,
-          mimeType,
-          parsedData.email || `user_${customAlphabet('0123456789', 5)()}`
-        );
-        uploadPromises.push(uploadPromise);
-      });
-
-      busboy.on('finish', async () => {
-        try {
-          // Wait for all file uploads to complete
-          photos = await Promise.all(uploadPromises);
-
-          // Use parsedData instead of userData
-          // Extract authType from parsedData if not provided
-          authType = authType || parsedData.authType;
-          console.log('Busboy - Final authType:', authType); // Debug log
-
-          // Validate auth type
-          if (!authType) {
-            return reject({
-              success: false,
-              message: "Auth type is required",
-              code: httpStatusCode.BAD_REQUEST
-            });
-          }
-
-          if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
-            return reject({
-              success: false,
-              message: "Invalid auth type",
-              code: httpStatusCode.BAD_REQUEST
-            });
-          }
-
-          // Continue with the original logic
-          resolve(await processUserData(parsedData, authType, photos, res));
-        } catch (error) {
-          console.error('Upload error:', error);
-          reject({
-            success: false,
-            message: (error as any).message || 'Failed to upload files',
-            code: httpStatusCode.INTERNAL_SERVER_ERROR
-          });
-        }
-      });
-
-      busboy.on('error', (error: any) => {
-        console.error('Busboy error:', error);
-        reject({
-          success: false,
-          message: error.message || 'Error processing file uploads',
-          code: httpStatusCode.INTERNAL_SERVER_ERROR
-        });
-      });
-
-      req.pipe(busboy);
-    });
-  } else {
-    // If no multipart/form-data, process userData without file uploads
-    // Use authType from userData if not provided
-    authType = authType || userData.authType;
-    console.log('Non-multipart - Final authType:', authType); // Debug log
-
-    // Validate auth type
-    if (!authType) {
-      return {
-        success: false,
-        message: "Auth type is required",
-        code: httpStatusCode.BAD_REQUEST
+export const signUpService = async (userData: any, authType: string, res: Response) => {
+  if(!userData) return errorResponseHandler("User data is required", httpStatusCode.BAD_REQUEST, res)  
+ 
+      // Validate auth type
+      if (!authType) {
+        return errorResponseHandler("Auth type is required", httpStatusCode.BAD_REQUEST, res);
+      }
+  
+      if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
+        return errorResponseHandler("Invalid auth type", httpStatusCode.BAD_REQUEST, res);
+      }
+  
+      // Check for existing user
+      const query = getSignUpQueryByAuthType(userData, authType);
+      const existingUser = await usersModel.findOne(query);
+      const existingUserResponse = existingUser ? handleExistingUser(existingUser as any, authType, res) : null;
+      if (existingUserResponse) return existingUserResponse;
+      const existingNumber = await usersModel.findOne({ phoneNumber: userData.phoneNumber });
+      if (existingNumber) {
+        return errorResponseHandler("Phone number already registered", httpStatusCode.BAD_REQUEST, res);
+      }
+      const existingUserName = await usersModel.findOne({ userName: userData.userName });
+      if (existingUserName) {
+        return errorResponseHandler("Username already taken", httpStatusCode.BAD_REQUEST, res);
+      }
+  
+      // Prepare new user data
+      const newUserData = { 
+        ...userData,
+        authType,
+        email: userData.email?.toLowerCase(), // Ensure email is lowercase
+        identifier: customAlphabet("0123456789", 5)(),
       };
-    }
+  
+      // Hash password if email auth
+      newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
+  
+      // Get referral code if provided
+      if(!userData.referralCode) {
+        return errorResponseHandler("Referral code is required", httpStatusCode.BAD_REQUEST, res);
+      }
+      if (userData.referralCode) {
+        newUserData.referredBy = await getReferralCodeCreator(userData, res);
+        if (!newUserData.referredBy) return; // getReferralCodeCreator will handle the error response
+      }
+  
+      // Create user
+      let user = await usersModel.create(newUserData);
+  
+      // Create default dating subscription for the user
+      await DatingSubscription.create({
+        user: user._id,
+        plan: "FREE",
+        price: 0,
+        startDate: null,
+        endDate: null,
+        isActive: false,
+        autoRenew: false
+      });
 
-    if (!["Email", "Google", "Apple", "Facebook", "Twitter"].includes(authType)) {
-      return {
-        success: false,
-        message: "Invalid auth type",
-        code: httpStatusCode.BAD_REQUEST
+      // Handle referral code updates
+      if (user._id && newUserData.referredBy) {
+        await Promise.all([
+          ReferralCodeModel.findByIdAndUpdate(
+            newUserData.referredBy,
+            { 
+              $set: {
+                used: true, 
+                referredUser: user._id
+              }
+            },
+            { new: true }
+          ),
+          createReferralCodeService(user._id, res)
+        ]);
+      }
+  
+      // Generate token for non-email auth
+      if (!process.env.JWT_SECRET) {
+        return errorResponseHandler("JWT_SECRET is not defined", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+      }
+  
+      if (authType !== "Email") {
+        user.token = generateUserToken(user as any);
+      }
+  
+      // Populate and save
+      user = await user.populate('referredBy');
+      await user.save();
+  
+      return { 
+        success: true, 
+        message: authType === "Email" ? "User registered with Email successfully" : "Sign-up successfully", 
+        data: sanitizeUser(user) 
       };
-    }
-
-    return processUserData(userData, authType, photos, res);
-  }
-};
-
-// Helper function to process user data and continue original logic
-const processUserData = async (userData: any, authType: string, photos: string[], res: Response) => {
-  // Check for existing user
-  const query = getSignUpQueryByAuthType(userData, authType);
-  const existingUser = await usersModel.findOne(query);
-  const existingUserResponse = existingUser ? handleExistingUser(existingUser as any, authType, res) : null;
-  if (existingUserResponse) return existingUserResponse;
-  const existingNumber = await usersModel.findOne({ phoneNumber: userData.phoneNumber });
-  if (existingNumber) {
-    return {
-      success: false,
-      message: "Phone number already registered",
-      code: httpStatusCode.BAD_REQUEST
-    };
-  }
-  const existingUserName = await usersModel.findOne({ userName: userData.userName });
-  if (existingUserName) {
-    return {
-      success: false,
-      message: "Username already taken",
-      code: httpStatusCode.BAD_REQUEST
-    };
-  }
-
-  // Prepare new user data
-  const newUserData = {
-    ...userData,
-    authType,
-    email: userData.email?.toLowerCase(),
-    identifier: customAlphabet("0123456789", 5)(),
-    photos // Store S3 keys
   };
-
-  // Hash password if email auth
-  newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
-
-  // Get referral code if provided
-  if (!userData.referralCode) {
-    return {
-      success: false,
-      message: "Referral code is required",
-      code: httpStatusCode.BAD_REQUEST
-    };
-  }
-  if (userData.referralCode) {
-    newUserData.referredBy = await getReferralCodeCreator(userData, res);
-    if (!newUserData.referredBy) {
-      return {
-        success: false,
-        message: "Invalid referral code",
-        code: httpStatusCode.BAD_REQUEST
-      };
-    }
-  }
-
-  // Log newUserData before saving
-  console.log('processUserData - newUserData:', newUserData);
-
-  // Create user
-  let user = await usersModel.create(newUserData);
-
-  // Handle referral code updates
-  if (user._id && newUserData.referredBy) {
-    await Promise.all([
-      ReferralCodeModel.findByIdAndUpdate(
-        newUserData.referredBy,
-        {
-          $set: {
-            used: true,
-            referredUser: user._id
-          }
-        },
-        { new: true }
-      ),
-      createReferralCodeService(user._id, res)
-    ]);
-  }
-
-  // Generate token for non-email auth
-  if (!process.env.JWT_SECRET) {
-    return {
-      success: false,
-      message: "JWT_SECRET is not defined",
-      code: httpStatusCode.INTERNAL_SERVER_ERROR
-    };
-  }
-
-  if (authType !== "Email") {
-    user.token = generateUserToken(user as any);
-  }
-
-  // Populate and save
-  user = await user.populate('referredBy');
-  await user.save();
-
-  // Log saved user
-  console.log('processUserData - Saved user:', user);
-
-  return {
-    success: true,
-    message: authType === "Email" ? "User registered with Email successfully" : "Sign-up successfully",
-    data: sanitizeUser(user)
-  };
-};
-
-
 
 export const loginUserService = async (userData: any, authType: string, res: Response) => {
 if(!userData) return errorResponseHandler("User data is required", httpStatusCode.BAD_REQUEST, res)  
@@ -443,11 +252,11 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
         { expiresIn: '1h' }
     );
 
-    // Create reset link with query parameter format
+    // Create reset link
     const resetLink = `${process.env.PASSWORD_RESET_URL}?token=${resetToken}`;
 
     // Send email with reset link
-    await sendPasswordResetEmail(email, resetLink);
+    await sendPasswordResetEmail(email,resetLink);
 
     return { 
         success: true, 
@@ -696,9 +505,6 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     try {
         const { id: userId } = req.user;
         
-        // Check if user has posted any content
-        const hasUserPostedContent = await postModels.exists({ user: userId });
-        
         // Get users the current user follows
         const following = await followModel.find({
             follower_id: userId,
@@ -713,11 +519,10 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const userStoriesRaw = await storyModel
             .find({
                 user: userId,
-                expiresAt: { $gt: new Date() }
+                // expiresAt: { $gt: new Date() }
             })
             .sort({ createdAt: -1 })
-            .populate('user', 'userName photos')
-            .populate('viewedBy', 'userName photos'); // Add viewedBy population
+            .populate('user', 'userName photos');
             
         // Group user's own stories
         let userStories = null;
@@ -732,11 +537,10 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const followingStoriesRaw = await storyModel
             .find({
                 user: { $in: followingIds },
-                expiresAt: { $gt: new Date() }
+                // expiresAt: { $gt: new Date() }
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
-            .populate('viewedBy', 'userName photos') // Add viewedBy population
             .limit(10);
         
         // Group following stories by user
@@ -756,6 +560,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         
         // Convert to array for easier frontend handling
         const followingStories = Object.values(followingStoriesByUser);
+        
+        // // Combine all stories (user's stories first, then following stories)
+        // const allStories = userStories ? [userStories, ...followingStories] : followingStories;
         
         // ===== POSTS SECTION =====
         const page = parseInt(req.query.page as string) || 1;
@@ -791,182 +598,72 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         // Apply pagination to the combined posts
         const paginatedPosts = allPosts.slice(skip, skip + limit);
         
-        // ===== REPOSTS SECTION =====
-        // Get reposts from followed users
-        const followingReposts = await RepostModel.find({
-            user: { $in: followingIds }
-        })
-        .sort({ createdAt: -1 })
-        .populate('user', 'userName photos')
-        .populate({
-            path: 'originalPost',
-            populate: {
-                path: 'user',
-                select: 'userName photos'
-            }
-        });
-        
-        // Apply pagination to reposts
-        const paginatedReposts = followingReposts.slice(skip, skip + limit);
-        
-        // Get post IDs for engagement stats
+        // Get post engagement stats
         const postIds = paginatedPosts.map(post => post._id);
-        const repostIds = paginatedReposts.map(repost => repost._id);
-        const originalPostIds = paginatedReposts.map(repost => repost.originalPost._id);
         
-        // Get likes for posts
-        const postLikes = await LikeModel.find({
+        // Get likes for these posts
+        const likes = await LikeModel.find({
             targetType: 'posts',
             target: { $in: postIds }
         });
         
-        // Get likes for reposts
-        const repostLikes = await LikeModel.find({
-            targetType: 'reposts',
-            target: { $in: repostIds }
-        });
-        
-        // Get likes for original posts in reposts
-        const originalPostLikes = await LikeModel.find({
-            targetType: 'posts',
-            target: { $in: originalPostIds }
-        });
-        
-        // Get user's likes to determine which posts/reposts the user has already liked
-        const userPostLikes = await LikeModel.find({
+        // Get user's likes to determine which posts the user has already liked
+        const userLikes = await LikeModel.find({
             user: userId,
             targetType: 'posts',
-            target: { $in: [...postIds, ...originalPostIds] }
+            target: { $in: postIds }
         });
         
-        const userRepostLikes = await LikeModel.find({
-            user: userId,
-            targetType: 'reposts',
-            target: { $in: repostIds }
-        });
+        // Create a set of post IDs that the user has liked for quick lookup
+        const userLikedPostIds = new Set(userLikes.map(like => like.target.toString()));
         
-        // Create sets of IDs that the user has liked for quick lookup
-        const userLikedPostIds = new Set(userPostLikes.map(like => like.target.toString()));
-        const userLikedRepostIds = new Set(userRepostLikes.map(like => like.target.toString()));
-        
-        // Get comments for posts
-        const postComments = await Comment.find({
+        // Get comments for these posts
+        const comments = await Comment.find({
             post: { $in: postIds },
             isDeleted: false
         });
         
-        // Get comments for reposts
-        const repostComments = await Comment.find({
-            repost: { $in: repostIds },
-            isDeleted: false
-        });
-        
-        // Get comments for original posts in reposts
-        const originalPostComments = await Comment.find({
-            post: { $in: originalPostIds },
-            isDeleted: false
-        });
-        
-        // Get reposts for posts
-        const postsReposts = await RepostModel.find({
+        // Get reposts for these posts
+        const reposts = await RepostModel.find({
             originalPost: { $in: postIds }
         });
         
-        // Get reposts for original posts in reposts
-        const originalPostsReposts = await RepostModel.find({
-            originalPost: { $in: originalPostIds }
-        });
-        
-        // Create maps of engagement stats
-        const postEngagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
+        // Create a map of engagement stats
+        const engagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
         postIds.forEach(postId => {
-            postEngagementStats[postId.toString()] = {
+            engagementStats[postId.toString()] = {
                 likes: 0,
                 comments: 0,
                 reposts: 0
             };
         });
         
-        const repostEngagementStats: { [key: string]: { likes: number; comments: number } } = {};
-        repostIds.forEach(repostId => {
-            repostEngagementStats[repostId.toString()] = {
-                likes: 0,
-                comments: 0
-            };
-        });
-        
-        const originalPostEngagementStats: { [key: string]: { likes: number; comments: number; reposts: number } } = {};
-        originalPostIds.forEach(postId => {
-            originalPostEngagementStats[postId.toString()] = {
-                likes: 0,
-                comments: 0,
-                reposts: 0
-            };
-        });
-        
-        // Fill in the post engagement stats
-        postLikes.forEach(like => {
+        // Fill in the engagement stats
+        likes.forEach(like => {
             const postId = like.target.toString();
-            if (postEngagementStats[postId]) {
-                postEngagementStats[postId].likes += 1;
+            if (engagementStats[postId]) {
+                engagementStats[postId].likes += 1;
             }
         });
         
-        postComments.forEach(comment => {
-            const postId = comment.post?.toString();
-            if (postId && postEngagementStats[postId]) {
-                postEngagementStats[postId].comments += 1;
+        comments.forEach(comment => {
+            const postId = comment.post?.toString() || comment.repost?.toString();
+            if (postId && engagementStats[postId]) {
+                engagementStats[postId].comments += 1;
             }
         });
         
-        postsReposts.forEach(repost => {
+        reposts.forEach(repost => {
             const postId = repost.originalPost.toString();
-            if (postEngagementStats[postId]) {
-                postEngagementStats[postId].reposts += 1;
-            }
-        });
-        
-        // Fill in the repost engagement stats
-        repostLikes.forEach(like => {
-            const repostId = like.target.toString();
-            if (repostEngagementStats[repostId]) {
-                repostEngagementStats[repostId].likes += 1;
-            }
-        });
-        
-        repostComments.forEach(comment => {
-            const repostId = comment.repost?.toString();
-            if (repostId && repostEngagementStats[repostId]) {
-                repostEngagementStats[repostId].comments += 1;
-            }
-        });
-        
-        // Fill in the original post engagement stats for reposts
-        originalPostLikes.forEach(like => {
-            const postId = like.target.toString();
-            if (originalPostEngagementStats[postId]) {
-                originalPostEngagementStats[postId].likes += 1;
-            }
-        });
-        
-        originalPostComments.forEach(comment => {
-            const postId = comment.post?.toString();
-            if (postId && originalPostEngagementStats[postId]) {
-                originalPostEngagementStats[postId].comments += 1;
-            }
-        });
-        
-        originalPostsReposts.forEach(repost => {
-            const postId = repost.originalPost.toString();
-            if (originalPostEngagementStats[postId]) {
-                originalPostEngagementStats[postId].reposts += 1;
+            if (engagementStats[postId]) {
+                engagementStats[postId].reposts += 1;
             }
         });
         
         // Enrich posts with engagement data
         const enrichedPosts = paginatedPosts.map(post => {
             const postId = post._id.toString();
-            const engagement = postEngagementStats[postId] || { likes: 0, comments: 0, reposts: 0 };
+            const engagement = engagementStats[postId] || { likes: 0, comments: 0, reposts: 0 };
             
             // Convert ObjectId to string for proper comparison
             const postUserId = post.user._id.toString();
@@ -990,51 +687,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 commentsCount: engagement.comments,
                 repostsCount: engagement.reposts,
                 isFollowedUser: isFollowed,
-                isLikedByUser: isLikedByUser
-            };
-        });
-        
-        // Enrich reposts with engagement data
-        const enrichedReposts = paginatedReposts.map(repost => {
-            const repostId = repost._id.toString();
-            const repostEngagement = repostEngagementStats[repostId] || { likes: 0, comments: 0 };
-            
-            const originalPostId = repost.originalPost._id.toString();
-            const originalPostEngagement = originalPostEngagementStats[originalPostId] || { likes: 0, comments: 0, reposts: 0 };
-            
-            // Convert ObjectId to string for proper comparison
-            const repostUserId = repost.user._id.toString();
-            
-            // Check if this repost's author is in the followingIds array
-            const isFollowed = followingIds.some(followingId => 
-                followingId.toString() === repostUserId
-            );
-            
-            // Check if the current user has liked this repost
-            const isLikedByUser = userLikedRepostIds.has(repostId);
-            
-            // Check if the current user has liked the original post
-            const isOriginalPostLikedByUser = userLikedPostIds.has(originalPostId);
-            
-            return {
-                _id: repost._id,
-                type: repost.type,
-                content: repost.content,
-                createdAt: repost.createdAt,
-                user: repost.user,
-                originalPost: {
-                    ...((repost.originalPost && typeof (repost.originalPost as any).toObject === 'function')
-                        ? (repost.originalPost as any).toObject()
-                        : { _id: repost.originalPost }),
-                    likesCount: originalPostEngagement.likes,
-                    commentsCount: originalPostEngagement.comments,
-                    repostsCount: originalPostEngagement.reposts,
-                    isLikedByUser: isOriginalPostLikedByUser
-                },
-                likesCount: repostEngagement.likes,
-                commentsCount: repostEngagement.comments,
-                isFollowedUser: isFollowed,
-                isLikedByUser: isLikedByUser
+                isLikedByUser: isLikedByUser // Add this flag
             };
         });
         
@@ -1043,13 +696,16 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         
         let nearbyEvents = [];
         if (userLocation?.location && 'coordinates' in userLocation.location) {
-            // Get nearby events (within 50km)
+            const coordinates = userLocation.location.coordinates as [number, number];
+            const [longitude, latitude] = coordinates;
+            
+            // Find events within 50km
             nearbyEvents = await eventModel.aggregate([
                 {
                     $geoNear: {
                         near: {
                             type: "Point",
-                            coordinates: userLocation.location.coordinates as [number, number]
+                            coordinates: [longitude, latitude]
                         },
                         distanceField: "distance",
                         maxDistance: 50000, // 50km in meters
@@ -1058,8 +714,38 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 },
                 {
                     $match: {
-                        startDate: { $gte: new Date() }
+                        date: { $gte: new Date() }, // Only future events
                     }
+                },
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "creator",
+                        foreignField: "_id",
+                        as: "creator"
+                    }
+                },
+                {
+                    $unwind: "$creator"
+                },
+                {
+                    $project: {
+                        title: 1,
+                        aboutEvent: 1,
+                        date: 1,
+                        startTime: 1,
+                        endTime: 1,
+                        venue: 1,
+                        location: 1,
+                        media: 1,
+                        distance: 1,
+                        "creator._id": 1,
+                        "creator.userName": 1,
+                        "creator.photos": 1
+                    }
+                },
+                {
+                    $sort: { date: 1 }
                 },
                 {
                     $limit: 5
@@ -1101,28 +787,23 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             success: true,
             message: "Dashboard feed fetched successfully",
             data: {
-                userActivity: {
-                    hasPosted: !!hasUserPostedContent
-                },
                 stories: {
-                    userStories: userStories,
-                    followingStories: followingStories
+                    userStories: userStories, // Now a single object with user info and stories array
+                    followingStories: followingStories, // Array of objects, each with user info and stories array
+                    // all: allStories // Combined array for convenience
                 },
                 posts: enrichedPosts,
-                reposts: enrichedReposts,
                 suggestedEvents: nearbyEvents,
                 stats: {
                     matches: matchStats,
                     follows: followStats
                 },
                 pagination: {
-                    total: allPosts.length + followingReposts.length,
-                    postsTotal: allPosts.length,
-                    repostsTotal: followingReposts.length,
+                    total: allPosts.length,
                     page,
                     limit,
-                    pages: Math.ceil((allPosts.length + followingReposts.length) / limit),
-                    hasNext: page * limit < (allPosts.length + followingReposts.length),
+                    pages: Math.ceil(allPosts.length / limit),
+                    hasNext: page * limit < allPosts.length,
                     hasPrev: page > 1
                 }
             }
@@ -1428,62 +1109,3 @@ export const changePasswordService = async (req: any, res: Response) => {
   };
 }
 
-export const getAllFollowedUsersService = async (req: any, res: Response) => {
-  const { id: userId } = req.user;
-  if (!userId) {
-    return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
-  }
-  // check for both user follow each other
-  
-  const following = await followModel.find({
-    follower_id: userId,
-    relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true
-  }).select('following_id');
-  if (!following) {
-    return errorResponseHandler("Users not found", httpStatusCode.NOT_FOUND, res);
-  }
-  const followingIds = following.map(f => f.following_id);
-  const users = await usersModel.find({
-    _id: { $in: followingIds }
-  }).select('-password');
-  if (!users) {
-    return errorResponseHandler("Users not found", httpStatusCode.NOT_FOUND, res);
-  }
-  return {
-    success: true,
-    message: "Users retrieved successfully",
-    data: users
-  };
-
-}
-
-export const togglePrivacyPreferenceService = async (req: any, res: Response) => {
-    const { id: userId } = req.user;
-    const { accountType } = req.body;
-
-    // Validate input
-    if (!userId) {
-      return errorResponseHandler("User ID is required", httpStatusCode.BAD_REQUEST, res);
-    }
-    if (!accountType || !["public", "matches", "follower"].includes(accountType)) {
-      return errorResponseHandler("Invalid or missing accountType. Must be one of: public, matches, follower", httpStatusCode.BAD_REQUEST, res);
-    }
-
-    // Update user's accountType
-    const user = await usersModel.findByIdAndUpdate(
-      userId,
-      { accountType },
-      { new: true }
-    ).select("-password");
-
-    if (!user) {
-      return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
-    }
-
-    return {
-      success: true,
-      message: "Privacy preference updated successfully",
-      data: user
-    };
-};

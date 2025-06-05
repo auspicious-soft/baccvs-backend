@@ -6,11 +6,6 @@ export interface IConversation extends Document {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
-  isPinned: Map<string, boolean>; // Changed to Map for per-user settings
-  backgroundSettings: Map<string, { 
-    backgroundImage: string | null; 
-    backgroundColor: string | null; 
-  }>; // Changed to Map for per-user settings
 }
 
 const ConversationSchema = new Schema(
@@ -29,19 +24,6 @@ const ConversationSchema = new Schema(
     isActive: {
       type: Boolean,
       default: true
-    },
-    isPinned: {
-      type: Map,
-      of: Boolean,
-      default: {} // Map of userId -> isPinned
-    },
-    backgroundSettings: {
-      type: Map,
-      of: new Schema({
-        backgroundImage: String,
-        backgroundColor: String
-      }, { _id: false }),
-      default: {} // Map of userId -> background settings
     }
   },
   {
@@ -62,4 +44,3 @@ ConversationSchema.pre("save", function(next) {
 ConversationSchema.index({ participants: 1 });
 
 export const Conversation = mongoose.model<IConversation>("Conversation", ConversationSchema);
-

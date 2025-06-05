@@ -67,25 +67,6 @@ export const createCommentService = async (req: Request, res: Response) => {
       if (!parentComment) {
         return errorResponseHandler("Parent comment not found", httpStatusCode.NOT_FOUND, res);
       }
-      
-      // For replies, we need to ensure the reply is associated with the same post/repost as the parent
-      if (postId && parentComment.post && parentComment.post.toString() !== postId) {
-        return errorResponseHandler("Parent comment does not belong to the specified post", httpStatusCode.BAD_REQUEST, res);
-      }
-      
-      if (repostId && parentComment.repost && parentComment.repost.toString() !== repostId) {
-        return errorResponseHandler("Parent comment does not belong to the specified repost", httpStatusCode.BAD_REQUEST, res);
-      }
-      
-      // If parent comment has a post, use that post ID
-      if (parentComment.post && !postId) {
-        req.body.postId = parentComment.post.toString();
-      }
-      
-      // If parent comment has a repost, use that repost ID
-      if (parentComment.repost && !repostId) {
-        req.body.repostId = parentComment.repost.toString();
-      }
     }
 
     // Create comment based on type
@@ -96,10 +77,10 @@ export const createCommentService = async (req: Request, res: Response) => {
     };
     
     // Set either post or repost field
-    if (postId || req.body.postId) {
-      commentData.post = postId || req.body.postId;
+    if (postId) {
+      commentData.post = postId;
     } else {
-      commentData.repost = repostId || req.body.repostId;
+      commentData.repost = repostId;
     }
 
     if (type === 'text' && text) {
@@ -118,9 +99,9 @@ export const createCommentService = async (req: Request, res: Response) => {
 
     // Populate user information for response
     const populatedComment = await Comment.findById(newComment._id)
-      .populate('user', 'userName photos' )
-      .populate('post')
-      .populate('repost');
+      .populate('user', 'username profileImage')
+      .populate('post', 'title')
+      .populate('repost', 'content');
 
     return {
       success: true,
@@ -170,28 +151,17 @@ export const getCommentsService = async (req: Request, res: Response) => {
     // Get total count for pagination (only top-level comments)
     const totalComments = await Comment.countDocuments(query);
 
-    // For each comment, get the reply count and replies
-    const commentsWithReplies = await Promise.all(comments.map(async (comment) => {
-      // Get reply count
+    // For each comment, get the reply count
+    const commentsWithReplyCount = await Promise.all(comments.map(async (comment) => {
       const replyCount = await Comment.countDocuments({ 
         parentComment: comment._id,
         isDeleted: false
       });
       
-      // Get first few replies for each comment
-      const replies = await Comment.find({ 
-        parentComment: comment._id,
-        isDeleted: false
-      })
-        .sort({ createdAt: 1 })
-        .limit(3)
-        .populate('user', 'userName photos');
-      
       const commentObj = comment.toObject();
       return {
         ...commentObj,
-        replyCount,
-        replies
+        replyCount
       };
     }));
 
@@ -199,7 +169,7 @@ export const getCommentsService = async (req: Request, res: Response) => {
       success: true,
       message: "Comments retrieved successfully",
       data: {
-        comments: commentsWithReplies,
+        comments: commentsWithReplyCount,
         pagination: {
           totalComments,
           totalPages: Math.ceil(totalComments / limit),

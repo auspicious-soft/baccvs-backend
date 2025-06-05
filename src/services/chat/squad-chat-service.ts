@@ -237,25 +237,14 @@ export const getUserSquadConversationsService = async (req: any, res: Response) 
       })
       .sort({ updatedAt: -1 });
 
-    // Add user-specific fields
-    const enhancedSquadConversations = squadConversations.map(conversation => {
-      const conversationObj = conversation.toObject();
-      conversationObj.isPinned = conversation.isPinned.get(userId) || false;
-      conversationObj.backgroundSettings = conversation.backgroundSettings.get(userId) || {
-        backgroundImage: null,
-        backgroundColor: null
-      };
-      return conversationObj;
-    });
-
     return {
       success: true,
-      squadConversations: enhancedSquadConversations
+      squadConversations
     };
   } catch (error) {
-    console.error("Error fetching squad conversations:", error);
+    console.error("Error getting user squad conversations:", error);
     return errorResponseHandler(
-      "Failed to fetch squad conversations",
+      "Failed to get squad conversations",
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
@@ -318,4 +307,3 @@ export const markSquadMessagesAsReadService = async (req: any, res: Response) =>
     );
   }
 };
-

@@ -25,26 +25,9 @@ export const getUserConversationsService = async (req: any, res: Response) => {
       })
       .sort({ updatedAt: -1 });
 
-    // Add user-specific fields
-    const enhancedConversations = conversations.map(conversation => {
-      const conversationObj = conversation.toObject() as any;
-      
-      // Add user-specific pin status
-      conversationObj.isPinned = conversation.isPinned.get(userId) || false;
-      
-      // Add user-specific background settings
-      conversationObj.backgroundSettings = conversation.backgroundSettings.get(userId) || {
-        backgroundImage: null,
-        backgroundColor: null
-      };
-      
-      return conversationObj;
-    });
-
     return {
       success: true,
-      message: "Conversations retrieved successfully",
-      conversations: enhancedConversations
+      conversations
     };
   } catch (error) {
     console.error("Error fetching conversations:", error);
@@ -302,15 +285,4 @@ export const markMessagesAsReadService = async (req: any, res: Response) => {
     );
   }
 };
-
-
-
-
-
-
-
-
-
-
-
 

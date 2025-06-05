@@ -1,15 +1,10 @@
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { isValidObjectId } from "mongoose";
-import Busboy from "busboy";
-import { Readable } from "stream";
-import { customAlphabet } from "nanoid";
 import { EventVisibility, httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { eventModel } from "src/models/event/event-schema";
 import { ticketModel } from "src/models/ticket/ticket-schema";
-import { uploadStreamToS3Service } from "src/configF/s3";
-import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
 
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
@@ -21,185 +16,6 @@ export const createEventService = async (req: Request, res: Response) => {
   }
 
   const { id: creatorId } = req.user as JwtPayload;
-  let parsedData: any = {};
-  let coverPhoto: string | null = null;
-  let videos: string[] = [];
-
-  // Handle multipart/form-data for file uploads
-  if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    console.log("Processing multipart/form-data request");
-    console.log("Content-Type:", req.headers["content-type"]);
-
-    return new Promise((resolve, reject) => {
-      const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Array<{ promise: Promise<string>; fieldname: string }> = [];
-
-      console.log("Busboy instance created");
-
-      busboy.on("field", (fieldname: string, value: string) => {
-        if (
-          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(
-            fieldname
-          )
-        ) {
-          try {
-            parsedData[fieldname] = JSON.parse(value);
-            console.log(`Busboy - Parsed ${fieldname}:`, parsedData[fieldname]);
-          } catch (error) {
-            console.log(
-              `Busboy - Failed to parse ${fieldname}:`,
-              error instanceof Error ? error.message : String(error)
-            );
-            return reject({
-              success: false,
-              message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
-        } else {
-          parsedData[fieldname] = value;
-        }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
-      });
-
-      busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(
-          `Busboy - Processing file: fieldname=${fieldname}, filename=${fileInfo.filename}, mimeType=${fileInfo.mimeType}`
-        );
-
-        if (!["coverPhoto", "videos"].includes(fieldname)) {
-          console.log(`Busboy - Skipping file with fieldname: ${fieldname}`);
-          fileStream.resume();
-          return;
-        }
-
-        const { filename, mimeType } = fileInfo;
-
-        // Validate file type with fallback for extension
-        const isImage =
-          (mimeType.startsWith("image/") || /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
-          fieldname === "coverPhoto";
-        const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
-
-        console.log(`Busboy - File validation: isImage=${isImage}, isVideo=${isVideo}`);
-
-        if (!isImage && !isVideo) {
-          console.log(`Busboy - Rejecting file: ${filename} with type ${mimeType} for field ${fieldname}`);
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
-            code: httpStatusCode.BAD_REQUEST,
-          });
-        }
-
-        // Create readable stream
-        const readableStream = new Readable();
-        readableStream._read = () => {};
-
-        fileStream.on("data", (chunk: any) => {
-          console.log(`Received ${chunk.length} bytes for ${filename}`);
-          readableStream.push(chunk);
-        });
-
-        fileStream.on("end", () => {
-          readableStream.push(null);
-        });
-
-        // Upload to S3 and track which field it belongs to
-        console.log(`Busboy - Starting upload for ${fieldname}: ${filename}`);
-        const uploadPromise = uploadStreamToS3Service(
-          readableStream,
-          filename,
-          mimeType,
-          parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        ).catch((err) => {
-          console.error(`S3 upload failed for ${filename}:`, err);
-          throw err;
-        });
-
-        uploadPromises.push({ promise: uploadPromise, fieldname });
-        console.log(`Busboy - Added upload promise for ${fieldname}, total promises: ${uploadPromises.length}`);
-      });
-
-      busboy.on("finish", async () => {
-        console.log("Busboy finished processing");
-        console.log("Total upload promises created:", uploadPromises.length);
-
-        try {
-          // Wait for file uploads
-          if (uploadPromises.length > 0) {
-            console.log("Processing", uploadPromises.length, "file uploads...");
-            const uploadResults = await Promise.all(uploadPromises.map((item) => item.promise));
-
-            // Process uploads based on their fieldname
-            uploadResults.forEach((url, index) => {
-              const fieldname = uploadPromises[index].fieldname;
-              console.log(`Processing upload: ${fieldname} -> ${url}`);
-              if (fieldname === "coverPhoto") {
-                coverPhoto = url;
-              } else if (fieldname === "videos") {
-                videos.push(url);
-              }
-            });
-          } else {
-            console.log("No file uploads to process");
-          }
-
-          console.log("Final coverPhoto:", coverPhoto);
-          console.log("Final videos:", videos);
-          console.log("Parsed data coverPhoto:", parsedData.coverPhoto);
-
-          // Check if we have a coverPhoto from either upload or form field
-          const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
-          if (!finalCoverPhoto) {
-            console.log("ERROR: No coverPhoto found in uploads or form data");
-            return reject({
-              success: false,
-              message:
-                "Cover photo is required but was not provided or failed to upload. Please ensure you're sending a file with fieldname 'coverPhoto'",
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
-
-          // Proceed with event creation
-          resolve(await processEventCreation(parsedData, creatorId, coverPhoto, videos, res));
-        } catch (error) {
-          console.error("Upload error:", error);
-          reject({
-            success: false,
-            message: (error instanceof Error ? error.message : String(error)) || "Failed to upload files",
-            code: httpStatusCode.INTERNAL_SERVER_ERROR,
-          });
-        }
-      });
-
-      busboy.on("error", (error: any) => {
-        console.error("Busboy error:", error);
-        reject({
-          success: false,
-          message: error.message || "Error processing file uploads",
-          code: httpStatusCode.INTERNAL_SERVER_ERROR,
-        });
-      });
-
-      console.log("Piping request to busboy...");
-      req.pipe(busboy);
-    });
-  } else {
-    // Handle JSON request
-    return processEventCreation(req.body, creatorId, null, [], res);
-  }
-};
-
-// Process event creation logic
-const processEventCreation = async (
-  data: any,
-  creatorId: string,
-  coverPhoto: string | null,
-  videos: string[],
-  res: Response
-) => {
   const {
     title,
     aboutEvent,
@@ -211,123 +27,60 @@ const processEventCreation = async (
     eventPreferences,
     eventVisibility,
     invitedGuests,
+    media,
     coHosts,
     lineup,
     isFreeEvent,
     enableReselling,
     location,
     tickets,
-  } = data;
-
-  // Validate required fields
-  if (!title || !date || !startTime || !endTime || !venue || !capacity || isFreeEvent === undefined) {
-    return {
-      success: false,
-      message: "Missing required fields",
-      code: httpStatusCode.BAD_REQUEST,
-    };
-  }
+  } = req.body;
 
   // Validate tickets array
   if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
-    return {
-      success: false,
-      message: "At least one ticket is required",
-      code: httpStatusCode.BAD_REQUEST,
-    };
+    return errorResponseHandler(
+      "At least one ticket is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Validate capacity and total ticket quantity
-  if (capacity <= 0) {
-    return {
-      success: false,
-      message: "Event capacity must be a positive number",
-      code: httpStatusCode.BAD_REQUEST,
-    };
+  if (!capacity || capacity <= 0) {
+    return errorResponseHandler(
+      "Event capacity must be a positive number",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
-  const totalTicketQuantity = tickets.reduce((sum: number, ticket: any) => sum + (ticket.quantity || 0), 0);
+  const totalTicketQuantity = tickets.reduce((sum, ticket) => sum + (ticket.quantity || 0), 0);
   if (totalTicketQuantity > capacity) {
-    return {
-      success: false,
-      message: `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
-      code: httpStatusCode.BAD_REQUEST,
-    };
+    return errorResponseHandler(
+      `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Validate invited guests for private events
   if (eventVisibility === EventVisibility.PRIVATE) {
     if (!invitedGuests || !Array.isArray(invitedGuests) || invitedGuests.length === 0) {
-      return {
-        success: false,
-        message: "Private events must have at least one invited guest",
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-
-    const invalidIds = invitedGuests.filter((id: string) => !isValidObjectId(id));
-    if (invalidIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-  }
-
-  // Validate lineup
-  if (lineup && Array.isArray(lineup) && lineup.length > 0) {
-    const invalidLineupIds = lineup.filter((id: string) => !isValidObjectId(id));
-    if (invalidLineupIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-
-    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: lineup } })
-      .select("_id")
-      .lean();
-    if (existingProfiles.length !== lineup.length) {
-      const missingIds = lineup.filter(
-        (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
+      return errorResponseHandler(
+        "Private events must have at least one invited guest",
+        httpStatusCode.BAD_REQUEST,
+        res
       );
-      return {
-        success: false,
-        message: `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
     }
-  }
 
-  // Validate coHosts
-  if (coHosts && Array.isArray(coHosts) && coHosts.length > 0) {
-    const invalidCoHostIds = coHosts.filter((id: string) => !isValidObjectId(id));
-    if (invalidCoHostIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-  }
-
-  // Validate location
-  if (location) {
-    if (
-      !location.type ||
-      location.type !== "Point" ||
-      !Array.isArray(location.coordinates) ||
-      location.coordinates.length !== 2 ||
-      typeof location.coordinates[0] !== "number" ||
-      typeof location.coordinates[1] !== "number"
-    ) {
-      return {
-        success: false,
-        message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
-        code: httpStatusCode.BAD_REQUEST,
-      };
+    // Validate that all invitedGuests IDs are valid MongoDB ObjectIDs
+    const invalidIds = invitedGuests.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -348,9 +101,9 @@ const processEventCreation = async (
     },
     eventVisibility: eventVisibility || EventVisibility.PUBLIC,
     invitedGuests: invitedGuests || [],
-    media: {
-      coverPhoto: coverPhoto || data.coverPhoto,
-      videos: videos.length > 0 ? videos : data.videos || [],
+    media: media || {
+      coverPhoto: "default-cover-photo-url",
+      videos: [],
     },
     coHosts: coHosts || [],
     lineup: lineup || [],
@@ -358,23 +111,16 @@ const processEventCreation = async (
       isFree: isFreeEvent,
       enableReselling: enableReselling ?? false,
     },
-    location: location
-      ? {
-          type: "Point",
-          coordinates: location.coordinates,
-          address: location.address || null,
-        }
-      : {
-          type: "Point",
-          coordinates: [0, 0],
-          address: null,
-        },
+    location: location || {
+      type: "Point",
+      coordinates: [0, 0],
+    },    
   });
 
   const savedEvent = await newEvent.save();
 
-  // Create tickets
-  const ticketDocs = tickets.map((ticket: any) => ({
+  // Create tickets for the event
+  const ticketDocs = tickets.map((ticket) => ({
     event: savedEvent._id,
     name: ticket.name,
     quantity: ticket.quantity,
@@ -391,7 +137,6 @@ const processEventCreation = async (
     { path: "creator", select: "-password" },
     { path: "invitedGuests", select: "-password" },
     { path: "coHosts", select: "-password" },
-    { path: "lineup" },
   ]);
 
   // Populate ticket event field
@@ -411,12 +156,15 @@ const processEventCreation = async (
 };
 
 export const getAllEventsService = async (req: Request, res: Response) => {
+  // if (!req.user) {
+  //   return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED,res);
+  // }
+
   const events = await eventModel
     .find()
     .populate("creator", "userName")
     .populate("invitedGuests", "userName")
     .populate("coHosts", "userName")
-    .populate("lineup")
     .sort({ createdAt: -1 });
 
   return {
@@ -427,18 +175,27 @@ export const getAllEventsService = async (req: Request, res: Response) => {
 };
 
 export const getEventsByIdService = async (req: Request, res: Response) => {
+  // if (!req.user) {
+  //   return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED,res);
+  // }
+
   const event = await eventModel
     .findById(req.params.id)
     .populate("creator")
     .populate("invitedGuests")
-    .populate("coHosts")
-    .populate("lineup");
+    .populate("coHosts");
 
   if (!event) {
-    return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
-  const tickets = await ticketModel.find({ event: event._id }).populate("event");
+  const tickets = await ticketModel
+    .find({ event: event._id })
+    .populate("event");
 
   return {
     success: true,
@@ -452,213 +209,30 @@ export const getEventsByIdService = async (req: Request, res: Response) => {
 
 export const updateEventService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
-  let parsedData: any = {};
-  let coverPhoto: string | null = null;
-  let videos: string[] = [];
+  const event = await eventModel.findById(req.params.id);
 
-  // Handle multipart/form-data for file uploads
-  if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    return new Promise((resolve, reject) => {
-      const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Promise<string>[] = [];
-
-      busboy.on("field", (fieldname: string, value: string) => {
-        if (
-          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(fieldname)
-        ) {
-          try {
-            parsedData[fieldname] = JSON.parse(value);
-            console.log(`Busboy - Parsed ${fieldname}:`, parsedData[fieldname]);
-          } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, (error instanceof Error ? error.message : String(error)));
-            return reject({
-              success: false,
-              message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
-        } else {
-          parsedData[fieldname] = value;
-        }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
-      });
-
-      busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
-        if (!["coverPhoto", "videos"].includes(fieldname)) {
-          fileStream.resume();
-          return;
-        }
-
-        const { filename, mimeType } = fileInfo;
-
-        // Validate file type
-        const isImage = mimeType.startsWith("image/") && fieldname === "coverPhoto";
-        const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
-        if (!isImage && !isVideo) {
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: "Only image files are allowed for coverPhoto and video files for videos",
-            code: httpStatusCode.BAD_REQUEST,
-          });
-        }
-
-        // Create readable stream
-        const readableStream = new Readable();
-        readableStream._read = () => {};
-
-        fileStream.on("data", (chunk: any) => {
-          readableStream.push(chunk);
-        });
-
-        fileStream.on("end", () => {
-          readableStream.push(null);
-        });
-
-        // Upload to S3
-        const uploadPromise = uploadStreamToS3Service(
-          readableStream,
-          filename,
-          mimeType,
-          parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        );
-        uploadPromises.push(uploadPromise);
-      });
-
-      busboy.on("finish", async () => {
-        try {
-          // Wait for file uploads
-          const uploadedFiles = await Promise.all(uploadPromises);
-          uploadedFiles.forEach((url, index) => {
-            if (index === 0 && !coverPhoto && !parsedData.coverPhoto) {
-              coverPhoto = url;
-            } else {
-              videos.push(url);
-            }
-          });
-
-          // Proceed with event update
-          resolve(await processEventUpdate(parsedData, userId, req.params.id, coverPhoto, videos, res));
-        } catch (error) {
-          console.error("Upload error:", error);
-          reject({
-            success: false,
-            message: (error instanceof Error ? error.message : String(error)) || "Failed to upload files",
-            code: httpStatusCode.INTERNAL_SERVER_ERROR,
-          });
-        }
-      });
-
-      busboy.on("error", (error: any) => {
-        console.error("Busboy error:", error);
-        reject({
-          success: false,
-          message: error.message || "Error processing file uploads",
-          code: httpStatusCode.INTERNAL_SERVER_ERROR,
-        });
-      });
-
-      req.pipe(busboy);
-    });
-  } else {
-    // Handle JSON request
-    return processEventUpdate(req.body, userId, req.params.id, null, [], res);
-  }
-};
-
-const processEventUpdate = async (
-  data: any,
-  userId: string,
-  eventId: string,
-  coverPhoto: string | null,
-  videos: string[],
-  res: Response
-) => {
-  const event = await eventModel.findById(eventId);
   if (!event) {
-    return {
-      success: false,
-      message: "Event not found",
-      code: httpStatusCode.NOT_FOUND,
-    };
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   if (event.creator.toString() !== userId) {
-    return {
-      success: false,
-      message: "Not authorized to update this event",
-      code: httpStatusCode.FORBIDDEN,
-    };
-  }
-
-  // Validate lineup
-  if (data.lineup && Array.isArray(data.lineup)) {
-    const invalidLineupIds = data.lineup.filter((id: string) => !isValidObjectId(id));
-    if (invalidLineupIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-
-    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: data.lineup } }).select("_id").lean();
-    if (existingProfiles.length !== data.lineup.length) {
-      const missingIds = data.lineup.filter(
-        (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
-      );
-      return {
-        success: false,
-        message: `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-  }
-
-  // Validate coHosts
-  if (data.coHosts && Array.isArray(data.coHosts)) {
-    const invalidCoHostIds = data.coHosts.filter((id: string) => !isValidObjectId(id));
-    if (invalidCoHostIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-  }
-
-  // Validate invitedGuests
-  if (data.invitedGuests && Array.isArray(data.invitedGuests)) {
-    const invalidGuestIds = data.invitedGuests.filter((id: string) => !isValidObjectId(id));
-    if (invalidGuestIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
-  }
-
-  // Validate location
-  if (data.location) {
-    if (
-      !data.location.type ||
-      data.location.type !== "Point" ||
-      !Array.isArray(data.location.coordinates) ||
-      data.location.coordinates.length !== 2 ||
-      typeof data.location.coordinates[0] !== "number" ||
-      typeof data.location.coordinates[1] !== "number"
-    ) {
-      return {
-        success: false,
-        message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
-        code: httpStatusCode.BAD_REQUEST,
-      };
-    }
+    return errorResponseHandler(
+      "Not authorized to update this event",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
   }
 
   const updateData: Partial<{
@@ -675,48 +249,32 @@ const processEventUpdate = async (
     media: any;
     coHosts: string[];
     lineup: string[];
-    location: any;
-    ticketing: any;
   }> = {};
-
-  if (data.title) updateData.title = data.title;
-  if (data.aboutEvent) updateData.aboutEvent = data.aboutEvent;
-  if (data.date) updateData.date = data.date;
-  if (data.startTime) updateData.startTime = data.startTime;
-  if (data.endTime) updateData.endTime = data.endTime;
-  if (data.venue) updateData.venue = data.venue;
-  if (data.capacity) updateData.capacity = data.capacity;
-  if (data.eventPreferences) updateData.eventPreferences = data.eventPreferences;
-  if (data.eventVisibility) updateData.eventVisibility = data.eventVisibility;
-  if (data.invitedGuests) updateData.invitedGuests = data.invitedGuests;
-  if (data.coHosts) updateData.coHosts = data.coHosts;
-  if (data.lineup) updateData.lineup = data.lineup;
-  if (data.isFreeEvent !== undefined || data.enableReselling !== undefined) {
-    updateData.ticketing = {
-      isFree: data.isFreeEvent ?? event.ticketing?.isFree,
-      enableReselling: data.enableReselling ?? event.ticketing?.enableReselling,
-    };
-  }
-  if (data.location) {
-    updateData.location = {
-      type: "Point",
-      coordinates: data.location.coordinates,
-      address: data.location.address || null,
-    };
-  }
-  if (coverPhoto || videos.length > 0 || data.media) {
-    updateData.media = {
-      coverPhoto: coverPhoto || data.media?.coverPhoto || event.media?.coverPhoto,
-      videos: videos.length > 0 ? videos : data.media?.videos || event.media?.videos,
-    };
-  }
+  if (req.body.title) updateData.title = req.body.title;
+  if (req.body.aboutEvent) updateData.aboutEvent = req.body.aboutEvent;
+  if (req.body.date) updateData.date = req.body.date;
+  if (req.body.startTime) updateData.startTime = req.body.startTime;
+  if (req.body.endTime) updateData.endTime = req.body.endTime;
+  if (req.body.venue) updateData.venue = req.body.venue;
+  if (req.body.capacity) updateData.capacity = req.body.capacity;
+  if (req.body.eventPreferences)
+    updateData.eventPreferences = req.body.eventPreferences;
+  if (req.body.eventVisibility)
+    updateData.eventVisibility = req.body.eventVisibility;
+  if (req.body.invitedGuests) updateData.invitedGuests = req.body.invitedGuests;
+  if (req.body.media) updateData.media = req.body.media;
+  if (req.body.coHosts) updateData.coHosts = req.body.coHosts;
+  if (req.body.lineup) updateData.lineup = req.body.lineup;
 
   const updatedEvent = await eventModel
-    .findByIdAndUpdate(eventId, { $set: updateData }, { new: true, runValidators: true })
+    .findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    )
     .populate("creator", "userName")
     .populate("invitedGuests", "userName")
-    .populate("coHosts", "userName")
-    .populate("lineup");
+    .populate("coHosts", "userName");
 
   return {
     success: true,
@@ -727,21 +285,35 @@ const processEventUpdate = async (
 
 export const deleteEventService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
   const event = await eventModel.findById(req.params.id);
 
   if (!event) {
-    return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   if (event.creator.toString() !== userId) {
-    return errorResponseHandler("Not authorized to delete this event", httpStatusCode.FORBIDDEN, res);
+    return errorResponseHandler(
+      "Not authorized to delete this event",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
   }
 
+  // Delete the event
   await eventModel.findByIdAndDelete(req.params.id);
+  // Delete associated tickets
   await ticketModel.deleteMany({ event: req.params.id });
 
   return {
