@@ -4,6 +4,6 @@ import { checkAuth } from "src/middleware/check-auth";
 
 const router = Router()
 
-router.post("/purchaseticket/:ticketId",checkAuth,purchaseTicket)
-
+router.post("/purchaseticket/:ticketId",purchaseTicket)
+ 
 export {router}

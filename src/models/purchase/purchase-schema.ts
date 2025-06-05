@@ -39,7 +39,7 @@ const purchaseSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'used', 'transferred', 'reselling', 'refunded', 'disabled'],
+    enum: ['active', 'used', 'transferred', 'refunded', 'disabled'],
     default: 'active'
   },
   purchaseDate: {

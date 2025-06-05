@@ -94,7 +94,7 @@ app.use("/api/report",checkAuth,report)
 app.use("/api/repost",checkAuth,repost);
 app.use('/api/location',checkAuth, locationRoutes);
 app.use("/api/story",checkAuth, story);
-app.use("/api/purchase",purchase);
+app.use("/api/purchase",checkAuth,purchase);
 app.post("/api/email-otp", verifyEmail)
 app.post("/api/verify-email", verifyingEmailOtp)
 app.post("/api/verify-otp", verifyOtpPasswordReset);
