@@ -103,5 +103,5 @@ app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/subscription", subscription);
 app.use("/api/stripe-product", stripeProduct);
 // First screen - verify password
-
+ 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
