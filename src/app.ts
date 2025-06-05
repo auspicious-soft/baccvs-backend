@@ -99,5 +99,5 @@ app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
 app.use("/api/feedback",checkAuth, feedbackRoutes);
 // First screen - verify password
-
+ 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
