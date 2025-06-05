@@ -372,7 +372,7 @@ const processEventCreation = async (
   });
 
   const savedEvent = await newEvent.save();
-
+ 
   // Create tickets
   const ticketDocs = tickets.map((ticket: any) => ({
     event: savedEvent._id,
