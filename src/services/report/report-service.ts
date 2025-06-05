@@ -6,6 +6,7 @@ import { httpStatusCode } from "src/lib/constant";
 import { JwtPayload } from "jsonwebtoken";
 import { postModels } from "src/models/post/post-schema";
 import { Comment } from "src/models/comment/comment-schema";
+import { usersModel } from "src/models/user/user-schema";
 
 export const createReportService = async (req: Request, res: Response) => {
   const { id: reporterId } = req.user as JwtPayload;
@@ -19,7 +20,7 @@ export const createReportService = async (req: Request, res: Response) => {
     );
   }
 
-  if (!["posts", "comments"].includes(targetType)) {
+  if (!["posts", "comments", "users"].includes(targetType)) {
     return errorResponseHandler(
       "Invalid target type",
       httpStatusCode.BAD_REQUEST,
@@ -44,6 +45,9 @@ export const createReportService = async (req: Request, res: Response) => {
   } else if (targetType === "comments") {
     const comment = await Comment.findById(targetId).exec();
     targetExists = !!comment;
+  } else if (targetType === "users") {
+    const user = await usersModel.findById(targetId).exec();
+    targetExists = !!user;
   }
 
   if (!targetExists) {
@@ -231,3 +235,6 @@ export const deleteReportService = async (req: Request, res: Response) => {
     message: "Report deleted successfully"
   };
 };
+
+
+
