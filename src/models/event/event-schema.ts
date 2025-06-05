@@ -43,10 +43,10 @@ const eventSchema = new Schema({
       type: String,
       enum: Object.values(EventType)
     }],
-    venueType: {
+    venueType: [{
       type: String,
       enum: Object.values(VenueType)
-    }
+    }]
   },
   eventVisibility: {
     type: String,

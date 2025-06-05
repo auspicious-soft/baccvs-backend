@@ -344,7 +344,7 @@ const processEventCreation = async (
     eventPreferences: eventPreferences || {
       musicType: [],
       eventType: [],
-      venueType: null,
+      venueType: [],
     },
     eventVisibility: eventVisibility || EventVisibility.PUBLIC,
     invitedGuests: invitedGuests || [],
