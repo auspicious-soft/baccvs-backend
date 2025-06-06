@@ -22,123 +22,137 @@ export const createStoryService = async (req: Request, res: Response) => {
 
   const { id: userId, email } = req.user as JwtPayload;
   let parsedData: any = { content: '', taggedUsers: [], visibility: PostVisibility.PUBLIC };
-  let media: any = null; // Changed from string | null to any
+  let media: any = null;
 
-  // Handle multipart/form-data for file uploads
   if (req.headers['content-type']?.includes('multipart/form-data')) {
     return new Promise((resolve, reject) => {
-      const busboyParser = busboy({ headers: req.headers });
+      const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
+      const busboyParser = busboy({
+        headers: req.headers,
+        limits: { fileSize: MAX_FILE_SIZE }, // Limit file size
+      });
       let fileUploaded = false;
       let fileUploadPromise: Promise<void> | null = null;
 
       busboyParser.on('field', (fieldname: string, value: string) => {
-        
-        if (['taggedUsers', 'visibility'].includes(fieldname)) {
-          try {
+        try {
+          if (['taggedUsers', 'visibility'].includes(fieldname)) {
             parsedData[fieldname] = JSON.parse(value);
-          } catch (error) {
-           return errorResponseHandler(
-              `Failed to parse ${fieldname}. Must be a valid JSON string`,
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+          } else {
+            parsedData[fieldname] = value;
           }
-        } else {
-          parsedData[fieldname] = value;
-        }
-      });
-
-      busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
-
-        
-        if (fieldname !== 'media') {
-          fileStream.resume(); // Drain the stream
-          return;
-        }
-
-        if (fileUploaded) {
-          fileStream.resume(); // Drain the stream
-          return;
-        }
-
-        const { filename, mimeType } = fileInfo;
-
-
-        // Validate file type (image or video)
-        const isImage = mimeType.startsWith('image/');
-        const isVideo = mimeType.startsWith('video/');
-        if (!isImage && !isVideo) {
-          fileStream.resume(); // Drain the stream
+        } catch (error) {
           return errorResponseHandler(
-            'Only image or video files are allowed for story media',
+            `Failed to parse ${fieldname}. Must be a valid JSON string`,
             httpStatusCode.BAD_REQUEST,
             res
           );
         }
-
-        // Create a promise for the file upload
-        fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
-          // Collect file chunks
-          const chunks: Buffer[] = [];
-          
-          fileStream.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
-
-          fileStream.on('end', async () => {
-            try {
-              
-              if (chunks.length === 0) {
-                return rejectUpload(new Error('No file data received'));
-              }
-
-              // Combine all chunks into a single buffer
-              const fileBuffer = Buffer.concat(chunks);
-
-              // Create readable stream from buffer
-              const readableStream = new Readable();
-              readableStream.push(fileBuffer);
-              readableStream.push(null); // End the stream
-
-              // Upload to S3
-              const uploadedMediaUrl = await uploadStreamToS3Service(
-                readableStream,
-                filename,
-                mimeType,
-                email || `story_${customAlphabet('0123456789', 5)()}`
-              );
-              
-              // Create media object that matches your schema
-              media = {
-                url: uploadedMediaUrl,
-                mediaType: isImage ? 'image' : 'video'
-              };
-              
-              fileUploaded = true;
-              resolveUpload();
-            } catch (error) {
-              console.error('File processing error:', error);
-              rejectUpload(error);
-            }
-          });
-
-          fileStream.on('error', (error: any) => {
-            console.error('File stream error:', error);
-            rejectUpload(error);
-          });
-        });
       });
 
+     busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
+  if (fieldname !== 'media' || fileUploaded) {
+    fileStream.resume(); // Drain the stream
+    return;
+  }
+
+  const { filename, mimeType } = fileInfo;
+  const isImage = mimeType.startsWith('image/');
+  const isVideo = mimeType.startsWith('video/');
+  if (!isImage && !isVideo) {
+    fileStream.resume();
+    return errorResponseHandler(
+      'Only image or video files are allowed for story media',
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Track file size
+  let fileSize = 0;
+  fileStream.on('limit', () => {
+    fileStream.resume();
+    return errorResponseHandler(
+      `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  });
+
+  // Declare uploadTimeout in the outer scope
+  let uploadTimeout: NodeJS.Timeout | null = null;
+
+  fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
+    const chunks: Buffer[] = [];
+    fileStream.on('data', (chunk: Buffer) => {
+      fileSize += chunk.length;
+      chunks.push(chunk);
+    });
+
+    fileStream.on('end', async () => {
+      try {
+        if (chunks.length === 0) {
+          return rejectUpload(new Error('No file data received'));
+        }
+
+        const fileBuffer = Buffer.concat(chunks);
+        const readableStream = new Readable();
+        readableStream.push(fileBuffer);
+        readableStream.push(null);
+
+        // Set timeout for S3 upload
+        uploadTimeout = setTimeout(() => {
+          rejectUpload(new Error('S3 upload timed out'));
+        }, 30000); // 30 seconds
+
+        const uploadedMediaUrl = await uploadStreamToS3Service(
+          readableStream,
+          filename,
+          mimeType,
+          email || `story_${customAlphabet('0123456789', 5)()}`
+        );
+
+        // Clear timeout on success
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+          uploadTimeout = null;
+        }
+
+        media = {
+          url: uploadedMediaUrl,
+          mediaType: isImage ? 'image' : 'video',
+        };
+        fileUploaded = true;
+        resolveUpload();
+      } catch (error) {
+        // Clear timeout on error
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+          uploadTimeout = null;
+        }
+        console.error('File processing error:', error);
+        rejectUpload(error);
+      }
+    });
+
+    fileStream.on('error', (error: any) => {
+      // Clear timeout on stream error
+      if (uploadTimeout) {
+        clearTimeout(uploadTimeout);
+        uploadTimeout = null;
+      }
+      console.error('File stream error:', error);
+      rejectUpload(error);
+    });
+  });
+});
+
       busboyParser.on('finish', async () => {
-        
         try {
-          // Wait for file upload to complete if there was a file
           if (fileUploadPromise) {
             await fileUploadPromise;
           }
-          
-          
-          // Validate content or media presence
+
           if (!parsedData.content && !media) {
             return errorResponseHandler(
               'Story must have either text content or media',
@@ -147,7 +161,6 @@ export const createStoryService = async (req: Request, res: Response) => {
             );
           }
 
-          // Validate tagged users
           let validatedTaggedUsers: string[] = [];
           if (parsedData.taggedUsers && Array.isArray(parsedData.taggedUsers)) {
             if (parsedData.taggedUsers.includes(userId)) {
@@ -171,21 +184,18 @@ export const createStoryService = async (req: Request, res: Response) => {
             }
           }
 
-          // Set expiration time to 24 hours from now
           const expiresAt = new Date();
           expiresAt.setHours(expiresAt.getHours() + 24);
 
-          // Create story
           const newStory = await storyModel.create({
             user: userId,
             content: parsedData.content,
-            media, // Now this is an object or null
+            media,
             taggedUsers: validatedTaggedUsers,
             visibility: parsedData.visibility || PostVisibility.PUBLIC,
             expiresAt,
           });
 
-          // Populate user and taggedUsers
           const populatedStory = await newStory.populate([
             { path: 'user', select: '-password' },
             { path: 'taggedUsers', select: '-password' },
@@ -218,64 +228,69 @@ export const createStoryService = async (req: Request, res: Response) => {
       req.pipe(busboyParser);
     });
   } else {
-    // Handle JSON request
-    if (!req.body.content && !req.body.media) {
-      return errorResponseHandler(
-        'Story must have either text content or media',
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-
-    // Validate tagged users
-    let validatedTaggedUsers: string[] = [];
-    if (req.body.taggedUsers && Array.isArray(req.body.taggedUsers)) {
-      if (req.body.taggedUsers.includes(userId)) {
+    // JSON request handling (unchanged for brevity, but add try-catch)
+    try {
+      if (!req.body.content && !req.body.media) {
         return errorResponseHandler(
-          'You cannot tag yourself in the story',
+          'Story must have either text content or media',
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
 
-      for (const id of req.body.taggedUsers) {
-        const userExists = await usersModel.findById(id);
-        if (!userExists) {
+      let validatedTaggedUsers: string[] = [];
+      if (req.body.taggedUsers && Array.isArray(req.body.taggedUsers)) {
+        if (req.body.taggedUsers.includes(userId)) {
           return errorResponseHandler(
-            `Tagged user ${id} not found`,
+            'You cannot tag yourself in the story',
             httpStatusCode.BAD_REQUEST,
             res
           );
         }
-        validatedTaggedUsers.push(id);
+
+        for (const id of req.body.taggedUsers) {
+          const userExists = await usersModel.findById(id);
+          if (!userExists) {
+            return errorResponseHandler(
+              `Tagged user ${id} not found`,
+              httpStatusCode.BAD_REQUEST,
+              res
+            );
+          }
+          validatedTaggedUsers.push(id);
+        }
       }
+
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24);
+
+      const newStory = await storyModel.create({
+        user: userId,
+        content: req.body.content,
+        media: req.body.media,
+        taggedUsers: validatedTaggedUsers,
+        visibility: req.body.visibility || PostVisibility.PUBLIC,
+        expiresAt,
+      });
+
+      const populatedStory = await newStory.populate([
+        { path: 'user', select: '-password' },
+        { path: 'taggedUsers', select: '-password' },
+      ]);
+
+      return {
+        success: true,
+        message: 'Story created successfully',
+        data: populatedStory,
+      };
+    } catch (error) {
+      console.error('JSON story creation error:', error);
+      return errorResponseHandler(
+        (error as Error).message || 'Error creating story',
+        httpStatusCode.INTERNAL_SERVER_ERROR,
+        res
+      );
     }
-
-    // Set expiration time to 24 hours from now
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-
-    // Create story
-    const newStory = await storyModel.create({
-      user: userId,
-      content: req.body.content,
-      media: req.body.media, // This should also be an object if coming from JSON
-      taggedUsers: validatedTaggedUsers,
-      visibility: req.body.visibility || PostVisibility.PUBLIC,
-      expiresAt,
-    });
-
-    // Populate user and taggedUsers
-    const populatedStory = await newStory.populate([
-      { path: 'user', select: '-password' },
-      { path: 'taggedUsers', select: '-password' },
-    ]);
-
-    return {
-      success: true,
-      message: 'Story created successfully',
-      data: populatedStory,
-    };
   }
 };
 
