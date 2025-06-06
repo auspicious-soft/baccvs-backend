@@ -229,49 +229,51 @@ const processEventCreation = async (
   }
 
   // Validate tickets array
-  if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
-    return {
-      success: false,
-      message: "At least one ticket is required",
-      code: httpStatusCode.BAD_REQUEST,
-    };
+  if (isFreeEvent === 'false' && (!tickets || !Array.isArray(tickets) || tickets.length === 0)) {
+    return errorResponseHandler(
+      "Tickets are required for creating an event with paid entry",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Validate capacity and total ticket quantity
   if (capacity <= 0) {
-    return {
-      success: false,
-      message: "Event capacity must be a positive number",
-      code: httpStatusCode.BAD_REQUEST,
-    };
+    return errorResponseHandler(
+      "Capacity must be a positive number",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
+  if( isFreeEvent === 'false') {
   const totalTicketQuantity = tickets.reduce((sum: number, ticket: any) => sum + (ticket.quantity || 0), 0);
   if (totalTicketQuantity > capacity) {
-    return {
-      success: false,
-      message: `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
-      code: httpStatusCode.BAD_REQUEST,
-    };
+    return errorResponseHandler(
+      `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
+}
 
   // Validate invited guests for private events
   if (eventVisibility === EventVisibility.PRIVATE) {
     if (!invitedGuests || !Array.isArray(invitedGuests) || invitedGuests.length === 0) {
-      return {
-        success: false,
-        message: "Private events must have at least one invited guest",
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        "Private events must have at least one invited guest",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
     const invalidIds = invitedGuests.filter((id: string) => !isValidObjectId(id));
     if (invalidIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -279,11 +281,11 @@ const processEventCreation = async (
   if (lineup && Array.isArray(lineup) && lineup.length > 0) {
     const invalidLineupIds = lineup.filter((id: string) => !isValidObjectId(id));
     if (invalidLineupIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
     const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: lineup } })
@@ -293,11 +295,11 @@ const processEventCreation = async (
       const missingIds = lineup.filter(
         (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
       );
-      return {
-        success: false,
-        message: `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -305,11 +307,11 @@ const processEventCreation = async (
   if (coHosts && Array.isArray(coHosts) && coHosts.length > 0) {
     const invalidCoHostIds = coHosts.filter((id: string) => !isValidObjectId(id));
     if (invalidCoHostIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -323,11 +325,11 @@ const processEventCreation = async (
       typeof location.coordinates[0] !== "number" ||
       typeof location.coordinates[1] !== "number"
     ) {
-      return {
-        success: false,
-        message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -374,6 +376,8 @@ const processEventCreation = async (
   const savedEvent = await newEvent.save();
  
   // Create tickets
+  let createdTickets: any[] = [];
+  if(isFreeEvent === 'false'){
   const ticketDocs = tickets.map((ticket: any) => ({
     event: savedEvent._id,
     name: ticket.name,
@@ -384,8 +388,8 @@ const processEventCreation = async (
     isResellable: savedEvent.ticketing?.enableReselling || false,
   }));
 
-  const createdTickets = await ticketModel.insertMany(ticketDocs);
-
+   createdTickets = await ticketModel.insertMany(ticketDocs);
+  }
   // Populate event fields
   await savedEvent.populate([
     { path: "creator", select: "-password" },
