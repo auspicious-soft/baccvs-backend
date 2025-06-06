@@ -32,18 +32,16 @@ export const createStoryService = async (req: Request, res: Response) => {
       let fileUploadPromise: Promise<void> | null = null;
 
       busboyParser.on('field', (fieldname: string, value: string) => {
-        console.log(`Busboy - Received field: ${fieldname}=${value}`);
         
         if (['taggedUsers', 'visibility'].includes(fieldname)) {
           try {
             parsedData[fieldname] = JSON.parse(value);
           } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, error instanceof Error ? error.message : String(error));
-            return reject({
-              success: false,
-              message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
-              code: httpStatusCode.BAD_REQUEST,
-            });
+           return errorResponseHandler(
+              `Failed to parse ${fieldname}. Must be a valid JSON string`,
+              httpStatusCode.BAD_REQUEST,
+              res
+            );
           }
         } else {
           parsedData[fieldname] = value;
@@ -51,34 +49,31 @@ export const createStoryService = async (req: Request, res: Response) => {
       });
 
       busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
+
         
         if (fieldname !== 'media') {
-          console.log(`Skipping file field: ${fieldname}`);
           fileStream.resume(); // Drain the stream
           return;
         }
 
         if (fileUploaded) {
-          console.log('File already uploaded, skipping');
           fileStream.resume(); // Drain the stream
           return;
         }
 
         const { filename, mimeType } = fileInfo;
-        console.log(`Processing file: ${filename}, type: ${mimeType}`);
+
 
         // Validate file type (image or video)
         const isImage = mimeType.startsWith('image/');
         const isVideo = mimeType.startsWith('video/');
         if (!isImage && !isVideo) {
-          console.log(`Invalid file type: ${mimeType}`);
           fileStream.resume(); // Drain the stream
-          return reject({
-            success: false,
-            message: 'Only image or video files are allowed for story media',
-            code: httpStatusCode.BAD_REQUEST,
-          });
+          return errorResponseHandler(
+            'Only image or video files are allowed for story media',
+            httpStatusCode.BAD_REQUEST,
+            res
+          );
         }
 
         // Create a promise for the file upload
@@ -92,7 +87,6 @@ export const createStoryService = async (req: Request, res: Response) => {
 
           fileStream.on('end', async () => {
             try {
-              console.log(`File stream ended. Total chunks: ${chunks.length}`);
               
               if (chunks.length === 0) {
                 return rejectUpload(new Error('No file data received'));
@@ -100,7 +94,6 @@ export const createStoryService = async (req: Request, res: Response) => {
 
               // Combine all chunks into a single buffer
               const fileBuffer = Buffer.concat(chunks);
-              console.log(`File buffer size: ${fileBuffer.length} bytes`);
 
               // Create readable stream from buffer
               const readableStream = new Readable();
@@ -121,7 +114,6 @@ export const createStoryService = async (req: Request, res: Response) => {
                 mediaType: isImage ? 'image' : 'video'
               };
               
-              console.log(`File uploaded successfully: ${uploadedMediaUrl}`);
               fileUploaded = true;
               resolveUpload();
             } catch (error) {
@@ -138,46 +130,42 @@ export const createStoryService = async (req: Request, res: Response) => {
       });
 
       busboyParser.on('finish', async () => {
-        console.log('Busboy finished parsing');
-        console.log('Parsed data:', parsedData);
         
         try {
           // Wait for file upload to complete if there was a file
           if (fileUploadPromise) {
-            console.log('Waiting for file upload to complete...');
             await fileUploadPromise;
           }
           
-          console.log('Media uploaded:', media);
           
           // Validate content or media presence
           if (!parsedData.content && !media) {
-            return reject({
-              success: false,
-              message: 'Story must have either text content or media',
-              code: httpStatusCode.BAD_REQUEST,
-            });
+            return errorResponseHandler(
+              'Story must have either text content or media',
+              httpStatusCode.BAD_REQUEST,
+              res
+            );
           }
 
           // Validate tagged users
           let validatedTaggedUsers: string[] = [];
           if (parsedData.taggedUsers && Array.isArray(parsedData.taggedUsers)) {
             if (parsedData.taggedUsers.includes(userId)) {
-              return reject({
-                success: false,
-                message: 'You cannot tag yourself in the story',
-                code: httpStatusCode.BAD_REQUEST,
-              });
+              return errorResponseHandler(
+                'You cannot tag yourself in the story',
+                httpStatusCode.BAD_REQUEST,
+                res
+              );
             }
 
             for (const id of parsedData.taggedUsers) {
               const userExists = await usersModel.findById(id);
               if (!userExists) {
-                return reject({
-                  success: false,
-                  message: `Tagged user ${id} not found`,
-                  code: httpStatusCode.BAD_REQUEST,
-                });
+                return errorResponseHandler(
+                  `Tagged user ${id} not found`,
+                  httpStatusCode.BAD_REQUEST,
+                  res
+                );
               }
               validatedTaggedUsers.push(id);
             }
@@ -210,21 +198,21 @@ export const createStoryService = async (req: Request, res: Response) => {
           });
         } catch (error) {
           console.error('Story creation error:', error);
-          reject({
-            success: false,
-            message: error instanceof Error ? error.message : 'Failed to create story',
-            code: httpStatusCode.INTERNAL_SERVER_ERROR,
-          });
+          return errorResponseHandler(
+            (error as Error).message || 'Error creating story',
+            httpStatusCode.INTERNAL_SERVER_ERROR,
+            res
+          );
         }
       });
 
       busboyParser.on('error', (error: any) => {
         console.error('Busboy error:', error);
-        reject({
-          success: false,
-          message: error.message || 'Error processing file uploads',
-          code: httpStatusCode.INTERNAL_SERVER_ERROR,
-        });
+        return errorResponseHandler(
+          error.message || 'Error processing file uploads',
+          httpStatusCode.INTERNAL_SERVER_ERROR,
+          res
+        );
       });
 
       req.pipe(busboyParser);
