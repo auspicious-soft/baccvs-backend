@@ -87,6 +87,9 @@ jobs:
               -e TWILIO_ACCOUNT_SID='${{ secrets.TWILIO_ACCOUNT_SID }}' \
               -e TWILIO_AUTH_TOKEN='${{ secrets.TWILIO_AUTH_TOKEN }}' \
               -e TWILIO_PHONE_NUMBER='${{ secrets.TWILIO_PHONE_NUMBER }}' \
+              -e STRIPE_SECRET_KEY='${{ secrets.STRIPE_SECRET_KEY }}' \
+              -e STRIPE_PUBLISH_KEY='${{ secrets.STRIPE_PUBLISH_KEY }}' \
+              -e STRIPE_WEBHOOK_SECRET='${{ secrets.STRIPE_WEBHOOK_SECRET }}' \
               ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest || { echo 'Docker run failed'; exit 1; }
 
            
