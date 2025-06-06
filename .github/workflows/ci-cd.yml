@@ -90,6 +90,11 @@ jobs:
               -e STRIPE_SECRET_KEY='${{ secrets.STRIPE_SECRET_KEY }}' \
               -e STRIPE_PUBLISH_KEY='${{ secrets.STRIPE_PUBLISH_KEY }}' \
               -e STRIPE_WEBHOOK_SECRET='${{ secrets.STRIPE_WEBHOOK_SECRET }}' \
+              -e AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' \
+              -e AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
+              -e AWS_REGION='${{ secrets.AWS_REGION }}' \
+              -e AWS_BUCKET_NAME='${{ secrets.AWS_BUCKET_NAME }}' \
+              -e NEXT_PUBLIC_AWS_BUCKET_PATH='${{ secrets.NEXT_PUBLIC_AWS_BUCKET_PATH }}' \
               ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest || { echo 'Docker run failed'; exit 1; }
 
            
