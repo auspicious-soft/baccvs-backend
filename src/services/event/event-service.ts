@@ -27,14 +27,10 @@ export const createEventService = async (req: Request, res: Response) => {
 
   // Handle multipart/form-data for file uploads
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    console.log("Processing multipart/form-data request");
-    console.log("Content-Type:", req.headers["content-type"]);
 
     return new Promise((resolve, reject) => {
       const busboy = Busboy({ headers: req.headers });
       const uploadPromises: Array<{ promise: Promise<string>; fieldname: string }> = [];
-
-      console.log("Busboy instance created");
 
       busboy.on("field", (fieldname: string, value: string) => {
         if (
@@ -44,12 +40,7 @@ export const createEventService = async (req: Request, res: Response) => {
         ) {
           try {
             parsedData[fieldname] = JSON.parse(value);
-            console.log(`Busboy - Parsed ${fieldname}:`, parsedData[fieldname]);
           } catch (error) {
-            console.log(
-              `Busboy - Failed to parse ${fieldname}:`,
-              error instanceof Error ? error.message : String(error)
-            );
             return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
@@ -59,16 +50,12 @@ export const createEventService = async (req: Request, res: Response) => {
         } else {
           parsedData[fieldname] = value;
         }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
       });
 
       busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(
-          `Busboy - Processing file: fieldname=${fieldname}, filename=${fileInfo.filename}, mimeType=${fileInfo.mimeType}`
-        );
+      
 
         if (!["coverPhoto", "videos"].includes(fieldname)) {
-          console.log(`Busboy - Skipping file with fieldname: ${fieldname}`);
           fileStream.resume();
           return;
         }
@@ -81,10 +68,9 @@ export const createEventService = async (req: Request, res: Response) => {
           fieldname === "coverPhoto";
         const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
 
-        console.log(`Busboy - File validation: isImage=${isImage}, isVideo=${isVideo}`);
+
 
         if (!isImage && !isVideo) {
-          console.log(`Busboy - Rejecting file: ${filename} with type ${mimeType} for field ${fieldname}`);
           fileStream.resume();
           return reject({
             success: false,
@@ -98,7 +84,6 @@ export const createEventService = async (req: Request, res: Response) => {
         readableStream._read = () => {};
 
         fileStream.on("data", (chunk: any) => {
-          console.log(`Received ${chunk.length} bytes for ${filename}`);
           readableStream.push(chunk);
         });
 
@@ -107,35 +92,28 @@ export const createEventService = async (req: Request, res: Response) => {
         });
 
         // Upload to S3 and track which field it belongs to
-        console.log(`Busboy - Starting upload for ${fieldname}: ${filename}`);
         const uploadPromise = uploadStreamToS3Service(
           readableStream,
           filename,
           mimeType,
           parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
         ).catch((err) => {
-          console.error(`S3 upload failed for ${filename}:`, err);
           throw err;
         });
 
         uploadPromises.push({ promise: uploadPromise, fieldname });
-        console.log(`Busboy - Added upload promise for ${fieldname}, total promises: ${uploadPromises.length}`);
       });
 
       busboy.on("finish", async () => {
-        console.log("Busboy finished processing");
-        console.log("Total upload promises created:", uploadPromises.length);
 
         try {
           // Wait for file uploads
           if (uploadPromises.length > 0) {
-            console.log("Processing", uploadPromises.length, "file uploads...");
             const uploadResults = await Promise.all(uploadPromises.map((item) => item.promise));
 
             // Process uploads based on their fieldname
             uploadResults.forEach((url, index) => {
               const fieldname = uploadPromises[index].fieldname;
-              console.log(`Processing upload: ${fieldname} -> ${url}`);
               if (fieldname === "coverPhoto") {
                 coverPhoto = url;
               } else if (fieldname === "videos") {
@@ -143,17 +121,12 @@ export const createEventService = async (req: Request, res: Response) => {
               }
             });
           } else {
-            console.log("No file uploads to process");
           }
 
-          console.log("Final coverPhoto:", coverPhoto);
-          console.log("Final videos:", videos);
-          console.log("Parsed data coverPhoto:", parsedData.coverPhoto);
 
           // Check if we have a coverPhoto from either upload or form field
           const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
           if (!finalCoverPhoto) {
-            console.log("ERROR: No coverPhoto found in uploads or form data");
             return reject({
               success: false,
               message:
@@ -183,7 +156,6 @@ export const createEventService = async (req: Request, res: Response) => {
         });
       });
 
-      console.log("Piping request to busboy...");
       req.pipe(busboy);
     });
   } else {
@@ -223,7 +195,7 @@ const processEventCreation = async (
   if (!title || !date || !startTime || !endTime || !venue || !capacity || isFreeEvent === undefined) {
     return {
       success: false,
-      message: "Missing required fields",
+      message: "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent)",
       code: httpStatusCode.BAD_REQUEST,
     };
   }
@@ -476,10 +448,8 @@ export const updateEventService = async (req: Request, res: Response) => {
         ) {
           try {
             parsedData[fieldname] = JSON.parse(value);
-            console.log(`Busboy - Parsed ${fieldname}:`, parsedData[fieldname]);
           } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, (error instanceof Error ? error.message : String(error)));
-            return reject({
+      return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
               code: httpStatusCode.BAD_REQUEST,
@@ -488,7 +458,6 @@ export const updateEventService = async (req: Request, res: Response) => {
         } else {
           parsedData[fieldname] = value;
         }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
       });
 
       busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
