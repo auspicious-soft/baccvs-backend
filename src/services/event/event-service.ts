@@ -193,11 +193,11 @@ const processEventCreation = async (
 
   // Validate required fields
   if (!title || !date || !startTime || !endTime || !venue || !capacity || isFreeEvent === undefined) {
-    return {
-      success: false,
-      message: "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent)",
-      code: httpStatusCode.BAD_REQUEST,
-    };
+    return errorResponseHandler(
+      "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent)",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Validate tickets array

@@ -41,6 +41,13 @@ const CommentSchema = new Schema(
         return !this.post;
       }
     },
+    event: {
+      type: Schema.Types.ObjectId,
+      ref: 'event',
+      required: function(this: any) {
+        return !this.post;
+      }
+    },
     user: {
       type: Schema.Types.ObjectId,
       ref: 'users',
@@ -74,14 +81,13 @@ const CommentSchema = new Schema(
 );
 
 // Validate that either post or repost is provided, but not both
-CommentSchema.pre('validate', function(next) {
-  if (this.post && this.repost) {
-    const error = new Error('Comment cannot be associated with both a post and a repost');
-    return next(error);
+CommentSchema.pre('validate', function (next) {
+  const targets = [this.post, this.repost, this.event].filter(Boolean).length;
+  if (targets > 1) {
+    return next(new Error('Comment can only be associated with one of post, repost, or event'));
   }
-  if (!this.post && !this.repost) {
-    const error = new Error('Comment must be associated with either a post or a repost');
-    return next(error);
+  if (targets === 0) {
+    return next(new Error('Comment must be associated with a post, repost, or event'));
   }
   next();
 });
@@ -120,9 +126,6 @@ CommentSchema.statics.findWithReplies = async function(commentId: string) {
 };
 
 // Add a compound index to ensure a comment is either for a post or a repost
-CommentSchema.index({ post: 1, repost: 1 }, { 
-  sparse: true,
-  unique: false
-});
+CommentSchema.index({ post: 1, repost: 1, event: 1 }, { sparse: true, unique: false });
 
 export const Comment = mongoose.model<IComment, ICommentModel>('comments', CommentSchema);

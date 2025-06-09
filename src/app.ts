@@ -76,7 +76,6 @@ app.get('/reset-password', (req, res) => {
 
 connectDB();
 
-
 app.get("/", (_, res: any) => {
     res.send("Hello world entry point 🚀✅");
 });
