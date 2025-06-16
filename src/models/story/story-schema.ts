@@ -16,6 +16,9 @@ const StorySchema = new Schema(
       type: {
         url: { type: String },
         mediaType: { type: String, enum: ['image', 'video'], default: 'image' },
+        filename: { type: String },
+        size: { type: Number },
+        mimeType: { type: String },
       },
     },
     taggedUsers: [
@@ -36,6 +39,25 @@ const StorySchema = new Schema(
         ref: 'users',
       },
     ],
+    storyType: {
+      type: String,
+      enum: ['text', 'photo'],
+      required: true,
+    },
+    textColor: {
+      type: String,
+      trim: true,
+      // Example validation for hex color codes or color names
+      match: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$|^[a-zA-Z]+$/,
+    },
+    fontFamily: {
+      type: String,
+      trim: true,
+    },
+    textAlignment: {
+      type: String,
+      enum: ['left', 'center', 'right'],
+    },
     expiresAt: {
       type: Date,
       required: true,
@@ -50,13 +72,14 @@ const StorySchema = new Schema(
   }
 );
 
-// Validation to ensure either content or media is present
+// Validation to ensure either content or media is present for appropriate storyType
 StorySchema.pre('save', function (next) {
-  if (!this.content && !this.media) {
-    const error = new Error('Story must have either text content or media');
-    return next(error);
+  if (this.storyType === 'text' && !this.content) {
+    return next(new Error('Text content is required for text stories'));
   }
- 
+  if (this.storyType === 'photo' && !this.media) {
+    return next(new Error('Media is required for photo stories'));
+  }
   next();
 });
 

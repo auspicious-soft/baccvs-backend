@@ -8,6 +8,7 @@ export const httpStatusCode = {
   NOT_FOUND: 404,
   INTERNAL_SERVER_ERROR: 500,
   CONFLICT: 409,
+  REQUEST_TIMEOUT: 408,
 }
 
 export enum Gender {

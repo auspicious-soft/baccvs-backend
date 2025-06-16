@@ -3,12 +3,12 @@ import { Response } from "express";
 import { httpStatusCode } from "../constant";
 
 export const errorResponseHandler = (message: string, code: number = 500, res: Response) => {
-    throw new Error(JSON.stringify({
+    res.status(code).json({
         success: false,
         message,
         code
-    }))
-}
+    });
+};
 
 export const errorParser = (error: any) => {
     console.log('error: ', error);
