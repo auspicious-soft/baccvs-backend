@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectsCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { configDotenv } from 'dotenv';
 import { Readable } from 'stream';
@@ -80,4 +80,91 @@ export const uploadStreamToS3Service = async (
   await s3Client.send(command);
   
   return imageKey;
+};
+
+export const extractS3Key = (urlOrKey: string): string | null => {
+  try {
+    // If it starts with 'users/' or 'projects/', it's already a key
+    if (urlOrKey.startsWith('users/') || urlOrKey.startsWith('projects/')) {
+      return urlOrKey;
+    }
+    
+    // If it's a full URL, extract the key
+    if (urlOrKey.startsWith('http')) {
+      const bucketPath = process.env.NEXT_PUBLIC_AWS_BUCKET_PATH;
+      if (bucketPath && urlOrKey.startsWith(bucketPath)) {
+        // Remove bucket path to get the key
+        const key = urlOrKey.replace(bucketPath, '');
+        return key.startsWith('/') ? key.substring(1) : key;
+      }
+      
+      // Fallback: extract from URL pathname
+      const url = new URL(urlOrKey);
+      return url.pathname.substring(1); // Remove leading '/'
+    }
+    
+    // If it doesn't match expected patterns, assume it's already a key
+    return urlOrKey;
+  } catch (error) {
+    console.error('Error extracting S3 key:', error);
+    return null;
+  }
+};
+
+/**
+ * Delete a single file from S3
+ * @param s3Key - The S3 key of the file to delete
+ * @returns Promise<boolean> - Returns true if successful, false otherwise
+ */
+export const deleteFileFromS3 = async (s3Key: string): Promise<boolean> => {
+  try {
+    const s3Client = createS3Client();
+    const deleteCommand = new DeleteObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME!, // This should be just the bucket name, not the full path
+      Key: s3Key,
+    });
+
+    await s3Client.send(deleteCommand);
+    console.log(`Successfully deleted file from S3: ${s3Key}`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error deleting file from S3:', error);
+    return false;
+  }
+};
+
+/**
+ * Delete multiple files from S3
+ * @param s3Keys - Array of S3 keys to delete
+ * @returns Promise<{successful: string[], failed: string[]}> - Returns arrays of successful and failed deletions
+ */
+export const deleteMultipleFilesFromS3 = async (s3Keys: string[]): Promise<{successful: string[], failed: string[]}> => {
+  try {
+    const s3Client = createS3Client();
+    
+    const deleteCommand = new DeleteObjectsCommand({
+      Bucket: process.env.AWS_BUCKET_NAME!,
+      Delete: {
+        Objects: s3Keys.map(key => ({ Key: key })),
+        Quiet: false,
+      },
+    });
+
+    const response = await s3Client.send(deleteCommand);
+    
+    const successful = response.Deleted?.map(obj => obj.Key!) || [];
+    const failed = response.Errors?.map(err => err.Key!) || [];
+    
+    console.log(`Successfully deleted ${successful.length} files from S3`);
+    if (failed.length > 0) {
+      console.error(`Failed to delete ${failed.length} files from S3:`, failed);
+    }
+    
+    return { successful, failed };
+    
+  } catch (error) {
+    console.error('Error deleting multiple files from S3:', error);
+    return { successful: [], failed: s3Keys };
+  }
 };

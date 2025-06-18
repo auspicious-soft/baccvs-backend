@@ -6,7 +6,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { followModel } from "src/models/follow/follow-schema";
 import { usersModel } from "src/models/user/user-schema";
 import { FollowRelationshipStatus } from "src/lib/constant";
-import { uploadStreamToS3Service } from "src/configF/s3";
+import { deleteFileFromS3, uploadStreamToS3Service } from "src/configF/s3";
 import { customAlphabet } from "nanoid";
 import { Readable } from "stream";
 import busboy from "busboy";
@@ -34,7 +34,6 @@ export const createStoryService = async (req: Request, res: Response) => {
   let media: any = null;
 
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    console.log("Request headers:", req.headers); // Debug: Log headers
     return new Promise<void>((resolve) => {
       const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
       const busboyParser = busboy({
@@ -691,15 +690,12 @@ export const getStoryByIdService = async (req: Request, res: Response) => {
     throw error;
   }
 };
+
 export const deleteStoryService = async (req: Request, res: Response) => {
-  
   const { id: userId } = req.user as JwtPayload;
   const { storyId } = req.params;
 
-  const story = await storyModel.findOne({
-    _id: storyId,
-    user: userId
-  });
+  const story = await storyModel.findById(storyId);
 
   if (!story) {
     return errorResponseHandler(
@@ -709,11 +705,27 @@ export const deleteStoryService = async (req: Request, res: Response) => {
     );
   }
 
+  if (story.user.toString() !== userId.toString()) {
+    return errorResponseHandler(
+      "Unauthorized to delete this story",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  // Delete associated media file from S3 if it exists
+  if (story.media && story.media.url) {
+    // Since you're storing just the S3 key in the database,
+    // we can use it directly for S3 deletion
+    const s3Key = story.media.url; // This is your S3 key like: users/rishabh@auspicioussoft.com/image/jpeg/1750162813017-26f7719e-6d5a-404f-9e7e-451b439b2a83.JPEG
+    await deleteFileFromS3(s3Key);
+  }
+
+  // Delete the story from database
   await story.deleteOne();
 
   return {
     success: true,
     message: "Story deleted successfully"
   };
-
 };
