@@ -2,8 +2,8 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
-import { BlockModel } from "src/models/block/block-schema";
-import { JwtPayload } from "jsonwebtoken";
+import { blockModel } from "src/models/block/block-schema";
+import { followModel } from "src/models/follow/follow-schema";
 
 export const blockUserService = async (req: any, res: Response) => {
   if (!req.user) {
@@ -29,7 +29,7 @@ export const blockUserService = async (req: any, res: Response) => {
     );
   }
 
-  const existingBlock = await BlockModel.findOne({
+  const existingBlock = await blockModel.findOne({
     blockedBy: currentUserId,
     blockedUser: targetUserId
   });
@@ -42,7 +42,16 @@ export const blockUserService = async (req: any, res: Response) => {
     );
   }
 
-  const newBlock = new BlockModel({
+  // 🧹 Remove mutual follow relationships
+  await followModel.deleteMany({
+    $or: [
+      { follower_id: currentUserId, following_id: targetUserId },
+      { follower_id: targetUserId, following_id: currentUserId }
+    ]
+  });
+
+  // ✅ Save new block entry
+  const newBlock = new blockModel({
     blockedBy: currentUserId,
     blockedUser: targetUserId
   });
@@ -51,7 +60,7 @@ export const blockUserService = async (req: any, res: Response) => {
 
   return {
     success: true,
-    message: "User blocked successfully"
+    message: "User blocked successfully and follow relationships removed"
   };
 };
 
@@ -71,7 +80,7 @@ export const unblockUserService = async (req: any, res: Response) => {
     );
   }
 
-  const existingBlock = await BlockModel.findOne({
+  const existingBlock = await blockModel.findOne({
     blockedBy: currentUserId,
     blockedUser: targetUserId
   });
@@ -84,7 +93,7 @@ export const unblockUserService = async (req: any, res: Response) => {
     );
   }
 
-  await BlockModel.findByIdAndDelete(existingBlock._id);
+  await blockModel.findByIdAndDelete(existingBlock._id);
 
   return {
     success: true,
@@ -99,7 +108,7 @@ export const getBlockedUsersService = async (req: any, res: Response) => {
 
   const { id: currentUserId } = req.user;
 
-  const blockedUsers = await BlockModel.find({ blockedBy: currentUserId })
+  const blockedUsers = await blockModel.find({ blockedBy: currentUserId })
     .populate('blockedUser', 'username email profilePicture')
     .sort({ createdAt: -1 });
 

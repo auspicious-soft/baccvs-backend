@@ -90,7 +90,7 @@ export const getFollowStatsService = async (req: Request, res: Response) => {
   if (!req.user) {
       return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
-
+ 
   const { id: userId } = req.user as JwtPayload;
 
   const followersCount = await followModel.countDocuments({

@@ -121,7 +121,7 @@ export const passwordReset = async (req: Request, res: Response) => {
 
 export const getUserInfo = async (req: Request, res: Response) => {
     try {
-        const response = await getUserInfoService(req.params.id, res)
+        const response = await getUserInfoService(req, res)
         return res.status(httpStatusCode.OK).json(response)
     } catch (error: any) {
         const { code, message } = errorParser(error)

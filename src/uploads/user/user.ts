@@ -23,6 +23,7 @@ import { Comment } from "src/models/comment/comment-schema"
 import { Readable } from 'stream';
 import Busboy from 'busboy';
 import { uploadStreamToS3Service } from "src/configF/s3";
+import { blockModel } from "src/models/block/block-schema"
 configDotenv()
 
 
@@ -542,20 +543,23 @@ export const passwordResetService = async (req: Request, res: Response) => {
     }
 }
 
-export const getUserInfoService = async (id: string, res: Response) => {
-    // const user = await usersModel.findById(id);
-    // if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
-  
-    // const userProjects = await projectsModel.find({ userId: id }).select("-__v");
-  
-    // return {
-    //     success: true,
-    //     message: "User retrieved successfully",
-    //     data: {
-    //         user,
-    //         projects: userProjects.length > 0 ? userProjects : [],
-    //     }
-    // };
+export const getUserInfoService = async (req: any, res: Response) => {
+    if (!req.params.id) return errorResponseHandler("User ID is required", httpStatusCode.BAD_REQUEST, res);
+
+    const user = await usersModel.findById(req.params.id);
+    const {id:currentUserId} = req.user
+    
+    if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+
+
+
+    return {
+        success: true,
+        message: "User retrieved successfully",
+        data: {
+            user
+        }
+    };
 }
 
 export const getUserInfoByEmailService = async (email: string, res: Response) => {
@@ -699,11 +703,24 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         // Check if user has posted any content
         const hasUserPostedContent = await postModels.exists({ user: userId });
         
-        // Get users the current user follows
+        // === NEW: Get blocked users ===
+        // Users who blocked the current user
+        const blockedByUsers = await blockModel.find({ blockedUser: userId }).select('blockedBy');
+        const blockedByIds = blockedByUsers.map(b => b.blockedBy);
+
+        // Users the current user blocked
+        const blockedUsers = await blockModel.find({ blockedBy: userId }).select('blockedUser');
+        const blockedIds = blockedUsers.map(b => b.blockedUser);
+        
+        // Combine all blocked user IDs (both directions)
+        const allBlockedIds = [...new Set([...blockedByIds, ...blockedIds])];
+        
+        // Get users the current user follows, excluding blocked users
         const following = await followModel.find({
             follower_id: userId,
             relationship_status: FollowRelationshipStatus.FOLLOWING,
-            is_approved: true
+            is_approved: true,
+            following_id: { $nin: allBlockedIds } // Exclude blocked users
         }).select('following_id');
         
         const followingIds = following.map(f => f.following_id);
@@ -717,7 +734,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
-            .populate('viewedBy', 'userName photos'); // Add viewedBy population
+            .populate('viewedBy', 'userName photos');
             
         // Group user's own stories
         let userStories = null;
@@ -728,7 +745,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             };
         }
             
-        // Get stories from users the current user follows
+        // Get stories from users the current user follows, excluding blocked users
         const followingStoriesRaw = await storyModel
             .find({
                 user: { $in: followingIds },
@@ -736,7 +753,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             })
             .sort({ createdAt: -1 })
             .populate('user', 'userName photos')
-            .populate('viewedBy', 'userName photos') // Add viewedBy population
+            .populate('viewedBy', 'userName photos')
             .limit(10);
         
         // Group following stories by user
@@ -762,7 +779,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const limit = parseInt(req.query.limit as string) || 10;
         const skip = (page - 1) * limit;
         
-        // First get posts from followed users
+        // Get posts from followed users, excluding blocked users
         const followingPosts = await postModels
             .find({
                 user: { $in: followingIds }
@@ -771,13 +788,13 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             .populate('user', 'userName photos');
             
         // If we don't have enough posts from followed users, get public posts
-        let publicPosts : any[] = [];
+        let publicPosts: any[] = [];
         if (followingPosts.length < limit) {
             const neededPublicPosts = limit - followingPosts.length;
             
             publicPosts = await postModels
                 .find({
-                    user: { $nin: [...followingIds, userId] }, // Exclude followed users and self
+                    user: { $nin: [...followingIds, userId, ...allBlockedIds] }, // Exclude followed users, self, and blocked users
                     visibility: PostVisibility.PUBLIC
                 })
                 .sort({ createdAt: -1 })
@@ -792,7 +809,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         const paginatedPosts = allPosts.slice(skip, skip + limit);
         
         // ===== REPOSTS SECTION =====
-        // Get reposts from followed users
+        // Get reposts from followed users, excluding blocked users
         const followingReposts = await RepostModel.find({
             user: { $in: followingIds }
         })
@@ -806,8 +823,18 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             }
         });
         
-        // Apply pagination to reposts
-        const paginatedReposts = followingReposts.slice(skip, skip + limit);
+        // === NEW: Filter out reposts where the original post's user is blocked ===
+        const filteredReposts = followingReposts.filter(repost => {
+            let originalPostUserId: string | undefined;
+            if (repost.originalPost && typeof repost.originalPost === 'object' && 'user' in repost.originalPost) {
+                // @ts-ignore
+                originalPostUserId = (repost.originalPost as any).user?._id?.toString?.() ?? (repost.originalPost as any).user?.toString?.();
+            }
+            return !originalPostUserId || !allBlockedIds.some(id => id.toString() === originalPostUserId);
+        });
+        
+        // Apply pagination to filtered reposts
+        const paginatedReposts = filteredReposts.slice(skip, skip + limit);
         
         // Get post IDs for engagement stats
         const postIds = paginatedPosts.map(post => post._id);
@@ -1013,7 +1040,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
             // Check if the current user has liked this repost
             const isLikedByUser = userLikedRepostIds.has(repostId);
             
-            // Check if the current user has liked the original post
+            // Check if the current user has likedByUser
             const isOriginalPostLikedByUser = userLikedPostIds.has(originalPostId);
             
             return {
@@ -1026,15 +1053,15 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                     ...((repost.originalPost && typeof (repost.originalPost as any).toObject === 'function')
                         ? (repost.originalPost as any).toObject()
                         : { _id: repost.originalPost }),
-                    likesCount: originalPostEngagement.likes,
+                    likesCount: originalPostEngagementStats.length,
                     commentsCount: originalPostEngagement.comments,
                     repostsCount: originalPostEngagement.reposts,
                     isLikedByUser: isOriginalPostLikedByUser
                 },
-                likesCount: repostEngagement.likes,
+                likesCount: repostEngagementStats.likes,
                 commentsCount: repostEngagement.comments,
-                isFollowedUser: isFollowed,
-                isLikedByUser: isLikedByUser
+                isFollowedByUser: isFollowed,
+                isLikedByUser: isLikedByUser,
             };
         });
         
@@ -1058,15 +1085,16 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                 },
                 {
                     $match: {
-                        startDate: { $gte: new Date() }
-                    }
+                        startDate: { $gte: new Date() },
+                        user: { $nin: allBlockedIds } // Exclude blocked users' events
+                    },
                 },
                 {
                     $limit: 5
                 }
             ]);
             
-            // Convert distance to km
+            // Convert distance to kilometers
             nearbyEvents = nearbyEvents.map(event => ({
                 ...event,
                 distanceInKm: Math.round((event.distance / 1000) * 10) / 10
@@ -1074,7 +1102,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         }
         
         // ===== STATS SECTION =====
-        // Get user match stats
+        // Get user match statistics
         const matchStats = {
             likesSent: await UserMatch.countDocuments({
                 fromUser: userId,
@@ -1116,13 +1144,13 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
                     follows: followStats
                 },
                 pagination: {
-                    total: allPosts.length + followingReposts.length,
+                    total: allPosts.length + filteredReposts.length,
                     postsTotal: allPosts.length,
-                    repostsTotal: followingReposts.length,
+                    repostsTotal: filteredReposts.length,
                     page,
                     limit,
-                    pages: Math.ceil((allPosts.length + followingReposts.length) / limit),
-                    hasNext: page * limit < (allPosts.length + followingReposts.length),
+                    pages: Math.ceil((allPosts.length + filteredReposts.length) / limit),
+                    hasNext: page * limit < (allPosts.length + filteredReposts.length),
                     hasPrev: page > 1
                 }
             }

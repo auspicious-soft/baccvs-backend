@@ -16,4 +16,7 @@ export { router as blockRoutes } from './block-routes';
 export { router as feedbackRoutes } from './feedback-routes';
 export { router as subscription } from './subscription-routes';
 export { router as stripeProduct } from './stripe-product-routes';
+export { router as resell } from './resell-routes';
+
+
 

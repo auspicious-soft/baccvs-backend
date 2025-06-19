@@ -21,4 +21,4 @@ const blockSchema = new Schema(
 // Compound index to prevent duplicate blocks
 blockSchema.index({ blockedBy: 1, blockedUser: 1 }, { unique: true });
 
-export const BlockModel = mongoose.model("Block", blockSchema);
+export const blockModel = mongoose.model("Block", blockSchema);

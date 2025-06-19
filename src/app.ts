@@ -4,7 +4,7 @@ import cors from "cors"
 import path from "path"
 import { fileURLToPath } from 'url'
 import connectDB from "./configF/db"
-import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, blockRoutes, feedbackRoutes, subscription, stripeProduct } from "./routes"
+import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, blockRoutes, feedbackRoutes, subscription, stripeProduct, resell } from "./routes"
 import { Server } from "socket.io"
 import http from "http"
 import { setupSocketServer } from "./socket/socket-handler"
@@ -74,6 +74,11 @@ app.get('/reset-password', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
 });
 
+// Add this route after your other routes
+app.get('/bulk-purchase-test', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'bulk-purchase-test.html'));
+});
+
 connectDB();
 
 app.get("/", (_, res: any) => {
@@ -88,21 +93,22 @@ app.use("/api/follow",checkAuth, follow);
 app.use("/api/post",checkAuth,post);
 app.use("/api/comment",comment);
 app.use("/api/event",event);
-app.use("/api/like",like)
+app.use("/api/like",like);
 app.use("/api/report",checkAuth,report)
 app.use("/api/repost",checkAuth,repost);
 app.use('/api/location',checkAuth, locationRoutes);
 app.use("/api/story",checkAuth, story);
 app.use("/api/purchase",checkAuth,purchase);
-app.post("/api/email-otp", verifyEmail)
-app.post("/api/verify-email", verifyingEmailOtp)
-app.post("/api/verify-otp", verifyOtpPasswordReset);
-app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
+app.use("/api/resell",checkAuth, resell); // Add the resell routes with checkAuth
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
 app.use("/api/feedback",checkAuth, feedbackRoutes);
 app.use("/api/subscription", subscription);
 app.use("/api/stripe-product", stripeProduct);
+app.post("/api/email-otp", verifyEmail);
+app.post("/api/verify-email", verifyingEmailOtp);
+app.post("/api/verify-otp", verifyOtpPasswordReset);
+app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // First screen - verify password
  
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

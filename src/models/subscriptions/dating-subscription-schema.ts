@@ -45,6 +45,14 @@ const DatingSubscriptionSchema = new Schema(
       type: String,
       default: null
     },
+    stripeProductId:{
+      type: String,
+      default: null
+    },
+    stripePriceId: {
+      type: String,
+      default: null
+    },
     stripeSubscriptionId: {
       type: String,
       default: null

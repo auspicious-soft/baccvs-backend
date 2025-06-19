@@ -3,6 +3,7 @@
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import dotenv from "dotenv";
+import QRCode from "qrcode"; 
 dotenv.config();
 
 // Extend Express Request interface to include userData
@@ -20,6 +21,12 @@ import Stripe from "stripe";
 import { DatingSubscription, DatingSubscriptionPlan } from "src/models/subscriptions/dating-subscription-schema";
 import { Transaction, TransactionType, TransactionStatus } from "src/models/transaction/transaction-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { purchaseModel } from "src/models/purchase/purchase-schema";
+import { eventModel } from "src/models/event/event-schema";
+import { ticketModel } from "src/models/ticket/ticket-schema";
+import mongoose from "mongoose";
+import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import { resellModel } from "src/models/resell/resell-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2025-02-24.acacia",
@@ -27,139 +34,378 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
 
 // Create a checkout session for subscription
 export const createCheckoutSessionService = async (req: Request, res: Response) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const { productId } = req.body;
+    const { paymentType, productId, ticketId, eventId, quantity, amount, resaleId } = req.body;
+
     if (!req.user) {
-      return { success: false, message: "User data not found in request" };
+      throw new Error("User data not found in request");
     }
-    
+
     const { id: userId, email } = req.user as JwtPayload;
-    
-    if (!productId) {
-      return { success: false, message: "Product ID is required" };
-    }
-    
-    console.log(`Creating checkout for product: ${productId}`);
-    const stripeProduct = await stripe.products.retrieve(productId);
-    console.log(`Retrieved product: ${stripeProduct.name}`);
 
-    if (!stripeProduct.default_price) {
-      return { success: false, message: "No price found for this product" };
+    // Get or create Stripe customer
+    let stripeCustomerId;
+    const user = await usersModel.findById(userId).session(session);
+    if (!user) {
+      throw new Error("User not found in database");
     }
 
-    const priceDetails = await stripe.prices.retrieve(
-      stripeProduct.default_price as string
-    );
-    console.log(
-      `Retrieved price: ${priceDetails.id}, ${priceDetails.unit_amount} ${priceDetails.currency}`
-    );
-
-    // Determine plan type from product metadata
-    let planType = DatingSubscriptionPlan.BASIC;
-    if (stripeProduct.metadata && stripeProduct.metadata.plan_type) {
-      const metadataPlan = stripeProduct.metadata.plan_type.toUpperCase();
-      if (Object.values(DatingSubscriptionPlan).includes(metadataPlan as DatingSubscriptionPlan)) {
-        planType = metadataPlan as DatingSubscriptionPlan;
-      }
-    }
-
-    // Find or create Stripe customer
-    let customer;
-    const existingCustomers = await stripe.customers.list({
-      email,
-      limit: 1,
-    });
-
-    if (existingCustomers.data.length > 0) {
-      customer = existingCustomers.data[0];
-      console.log(`Using existing customer: ${customer.id}`);
+    if (user.stripeCustomerId) {
+      stripeCustomerId = user.stripeCustomerId;
+      console.log(`Using existing customer: ${stripeCustomerId}`);
     } else {
-      customer = await stripe.customers.create({
+      const customer = await stripe.customers.create({
         email,
-        metadata: {
-          userId: userId,
-        },
+        name: user.userName || email,
+        metadata: { userId },
       });
-      console.log(`Created new customer: ${customer.id}`);
+      stripeCustomerId = customer.id;
+      await usersModel.findByIdAndUpdate(userId, { stripeCustomerId }, { session });
+      console.log(`Created new customer: ${stripeCustomerId}`);
     }
 
-    // Create a PaymentIntent for mobile clients
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: priceDetails.unit_amount ?? 0,
-      currency: priceDetails.currency,
-      customer: customer.id,
-      setup_future_usage: "off_session",
-      metadata: {
-        userId: userId,
-        productId: productId,
-        priceId: priceDetails.id,
-        planType: planType
-      },
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    });
-    console.log(`Created payment intent: ${paymentIntent.id}`);
-
-    // Get or create subscription record
-    let subscription = await DatingSubscription.findOne({ user: userId });
-    if (!subscription) {
-      subscription = await DatingSubscription.create({
-        user: userId,
-        plan: DatingSubscriptionPlan.FREE,
-        stripeCustomerId: customer.id
-      });
-    } else if (!subscription.stripeCustomerId) {
-      subscription.stripeCustomerId = customer.id;
-      await subscription.save();
-    }
-    console.log(subscription,"subscription in checkout session service")
-    // Create a pending transaction record
-    await Transaction.create({
+    let paymentIntent;
+    let transactionData: any = {
       user: userId,
-      type: TransactionType.DATING_SUBSCRIPTION,
-      amount: priceDetails.unit_amount ? priceDetails.unit_amount / 100 : 0,
+      stripeCustomerId,
       status: TransactionStatus.PENDING,
-      reference: {
-        model: 'DatingSubscription',
-        id: subscription._id
-      },
-      stripeCustomerId: customer.id,
-      stripePaymentIntentId: paymentIntent.id,
-      metadata: {
-        plan: planType,
-        productId: productId,
-        priceId: priceDetails.id,
-        checkoutCreated: new Date()
-      }
-    });
-
-    console.log(Transaction,"transaction created at checkout session")
-
-    return {
-      success: true,
-      message: "PaymentIntent created successfully",
-      data: {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-        customer: customer.id,
-        productDetails: {
-          id: productId,
-          name: stripeProduct.name,
-          description: stripeProduct.description,
-          currency: priceDetails.currency,
-          unitAmount: priceDetails.unit_amount,
-          type: priceDetails.type,
-          interval: priceDetails.recurring?.interval,
-        },
-      }
+      currency: "usd",
     };
+
+    if (paymentType === "SUBSCRIPTION") {
+      // ... existing subscription code remains the same ...
+      if (!productId) {
+        throw new Error("Product ID is required for subscription");
+      }
+
+      console.log(`Creating checkout for product: ${productId}`);
+      const stripeProduct = await stripe.products.retrieve(productId);
+      if (!stripeProduct.active) {
+        throw new Error("Product is not active");
+      }
+
+      if (!stripeProduct.default_price) {
+        throw new Error("No price found for this product");
+      }
+
+      const priceDetails = await stripe.prices.retrieve(stripeProduct.default_price as string);
+      if (priceDetails.currency.toLowerCase() !== "usd") {
+        throw new Error("Only USD currency is supported");
+      }
+
+      console.log(`Retrieved price: ${priceDetails.id}, ${priceDetails.unit_amount} USD`);
+
+      let planType = DatingSubscriptionPlan.BASIC;
+      if (stripeProduct.metadata?.plan_type) {
+        const metadataPlan = stripeProduct.metadata.plan_type.toUpperCase();
+        if (Object.values(DatingSubscriptionPlan).includes(metadataPlan as DatingSubscriptionPlan)) {
+          planType = metadataPlan as DatingSubscriptionPlan;
+        }
+      }
+
+      // Get or create subscription record
+      let subscription = await DatingSubscription.findOne({ user: userId }).session(session);
+      if (!subscription) {
+        const createdSubscriptions = await DatingSubscription.create([{
+          user: userId,
+          plan: DatingSubscriptionPlan.FREE,
+          stripeCustomerId,
+          isActive: false,
+        }], { session });
+        subscription = createdSubscriptions[0];
+      } else if (!subscription.stripeCustomerId) {
+        subscription.stripeCustomerId = stripeCustomerId;
+        await subscription.save({ session });
+      }
+
+      // Create PaymentIntent for subscription
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: priceDetails.unit_amount ?? 0,
+        currency: "usd",
+        customer: stripeCustomerId,
+        setup_future_usage: "off_session",
+        metadata: {
+          userId,
+          productId,
+          priceId: priceDetails.id,
+          planType,
+        },
+      });
+
+      transactionData = {
+        ...transactionData,
+        type: TransactionType.DATING_SUBSCRIPTION,
+        amount: priceDetails.unit_amount ? priceDetails.unit_amount / 100 : 0,
+        reference: { model: "DatingSubscription", id: subscription._id },
+        stripePaymentIntentId: paymentIntent.id,
+        metadata: {
+          plan: planType,
+          productId,
+          priceId: priceDetails.id,
+          checkoutCreated: new Date(),
+        },
+      };
+
+      await Transaction.create([transactionData], { session });
+      console.log(`Created transaction for subscription payment intent: ${paymentIntent.id}`);
+
+      await session.commitTransaction();
+
+      return {
+        success: true,
+        message: "PaymentIntent created successfully",
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+          customer: stripeCustomerId,
+          productDetails: {
+            id: productId,
+            name: stripeProduct.name,
+            description: stripeProduct.description,
+            currency: "usd",
+            unitAmount: priceDetails.unit_amount,
+            type: priceDetails.type,
+            interval: priceDetails.recurring?.interval,
+          },
+        },
+      };
+    } else if (paymentType === "BULK_PURCHASE") {
+      // ... existing bulk purchase code remains the same ...
+      if (!ticketId || !eventId || !quantity || !amount) {
+        throw new Error("Ticket ID, event ID, quantity, and amount are required for bulk purchase");
+      }
+
+      // Validate ticket and event
+      const ticket = await ticketModel.findById(ticketId).session(session);
+      const event = await eventModel.findById(eventId).session(session);
+
+      if (!ticket) {
+        return errorResponseHandler("Invalid ticket ID", 400, res);
+      }
+      if (!event) {
+        return errorResponseHandler("Invalid event ID", 400, res);
+      }
+      if (ticket.event.toString() !== eventId) {
+        return errorResponseHandler("Ticket does not belong to the specified event", 400, res);
+      }
+      if (ticket.available < Number(quantity)) {
+        return errorResponseHandler(`Only ${ticket.available} tickets available for this event`, 400, res);
+      }
+      if (ticket.price !== amount) {
+        return errorResponseHandler("Ticket price does not match the provided amount", 400, res);
+      }
+      if (event.capacity < quantity) {
+        return errorResponseHandler(`Event capacity is only ${event.capacity} tickets`, 400, res);
+      }
+      
+      if (amount <= 0 || quantity <= 0) {
+        return errorResponseHandler("Amount and quantity must be greater than zero", 400, res);
+      }
+      
+      const totalAmount = amount * 100 * quantity;
+
+      console.log(`Creating bulk purchase for ${quantity} tickets, total: ${totalAmount} USD`);
+
+      // Create PaymentIntent for bulk purchase
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: totalAmount,
+        currency: "usd",
+        customer: stripeCustomerId,
+        metadata: {
+          userId,
+          ticketId,
+          eventId,
+          quantity,
+          type: "BULK_PURCHASE",
+        },
+      });
+
+      // Create purchase record
+      const purchaseDocs = await purchaseModel.create([{
+        ticket: ticketId,
+        event: eventId,
+        buyer: userId,
+        quantity,
+        totalPrice: totalAmount / 100,
+        qrCode: "PENDING", // Updated in webhook
+        isActive: true,
+        isResale: ticket.isResellable,
+        status: "pending", // Updated in webhook
+      }], { session });
+      const purchase = purchaseDocs[0];
+
+      transactionData = {
+        ...transactionData,
+        type: TransactionType.EVENT_TICKET,
+        amount: totalAmount / 100,
+        reference: { model: "purchase", id: purchase._id },
+        stripePaymentIntentId: paymentIntent.id,
+        metadata: {
+          ticketId,
+          eventId,
+          quantity,
+          checkoutCreated: new Date(),
+        },
+      };
+
+      await Transaction.create([transactionData], { session });
+      console.log(`Created transaction for bulk purchase payment intent: ${paymentIntent.id}`);
+
+      await session.commitTransaction();
+
+      return {
+        success: true,
+        message: "PaymentIntent created successfully for bulk purchase",
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+          customer: stripeCustomerId,
+          purchaseDetails: {
+            ticketId,
+            eventId,
+            quantity,
+            totalAmount,
+            currency: "usd",
+            ticketName: ticket.name,
+            eventTitle: event.title,
+          },
+        },
+      };
+    } else if (paymentType === "RESALE_PURCHASE") {
+      // NEW: Handle resale ticket purchase
+      if (!resaleId || !quantity || !amount) {
+        throw new Error("Resale ID, quantity, and amount are required for resale purchase");
+      }
+
+      // Validate resale listing
+      const resaleListing = await resellModel.findById(resaleId)
+        .populate('originalPurchase')
+        .session(session);
+
+      if (!resaleListing) {
+        return errorResponseHandler("Invalid resale listing ID", 400, res);
+      }
+
+      if (resaleListing.status !== 'available') {
+        return errorResponseHandler("Resale listing is not available or been sold or cancelled", 400, res);
+      }
+
+      if (resaleListing.availableQuantity < Number(quantity)) {
+        return errorResponseHandler(`Only ${resaleListing.availableQuantity} tickets available for resale`, 400, res);
+      }
+
+      if (resaleListing.price !== amount) {
+        return errorResponseHandler("Resale price does not match the provided amount", 400, res);
+      }
+
+      // Check if buyer is not the original seller
+      const originalPurchase = resaleListing.originalPurchase as any;
+      if (originalPurchase.buyer.toString() === userId) {
+        return errorResponseHandler("You cannot buy your own resale listing", 400, res);
+      }
+
+      if (amount <= 0 || quantity <= 0) {
+        return errorResponseHandler("Amount and quantity must be greater than zero", 400, res);
+      }
+
+      // Convert amount from dollars to cents
+      const totalAmount = amount * 100 * quantity;
+
+      console.log(`Creating resale purchase for ${quantity} tickets, total: ${totalAmount} USD`);
+
+      // Get ticket and event details for metadata
+      const ticket = await ticketModel.findById(originalPurchase.ticket).session(session);
+      const event = await eventModel.findById(originalPurchase.event).session(session);
+
+      if (!ticket || !event) {
+        return errorResponseHandler("Associated ticket or event not found", 400, res);
+      }
+
+      // Create PaymentIntent for resale purchase
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: totalAmount,
+        currency: "usd",
+        customer: stripeCustomerId,
+        metadata: {
+          userId,
+          resaleId,
+          ticketId: originalPurchase.ticket.toString(),
+          eventId: originalPurchase.event.toString(),
+          quantity,
+          type: "RESALE_PURCHASE",
+          originalSeller: originalPurchase.buyer.toString(),
+        },
+      });
+
+      // Create new purchase record for resale buyer
+      const purchaseDocs = await purchaseModel.create([{
+        ticket: originalPurchase.ticket,
+        event: originalPurchase.event,
+        buyer: userId,
+        quantity,
+        totalPrice: totalAmount / 100,
+        qrCode: "PENDING", // Updated in webhook
+        isActive: true,
+        isResale: false, // Resale tickets cannot be resold again
+        status: "pending", // Updated in webhook
+      }], { session });
+      const purchase = purchaseDocs[0];
+
+      transactionData = {
+        ...transactionData,
+        type: TransactionType.TICKET_RESALE,
+        amount: totalAmount / 100,
+        reference: { model: "purchase", id: purchase._id },
+        stripePaymentIntentId: paymentIntent.id,
+        metadata: {
+          resaleId,
+          ticketId: originalPurchase.ticket.toString(),
+          eventId: originalPurchase.event.toString(),
+          quantity,
+          originalSeller: originalPurchase.buyer.toString(),
+          checkoutCreated: new Date(),
+        },
+      };
+
+      await Transaction.create([transactionData], { session });
+      console.log(`Created transaction for resale purchase payment intent: ${paymentIntent.id}`);
+
+      await session.commitTransaction();
+
+      return {
+        success: true,
+        message: "PaymentIntent created successfully for resale purchase",
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+          customer: stripeCustomerId,
+          purchaseDetails: {
+            resaleId,
+            ticketId: originalPurchase.ticket.toString(),
+            eventId: originalPurchase.event.toString(),
+            quantity,
+            totalAmount,
+            currency: "usd",
+            ticketName: ticket.name,
+            eventTitle: event.title,
+            resalePrice: amount,
+          },
+        },
+      };
+    } else {
+      throw new Error("Invalid payment type");
+    }
   } catch (error) {
+    await session.abortTransaction();
     console.error("Checkout session error:", error);
     return { success: false, message: `Failed to create payment intent: ${(error as Error).message}` };
+  } finally {
+    session.endSession();
   }
 };
-
 
 // Handle stripe success
 export const stripeSuccessService = async (req: Request, res: Response) => {
@@ -371,311 +617,482 @@ export const updateProductPriceService = async (req: Request, res: Response) => 
 export const handleStripeWebhookService = async (req: Request, res: Response) => {
   const signature = req.headers["stripe-signature"] as string;
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
-  let event;
 
+  let event: Stripe.Event;
   try {
-    // Log incoming webhook data for debugging
-    console.log("Webhook received:", {
-      headers: req.headers["stripe-signature"] ? "Has signature" : "No signature",
-      bodyType: typeof req.body
-    });
-
     if (!signature || !endpointSecret) {
       console.error("Missing signature or endpoint secret");
-      return { 
-        success: false, 
-        message: "Stripe signature or endpoint secret missing" 
-      };
+      return { success: false, message: "Stripe signature or endpoint secret missing" };
     }
 
-    // Verify the webhook signature
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        signature,
-        endpointSecret
-      );
-      console.log("Webhook event constructed:", event.type);
-    } catch (err: any) {
-      console.error("Webhook signature verification failed:", err.message);
-      return { 
-        success: false, 
-        message: `Webhook Error: ${err.message}` 
-      };
-    }
-
-    // Log the event type and data for debugging
-    console.log(`Processing webhook event: ${event.type}`);
-    
-    // Handle different event types
-  switch (event.type) {
-  case "payment_intent.succeeded":
-    const paymentIntent = event.data.object as any;
-    console.log("Payment intent succeeded:", paymentIntent.id);
-    console.log("Metadata:", paymentIntent.metadata);
-    console.log("Payment intent:", paymentIntent);
-    
-    if (!paymentIntent.metadata || !paymentIntent.metadata.userId || !paymentIntent.metadata.productId) {
-      console.error("Missing required metadata in payment intent");
-      return { success: false, message: "Missing required metadata in payment intent" };
-    }
-
-    const { userId, productId, priceId, planType } = paymentIntent.metadata;
-
-    // Find the existing subscription
-    const subscription = await DatingSubscription.findOne({ user: userId });
-    
-    // Get product and price details
-    const product = await stripe.products.retrieve(productId);
-    const price = priceId
-      ? await stripe.prices.retrieve(priceId)
-      : product.default_price
-      ? await stripe.prices.retrieve(product.default_price as string)
-      : null;
-
-    if (!price) {
-      console.error("No price found for product", productId);
-      return { success: false, message: "No price found for product" };
-    }
-
-    // Calculate subscription dates
-    const startDate = new Date();
-    const endDate = new Date();
-    
-    if (price.recurring) {
-      const { interval, interval_count } = price.recurring;
-      if (interval === "day")
-        endDate.setDate(endDate.getDate() + (interval_count || 1));
-      else if (interval === "week")
-        endDate.setDate(endDate.getDate() + (interval_count || 1) * 7);
-      else if (interval === "month")
-        endDate.setMonth(endDate.getMonth() + (interval_count || 1));
-      else if (interval === "year")
-        endDate.setFullYear(endDate.getFullYear() + (interval_count || 1));
-    } else {
-      endDate.setDate(endDate.getDate() + 30);
-    }
-
-  const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id });
-  if (transaction) {
-    // Update existing transaction
-    transaction.status = TransactionStatus.SUCCESS;
-    transaction.metadata = {
-      ...transaction.metadata,
-      completedAt: new Date()
-    };
-    await transaction.save();
-    console.log(`Updated transaction ${transaction._id} to SUCCESS`);
-    } else {
-      // Create new transaction
-      await createTransaction({
-      user: userId,
-      type: TransactionType.DATING_SUBSCRIPTION,
-      amount: paymentIntent.amount / 100,
-      status: TransactionStatus.SUCCESS,
-      stripeCustomerId: paymentIntent.customer as string,
-      stripePaymentIntentId: paymentIntent.id,
-      paymentMethod: "card",
-      reference: {
-        model: 'DatingSubscription',
-        id: subscription ? subscription._id : null // Will be updated after subscription creation
-      },
-      metadata: {
-        plan: planType || product.metadata?.plan_type || DatingSubscriptionPlan.BASIC,
-        productId,
-        priceId: price.id,
-        paidAt: new Date()
-      }
+    console.log("Webhook received:", {
+      headers: signature ? "Has signature" : "No signature",
+      bodyType: typeof req.body,
     });
-    }
-    break;
-  default:
-    console.log(`Unhandled event type: ${event.type}`);
-}
 
+    event = stripe.webhooks.constructEvent(req.body, signature, endpointSecret);
+    console.log(`Webhook event constructed: ${event.type}`);
+  } catch (err: any) {
+    console.error("Webhook signature verification failed:", err.message);
+    return res.status(400).json({ success: false, message: `Webhook Error: ${err.message}` });
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    switch (event.type) {
+      case "payment_intent.succeeded": {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log("Payment intent succeeded:", paymentIntent.id);
+
+        if (paymentIntent.currency.toLowerCase() !== "usd") {
+          throw new Error(`Non-USD currency detected: ${paymentIntent.currency}`);
+        }
+
+        if (!paymentIntent.metadata?.userId) {
+          throw new Error("Missing userId in payment intent metadata");
+        }
+
+        const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id }).session(session);
+        if (!transaction) {
+          throw new Error("Transaction not found for payment intent: " + paymentIntent.id);
+        }
+
+        transaction.status = TransactionStatus.SUCCESS;
+        transaction.metadata = { ...transaction.metadata, completedAt: new Date() };
+        await transaction.save({ session });
+
+        if (transaction.type === TransactionType.DATING_SUBSCRIPTION) {
+          // ... existing subscription handling code remains the same ...
+          const { productId, priceId, planType } = paymentIntent.metadata;
+          if (!productId || !priceId) {
+            throw new Error("Missing productId or priceId in payment intent metadata");
+          }
+
+          const product = await stripe.products.retrieve(productId);
+          const price = await stripe.prices.retrieve(priceId);
+          const subscription = await DatingSubscription.findOne({ user: paymentIntent.metadata.userId }).session(session);
+
+          const startDate = new Date();
+          const endDate = new Date();
+          if (price.recurring) {
+            const { interval, interval_count = 1 } = price.recurring;
+            if (interval === "day") endDate.setDate(endDate.getDate() + interval_count);
+            else if (interval === "week") endDate.setDate(endDate.getDate() + interval_count * 7);
+            else if (interval === "month") endDate.setMonth(endDate.getMonth() + interval_count);
+            else if (interval === "year") endDate.setFullYear(endDate.getFullYear() + interval_count);
+          } else {
+            endDate.setDate(endDate.getDate() + 30);
+          }
+
+          if (subscription) {
+            subscription.plan = planType as DatingSubscriptionPlan || product.metadata?.plan_type || DatingSubscriptionPlan.BASIC;
+            subscription.isActive = true;
+            subscription.startDate = startDate;
+            subscription.endDate = endDate;
+            subscription.stripeCustomerId = paymentIntent.customer as string;
+            subscription.stripeProductId = productId;
+            subscription.stripePriceId = priceId;
+            subscription.price = price.unit_amount ? price.unit_amount / 100 : 0;
+            subscription.features = {
+              ...product.metadata.features ? JSON.parse(product.metadata.features) : {},
+            };
+            await subscription.save({ session });
+            console.log(`Updated subscription for user ${paymentIntent.metadata.userId}`);
+          } else {
+            const createdSubscriptions = await DatingSubscription.create([{
+              user: paymentIntent.metadata.userId,
+              plan: planType as DatingSubscriptionPlan || product.metadata?.plan_type || DatingSubscriptionPlan.BASIC,
+              isActive: true,
+              startDate,
+              endDate,
+              stripeCustomerId: paymentIntent.customer as string,
+              stripeProductId: productId,
+              stripePriceId: priceId,
+              price: price.unit_amount ? price.unit_amount / 100 : 0,
+              paymentMethod: "card",
+              features: {
+                ...product.metadata.features ? JSON.parse(product.metadata.features) : {},               
+              },
+            }], { session });
+            const newSubscription = createdSubscriptions[0];
+            await Transaction.findOneAndUpdate(
+              { stripePaymentIntentId: paymentIntent.id },
+              { "reference.id": newSubscription._id },
+              { session }
+            );
+            console.log(`Created new subscription for user ${paymentIntent.metadata.userId}`);
+          }
+        } else if (transaction.type === TransactionType.EVENT_TICKET) {
+          // ... existing event ticket handling code remains the same ...
+          const { ticketId, eventId, quantity } = paymentIntent.metadata;
+          if (!ticketId || !eventId || !quantity) {
+            return errorResponseHandler("Missing ticketId, eventId or quantity in payment intent metadata", 400, res);
+          }
+
+          if (!transaction.reference || !transaction.reference.id) {
+            return errorResponseHandler("Transaction reference or reference id is missing for transaction: " + transaction._id, 400, res);
+          }
+          const purchase = await purchaseModel.findOne({ _id: transaction.reference.id }).session(session);
+          if (!purchase) {
+            return errorResponseHandler("Purchase not found for transaction: " + transaction._id, 404, res);
+          }
+
+          const ticket = await ticketModel.findById(ticketId).session(session);
+          const event = await eventModel.findById(eventId).session(session);
+          if (!ticket || !event) {
+            return errorResponseHandler("Ticket or event not found", 404, res);
+          }
+
+          // Update ticket availability
+          ticket.available -= parseInt(quantity);
+          if (ticket.available < 0) {
+            return errorResponseHandler("Insufficient ticket availability", 400, res);
+          }
+          await ticket.save({ session });
+          await event.save({ session });
+
+          // Generate QR code
+          const qrCode = await QRCode.toString(`purchase:${purchase._id}`, { type: "svg" });
+          purchase.qrCode = qrCode;
+          purchase.status = "active";
+          await purchase.save({ session });
+          console.log(`Updated purchase ${purchase._id} with QR code for user ${paymentIntent.metadata.userId}`);
+        } else if (transaction.type === TransactionType.TICKET_RESALE) {
+          // NEW: Handle resale ticket purchase success
+          const { resaleId, quantity, originalSeller } = paymentIntent.metadata;
+          if (!resaleId || !quantity) {
+            return errorResponseHandler("Missing resaleId or quantity in payment intent metadata", 400, res);
+          }
+
+          if (!transaction.reference || !transaction.reference.id) {
+            return errorResponseHandler("Transaction reference or reference id is missing for transaction: " + transaction._id, 400, res);
+          }
+
+          // Get the new purchase record
+          const purchase = await purchaseModel.findById(transaction.reference.id).session(session);
+          if (!purchase) {
+            return errorResponseHandler("Purchase not found for transaction: " + transaction._id, 404, res);
+          }
+
+          // Get the resale listing
+          const resaleListing = await resellModel.findById(resaleId).session(session);
+          if (!resaleListing) {
+            return errorResponseHandler("Resale listing not found", 404, res);
+          }
+
+          // Update resale listing
+          const purchasedQuantity = parseInt(quantity);
+          resaleListing.availableQuantity -= purchasedQuantity;
+           // FIX 1: Initialize arrays if they don't exist
+    if (!resaleListing.buyers) {
+      resaleListing.buyers = [];
+    }
+    if (!resaleListing.newPurchase) {
+      resaleListing.newPurchase = [];
+    }
+    
+    // FIX 2: Safely push to arrays
+    resaleListing.buyers.push(new mongoose.Types.ObjectId(paymentIntent.metadata.userId));
+    resaleListing.newPurchase.push(purchase._id);
+
+
+          // If all tickets are sold, mark as sold
+          if (resaleListing.availableQuantity <= 0) {
+            resaleListing.status = 'sold';
+            resaleListing.soldDate = new Date();
+          }
+
+          await resaleListing.save({ session });
+
+          // Update original seller's purchase quantity
+          const originalPurchase = await purchaseModel.findById(resaleListing.originalPurchase).session(session);
+          if (originalPurchase) {
+            originalPurchase.quantity -= purchasedQuantity;
+            await originalPurchase.save({ session });
+          }
+
+          // Generate QR code for buyer
+          const qrCode = await QRCode.toString(`purchase:${purchase._id}`, { type: "svg" });
+          purchase.qrCode = qrCode;
+          purchase.status = "active";
+          await purchase.save({ session });
+
+          console.log(`Completed resale purchase ${purchase._id} for user ${paymentIntent.metadata.userId}`);
+          console.log(`Updated resale listing ${resaleId} - remaining quantity: ${resaleListing.availableQuantity}`);
+        }
+
+        console.log(`Updated transaction ${transaction._id} to SUCCESS`);
+        break;
+      }
+
+      case "payment_intent.payment_failed": {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log("Payment intent failed:", paymentIntent.id);
+
+        if (paymentIntent.currency.toLowerCase() !== "usd") {
+          console.warn(`Non-USD currency detected: ${paymentIntent.currency}`);
+        }
+
+        const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id }).session(session);
+        if (!transaction) {
+          return errorResponseHandler("Transaction not found for payment intent: " + paymentIntent.id, 404, res);
+        }
+
+        transaction.status = TransactionStatus.FAILED;
+        transaction.metadata = {
+          ...transaction.metadata,
+          failedAt: new Date(),
+          failureMessage: paymentIntent.last_payment_error?.message || "Payment failed",
+        };
+        await transaction.save({ session });
+        console.log(`Updated transaction ${transaction._id} to FAILED`);
+        
+        if(!transaction.reference || !transaction.reference.id) {
+          return errorResponseHandler("Transaction reference or reference id is missing for transaction: " + transaction._id, 400, res);
+        }
+
+        if (transaction.type === TransactionType.EVENT_TICKET || transaction.type === TransactionType.TICKET_RESALE) {
+          const purchase = await purchaseModel.findOne({ _id: transaction.reference.id }).session(session);
+          if (purchase) {
+            purchase.status = "disabled";
+            await purchase.save({ session });
+            console.log(`Disabled purchase ${purchase._id} due to failed payment`);
+          }
+        }
+
+        break;
+      }
+
+      case "payment_intent.canceled": {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log("Payment intent canceled:", paymentIntent.id);
+
+        if (paymentIntent.currency.toLowerCase() !== "usd") {
+          console.warn(`Non-USD currency detected: ${paymentIntent.currency}`);
+        }
+
+        const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id }).session(session);
+        if (!transaction) {
+          return errorResponseHandler("Transaction not found for payment intent: " + paymentIntent.id, 404, res);
+        }
+
+        transaction.status = TransactionStatus.CANCELLED;
+        transaction.metadata = {
+          ...transaction.metadata,
+          canceledAt: new Date(),
+          reason: "Payment intent canceled",
+        };
+        await transaction.save({ session });
+        console.log(`Updated transaction ${transaction._id} to CANCELLED`);
+
+        if(!transaction.reference || !transaction.reference.id) {
+          return errorResponseHandler("Transaction reference or reference id is missing for transaction: " + transaction._id, 400, res);
+        }
+
+        if (transaction.type === TransactionType.EVENT_TICKET || transaction.type === TransactionType.TICKET_RESALE) {
+          const purchase = await purchaseModel.findOne({ _id: transaction.reference.id }).session(session);
+          if (purchase) {
+            purchase.status = "disabled";
+            await purchase.save({ session });
+            console.log(`Disabled purchase ${purchase._id} due to canceled payment`);
+          }
+        }
+
+        break;
+      }
+
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
+    }
+
+    await session.commitTransaction();
     return { success: true, message: "Webhook processed successfully" };
   } catch (error) {
+    await session.abortTransaction();
     console.error("Webhook error:", error);
-    return { success: false, message: `Failed to process webhook: ${(error as Error).message}` };
+    return res.status(500).json({ success: false, message: `Failed to process webhook: ${(error as Error).message}` });
+  } finally {
+    session.endSession();
   }
 };
 
 
-// Handle payment_intent.succeeded
-async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
-  console.log("Payment intent succeeded:", paymentIntent.id);
-  console.log("Metadata:", paymentIntent.metadata);
+// // Handle payment_intent.succeeded
+// async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+//   console.log("Payment intent succeeded:", paymentIntent.id);
+//   console.log("Metadata:", paymentIntent.metadata);
 
-  // Make sure we have the required metadata
-  if (
-    !paymentIntent.metadata ||
-    !paymentIntent.metadata.userId ||
-    !paymentIntent.metadata.productId
-  ) {
-    console.error("Missing required metadata in payment intent");
-    return;
-  }
+//   // Make sure we have the required metadata
+//   if (
+//     !paymentIntent.metadata ||
+//     !paymentIntent.metadata.userId ||
+//     !paymentIntent.metadata.productId
+//   ) {
+//     console.error("Missing required metadata in payment intent");
+//     return;
+//   }
 
-  const { userId, productId, priceId, planType } = paymentIntent.metadata;
+//   const { userId, productId, priceId, planType } = paymentIntent.metadata;
 
-  // Find the existing subscription
-  const subscription = await DatingSubscription.findOne({ user: userId });
+//   // Find the existing subscription
+//   const subscription = await DatingSubscription.findOne({ user: userId });
   
-  // Get product and price details
-  const product = await stripe.products.retrieve(productId);
-  const price = priceId
-    ? await stripe.prices.retrieve(priceId)
-    : product.default_price
-    ? await stripe.prices.retrieve(product.default_price as string)
-    : null;
+//   // Get product and price details
+//   const product = await stripe.products.retrieve(productId);
+//   const price = priceId
+//     ? await stripe.prices.retrieve(priceId)
+//     : product.default_price
+//     ? await stripe.prices.retrieve(product.default_price as string)
+//     : null;
 
-  if (!price) {
-    console.error("No price found for product", productId);
-    return;
-  }
+//   if (!price) {
+//     console.error("No price found for product", productId);
+//     return;
+//   }
 
-  // Calculate subscription dates
-  const startDate = new Date();
-  const endDate = new Date();
+//   // Calculate subscription dates
+//   const startDate = new Date();
+//   const endDate = new Date();
   
-  if (price.recurring) {
-    const { interval, interval_count } = price.recurring;
-    if (interval === "day")
-      endDate.setDate(endDate.getDate() + (interval_count || 1));
-    else if (interval === "week")
-      endDate.setDate(endDate.getDate() + (interval_count || 1) * 7);
-    else if (interval === "month")
-      endDate.setMonth(endDate.getMonth() + (interval_count || 1));
-    else if (interval === "year")
-      endDate.setFullYear(endDate.getFullYear() + (interval_count || 1));
-  } else {
-    // Default to 30 days for one-time payments
-    endDate.setDate(endDate.getDate() + 30);
-  }
+//   if (price.recurring) {
+//     const { interval, interval_count } = price.recurring;
+//     if (interval === "day")
+//       endDate.setDate(endDate.getDate() + (interval_count || 1));
+//     else if (interval === "week")
+//       endDate.setDate(endDate.getDate() + (interval_count || 1) * 7);
+//     else if (interval === "month")
+//       endDate.setMonth(endDate.getMonth() + (interval_count || 1));
+//     else if (interval === "year")
+//       endDate.setFullYear(endDate.getFullYear() + (interval_count || 1));
+//   } else {
+//     // Default to 30 days for one-time payments
+//     endDate.setDate(endDate.getDate() + 30);
+//   }
 
-  // Update or create transaction
-  const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id });
+//   // Update or create transaction
+//   const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id });
   
-  if (transaction) {
-    // Update existing transaction
-    transaction.status = TransactionStatus.SUCCESS;
-    transaction.metadata = {
-      ...transaction.metadata,
-      completedAt: new Date()
-    };
-    await transaction.save();
-    console.log(`Updated transaction ${transaction._id} to SUCCESS`);
-  } else {
-    // Create new transaction
-    await createTransaction({
-      user: userId,
-      type: TransactionType.DATING_SUBSCRIPTION,
-      amount: paymentIntent.amount / 100,
-      status: TransactionStatus.SUCCESS,
-      stripeCustomerId: paymentIntent.customer as string,
-      stripePaymentIntentId: paymentIntent.id,
-      paymentMethod: "card",
-      reference: {
-        model: 'DatingSubscription',
-        id: subscription ? subscription._id : null // Will be updated after subscription creation
-      },
-      metadata: {
-        plan: planType || product.metadata?.plan_type || DatingSubscriptionPlan.BASIC,
-        productId,
-        priceId: price.id,
-        paidAt: new Date()
-      }
-    });
-  }
+//   if (transaction) {
+//     // Update existing transaction
+//     transaction.status = TransactionStatus.SUCCESS;
+//     transaction.metadata = {
+//       ...transaction.metadata,
+//       completedAt: new Date()
+//     };
+//     await transaction.save();
+//     console.log(`Updated transaction ${transaction._id} to SUCCESS`);
+//   } else {
+//     // Create new transaction
+//     await createTransaction({
+//       user: userId,
+//       type: TransactionType.DATING_SUBSCRIPTION,
+//       amount: paymentIntent.amount / 100,
+//       status: TransactionStatus.SUCCESS,
+//       stripeCustomerId: paymentIntent.customer as string,
+//       stripePaymentIntentId: paymentIntent.id,
+//       paymentMethod: "card",
+//       reference: {
+//         model: 'DatingSubscription',
+//         id: subscription ? subscription._id : null // Will be updated after subscription creation
+//       },
+//       metadata: {
+//         plan: planType || product.metadata?.plan_type || DatingSubscriptionPlan.BASIC,
+//         productId,
+//         priceId: price.id,
+//         paidAt: new Date()
+//       }
+//     });
+//   }
 
-  // Update or create subscription
-  if (subscription) {
-    // Update existing subscription
-    subscription.plan = planType as DatingSubscriptionPlan || 
-                        product.metadata?.plan_type as DatingSubscriptionPlan || 
-                        DatingSubscriptionPlan.BASIC;
-    subscription.isActive = true;
-    subscription.startDate = startDate;
-    subscription.endDate = endDate;
-    // subscription.stripeProductId = productId;
-    // subscription.stripePriceId = price.id;
-    subscription.stripeCustomerId = paymentIntent.customer as string;
-    await subscription.save();
+//   // Update or create subscription
+//   if (subscription) {
+//     // Update existing subscription
+//     subscription.plan = planType as DatingSubscriptionPlan || 
+//                         product.metadata?.plan_type as DatingSubscriptionPlan || 
+//                         DatingSubscriptionPlan.BASIC;
+//     subscription.isActive = true;
+//     subscription.startDate = startDate;
+//     subscription.endDate = endDate;
+//     // subscription.stripeProductId = productId;
+//     // subscription.stripePriceId = price.id;
+//     subscription.stripeCustomerId = paymentIntent.customer as string;
+//     await subscription.save();
     
-    console.log(`Updated subscription for user ${userId}`);
-  } else {
-    // Create new subscription
-    const newSubscription = await DatingSubscription.create({
-      user: userId,
-      plan: planType as DatingSubscriptionPlan || 
-            product.metadata?.plan_type as DatingSubscriptionPlan || 
-            DatingSubscriptionPlan.BASIC,
-      isActive: true,
-      startDate,
-      endDate,
-      stripeProductId: productId,
-      stripePriceId: price.id,
-      stripeCustomerId: paymentIntent.customer as string,
-      paymentMethod: "card",
-      features: {}  // Add default features if needed
-    });
+//     console.log(`Updated subscription for user ${userId}`);
+//   } else {
+//     // Create new subscription
+//     const newSubscription = await DatingSubscription.create({
+//       user: userId,
+//       plan: planType as DatingSubscriptionPlan || 
+//             product.metadata?.plan_type as DatingSubscriptionPlan || 
+//             DatingSubscriptionPlan.BASIC,
+//       isActive: true,
+//       startDate,
+//       endDate,
+//       stripeProductId: productId,
+//       stripePriceId: price.id,
+//       stripeCustomerId: paymentIntent.customer as string,
+//       paymentMethod: "card",
+//       features: {}  // Add default features if needed
+//     });
     
-    // If we created a transaction without a subscription reference, update it
-    if (!subscription) {
-      await Transaction.findOneAndUpdate(
-        { stripePaymentIntentId: paymentIntent.id },
-        { 
-          'reference.id': newSubscription._id 
-        }
-      );
-    }
+//     // If we created a transaction without a subscription reference, update it
+//     if (!subscription) {
+//       await Transaction.findOneAndUpdate(
+//         { stripePaymentIntentId: paymentIntent.id },
+//         { 
+//           'reference.id': newSubscription._id 
+//         }
+//       );
+//     }
     
-    console.log(`Created new subscription for user ${userId}`);
-  }
-}
-
-async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) {
-  console.log("Payment intent canceled:", paymentIntent.id);
+//     console.log(`Created new subscription for user ${userId}`);
+//   }
+// }
+// async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) {
+//   console.log("Payment intent canceled:", paymentIntent.id);
   
-  // Update transaction status to CANCELLED
-  await Transaction.findOneAndUpdate(
-    { stripePaymentIntentId: paymentIntent.id },
-    { 
-      status: TransactionStatus.CANCELLED,
-      metadata: {
-        canceledAt: new Date(),
-        reason: "Payment intent canceled"
-      }
-    }
-  );
+//   // Update transaction status to CANCELLED
+//   await Transaction.findOneAndUpdate(
+//     { stripePaymentIntentId: paymentIntent.id },
+//     { 
+//       status: TransactionStatus.CANCELLED,
+//       metadata: {
+//         canceledAt: new Date(),
+//         reason: "Payment intent canceled"
+//       }
+//     }
+//   );
   
-  console.log(`Updated transaction for canceled payment ${paymentIntent.id}`);
-}
+//   console.log(`Updated transaction for canceled payment ${paymentIntent.id}`);
+// }
 // Handle payment_intent.payment_failed
-async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log("Payment intent failed:", paymentIntent.id);
+// async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
+//   console.log("Payment intent failed:", paymentIntent.id);
   
-  // Update transaction status to FAILED
-  await Transaction.findOneAndUpdate(
-    { stripePaymentIntentId: paymentIntent.id },
-    { 
-      status: TransactionStatus.FAILED,
-      metadata: {
-        failedAt: new Date(),
-        failureMessage: paymentIntent.last_payment_error?.message || "Payment failed"
-      }
-    }
-  );
+//   // Update transaction status to FAILED
+//   await Transaction.findOneAndUpdate(
+//     { stripePaymentIntentId: paymentIntent.id },
+//     { 
+//       status: TransactionStatus.FAILED,
+//       metadata: {
+//         failedAt: new Date(),
+//         failureMessage: paymentIntent.last_payment_error?.message || "Payment failed"
+//       }
+//     }
+//   );
   
-  console.log(`Updated transaction for failed payment ${paymentIntent.id}`);
-}
+//   console.log(`Updated transaction for failed payment ${paymentIntent.id}`);
+// }
+// // Helper function to create a transaction
+// async function createTransaction(data: any) {
+//   const transaction = await Transaction.create(data);
+//   console.log(`Created transaction ${transaction._id}`);
+//   return transaction;
+// }
 
-// Helper function to create a transaction
-async function createTransaction(data: any) {
-  const transaction = await Transaction.create(data);
-  console.log(`Created transaction ${transaction._id}`);
-  return transaction;
-}
 // Cancel subscription
 export const cancelSubscriptionService = async (req: Request, res: Response) => {
   try {

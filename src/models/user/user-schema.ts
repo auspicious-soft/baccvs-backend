@@ -201,6 +201,10 @@ const UserSchema  = new mongoose.Schema( {
       enum: ["Yes", "No","prefer not to say"],
       default:null
     },
+    stripeCustomerId:{
+      type: String,
+      default: null
+    },
     interestCategories: [{
       type: String,
       enum: Object.values(InterestCategory),

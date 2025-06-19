@@ -6,25 +6,15 @@ const resaleSchema = new mongoose.Schema({
     ref: 'purchase',
     required: true
   },
-  seller: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'users',
-    required: true
-  },
-  event: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'event',
-    required: true
-  },
-  ticket: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'ticket',
-    required: true
-  },
   quantity: {
     type: Number,
     required: true,
     min: 1
+  },
+  availableQuantity: {
+    type: Number,
+    required: true,
+    min: 0
   },
   price: {
     type: Number,
@@ -35,18 +25,26 @@ const resaleSchema = new mongoose.Schema({
     enum: ['available', 'sold', 'canceled'],
     default: 'available'
   },
-  newPurchase: {
+  newPurchase: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'purchase',
     default: null
-  },
+  }],
   listedDate: {
     type: Date,
     default: Date.now
   },
   soldDate: {
     type: Date
-  }
+  },
+  canceledDate: {
+    type: Date
+  },
+  buyers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'users',
+    required: true
+  }],
 }, {
   timestamps: true
 });
