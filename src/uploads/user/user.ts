@@ -1531,10 +1531,14 @@ export const getUserNotificationPreferencesService = async (req: any, res: Respo
 
     // Return notification preferences
     return {
-      pushNotification: user?.pushNotification,
-      newsLetterNotification: user?.newsLetterNotification,
-      eventsNotification: user?.eventsNotification,
-      chatNotification: user?.chatNotification,
+      success: true,
+      message: "Notification preferences retrieved successfully",
+      data: {
+        pushNotification: user?.pushNotification,
+        newsLetterNotification: user?.newsLetterNotification,
+        eventsNotification: user?.eventsNotification,
+        chatNotification: user?.chatNotification,
+      }
     };
 
 }
