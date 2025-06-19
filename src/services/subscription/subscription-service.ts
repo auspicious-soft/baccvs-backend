@@ -41,7 +41,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
     const { paymentType, productId, ticketId, eventId, quantity, amount, resaleId } = req.body;
 
     if (!req.user) {
-      throw new Error("User data not found in request");
+      return errorResponseHandler("User data not found in request", 400, res);
     }
 
     const { id: userId, email } = req.user as JwtPayload;
@@ -50,7 +50,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
     let stripeCustomerId;
     const user = await usersModel.findById(userId).session(session);
     if (!user) {
-      throw new Error("User not found in database");
+      return errorResponseHandler("User not found in database", 404, res);
     }
 
     if (user.stripeCustomerId) {
@@ -78,22 +78,22 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
     if (paymentType === "SUBSCRIPTION") {
       // ... existing subscription code remains the same ...
       if (!productId) {
-        throw new Error("Product ID is required for subscription");
+        return errorResponseHandler("Product ID is required for subscription", 400, res);
       }
 
       console.log(`Creating checkout for product: ${productId}`);
       const stripeProduct = await stripe.products.retrieve(productId);
       if (!stripeProduct.active) {
-        throw new Error("Product is not active");
+        return errorResponseHandler("Product is not active", 400, res);
       }
 
       if (!stripeProduct.default_price) {
-        throw new Error("No price found for this product");
+        return errorResponseHandler("No price found for this product", 400, res);
       }
 
       const priceDetails = await stripe.prices.retrieve(stripeProduct.default_price as string);
       if (priceDetails.currency.toLowerCase() !== "usd") {
-        throw new Error("Only USD currency is supported");
+        return errorResponseHandler("Only USD currency is supported", 400, res);
       }
 
       console.log(`Retrieved price: ${priceDetails.id}, ${priceDetails.unit_amount} USD`);
@@ -175,7 +175,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
     } else if (paymentType === "BULK_PURCHASE") {
       // ... existing bulk purchase code remains the same ...
       if (!ticketId || !eventId || !quantity || !amount) {
-        throw new Error("Ticket ID, event ID, quantity, and amount are required for bulk purchase");
+        return errorResponseHandler("Ticket ID, event ID, quantity, and amount are required for bulk purchase", 400, res);
       }
 
       // Validate ticket and event
@@ -277,7 +277,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
     } else if (paymentType === "RESALE_PURCHASE") {
       // NEW: Handle resale ticket purchase
       if (!resaleId || !quantity || !amount) {
-        throw new Error("Resale ID, quantity, and amount are required for resale purchase");
+        return errorResponseHandler("Resale ID, quantity, and amount are required for resale purchase", 400, res);
       }
 
       // Validate resale listing
@@ -401,7 +401,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
   } catch (error) {
     await session.abortTransaction();
     console.error("Checkout session error:", error);
-    return { success: false, message: `Failed to create payment intent: ${(error as Error).message}` };
+    return errorResponseHandler(`Failed to create checkout session: ${(error as Error).message}`, 500, res);
   } finally {
     session.endSession();
   }
@@ -416,12 +416,12 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
     
     if (!payment_intent) {
       console.log("No payment_intent provided in query params");
-      return { success: false, message: "Payment Intent ID is required" };
+      return errorResponseHandler( "Payment Intent ID is required", 400, res);
     }
     
     if (!req.user) {
       console.log("No user data found in request");
-      return { success: false, message: "User data not found in request" };
+      return errorResponseHandler("User data not found in request", 400, res);
     }
     
     const { id: userId } = req.user as JwtPayload;
@@ -434,13 +434,13 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
       console.log("Retrieved payment intent:", paymentIntent.id, "Status:", paymentIntent.status);
     } catch (error) {
       console.error("Error retrieving payment intent:", error);
-      return { success: false, message: "Invalid payment intent ID" };
+      return errorResponseHandler("Invalid payment intent ID", 400, res);
     }
     
     // Check if payment intent belongs to user
     if (paymentIntent.metadata?.userId !== userId.toString()) {
       console.log(`Payment intent ${paymentIntent.id} does not belong to user ${userId}`);
-      return { success: false, message: "Payment intent does not belong to this user" };
+      return errorResponseHandler("Payment intent does not belong to this user", 403, res);
     }
     
     // Get transaction status - DO NOT UPDATE IT
@@ -473,7 +473,7 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
     };
   } catch (error) {
     console.error("Error in stripeSuccessService:", error);
-    return { success: false, message: `Failed to process success: ${(error as Error).message}` };
+    return errorResponseHandler(`Failed to process success: ${(error as Error).message}`, 500, res);
   }
 };
 
@@ -483,7 +483,7 @@ export const stripeCancelService = async (req: Request, res: Response) => {
     const { payment_intent_id } = req.query;
     
     if (!payment_intent_id) {
-      return { success: false, message: "Payment Intent ID is required" };
+      return errorResponseHandler("Payment Intent ID is required", 400, res);
     }
     
     // Update transaction status
@@ -506,7 +506,7 @@ export const stripeCancelService = async (req: Request, res: Response) => {
       message: "Payment cancelled"
     };
   } catch (error) {
-    return { success: false, message: `Failed to process cancellation: ${(error as Error).message}` };
+    return errorResponseHandler(`Failed to process cancellation: ${(error as Error).message}`, 500, res);
   }
 };
 
@@ -557,7 +557,8 @@ export const getStripeProductsService = async (req: Request, res: Response) => {
       data: formattedProducts,
     };
   } catch (error) {
-    return { success: false, message: `Failed to fetch products: ${(error as Error).message}` };
+    console.error("Error fetching Stripe products:", error);
+    return errorResponseHandler(`Failed to fetch products: ${(error as Error).message}`, 500, res);
   }
 };
 
@@ -567,14 +568,14 @@ export const updateProductPriceService = async (req: Request, res: Response) => 
     const { productId, newPrice } = req.body;
 
     if (!productId || !newPrice) {
-      return { success: false, message: "Product ID and new price are required" };
+      return errorResponseHandler("Product ID and new price are required", 400, res);
     }
 
     // Fetch current product from Stripe
     const product = await stripe.products.retrieve(productId);
 
     if (!product.default_price || typeof product.default_price !== "string") {
-      return { success: false, message: "No valid default price found for the product in Stripe" };
+      return errorResponseHandler("No valid default price found for the product in Stripe", 404, res);
     }
 
     const existingPrice = await stripe.prices.retrieve(product.default_price);
@@ -609,7 +610,7 @@ export const updateProductPriceService = async (req: Request, res: Response) => 
       },
     };
   } catch (error) {
-    return { success: false, message: `Failed to update product price: ${(error as Error).message}` };
+    return errorResponseHandler(`Failed to update product price: ${(error as Error).message}`, 500, res);
   }
 };
 
@@ -622,7 +623,7 @@ export const handleStripeWebhookService = async (req: Request, res: Response) =>
   try {
     if (!signature || !endpointSecret) {
       console.error("Missing signature or endpoint secret");
-      return { success: false, message: "Stripe signature or endpoint secret missing" };
+      return errorResponseHandler("Stripe signature or endpoint secret missing", 400, res);
     }
 
     console.log("Webhook received:", {
@@ -634,7 +635,7 @@ export const handleStripeWebhookService = async (req: Request, res: Response) =>
     console.log(`Webhook event constructed: ${event.type}`);
   } catch (err: any) {
     console.error("Webhook signature verification failed:", err.message);
-    return res.status(400).json({ success: false, message: `Webhook Error: ${err.message}` });
+    return errorResponseHandler(`Webhook signature verification failed: ${err.message}`, 400, res);
   }
 
   const session = await mongoose.startSession();
@@ -647,16 +648,16 @@ export const handleStripeWebhookService = async (req: Request, res: Response) =>
         console.log("Payment intent succeeded:", paymentIntent.id);
 
         if (paymentIntent.currency.toLowerCase() !== "usd") {
-          throw new Error(`Non-USD currency detected: ${paymentIntent.currency}`);
+          return errorResponseHandler(`Non-USD currency detected: ${paymentIntent.currency}`, 400, res);
         }
 
         if (!paymentIntent.metadata?.userId) {
-          throw new Error("Missing userId in payment intent metadata");
+          return errorResponseHandler("Missing userId in payment intent metadata", 400, res);
         }
 
         const transaction = await Transaction.findOne({ stripePaymentIntentId: paymentIntent.id }).session(session);
         if (!transaction) {
-          throw new Error("Transaction not found for payment intent: " + paymentIntent.id);
+          return errorResponseHandler("Transaction not found for payment intent: " + paymentIntent.id, 404, res);
         }
 
         transaction.status = TransactionStatus.SUCCESS;
@@ -667,7 +668,7 @@ export const handleStripeWebhookService = async (req: Request, res: Response) =>
           // ... existing subscription handling code remains the same ...
           const { productId, priceId, planType } = paymentIntent.metadata;
           if (!productId || !priceId) {
-            throw new Error("Missing productId or priceId in payment intent metadata");
+            return errorResponseHandler("Missing productId or priceId in payment intent metadata", 400, res);
           }
 
           const product = await stripe.products.retrieve(productId);
@@ -912,7 +913,7 @@ export const handleStripeWebhookService = async (req: Request, res: Response) =>
   } catch (error) {
     await session.abortTransaction();
     console.error("Webhook error:", error);
-    return res.status(500).json({ success: false, message: `Failed to process webhook: ${(error as Error).message}` });
+    return errorResponseHandler(`Failed to process webhook: ${(error as Error).message}`, 500, res);
   } finally {
     session.endSession();
   }
