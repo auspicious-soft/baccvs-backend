@@ -1503,7 +1503,7 @@ export const togglePrivacyPreferenceService = async (req: any, res: Response) =>
       userId,
       { accountType },
       { new: true }
-    ).select("-password");
+    ).select("-password accountType");
 
     if (!user) {
       return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
