@@ -1515,3 +1515,26 @@ export const togglePrivacyPreferenceService = async (req: any, res: Response) =>
       data: user
     };
 };
+
+export const getUserNotificationPreferencesService = async (req: any, res: Response) => {
+  
+    const { userId } = req.user;
+
+    // Find user by ID and select only notification fields
+    const user = await usersModel.findById(userId).select(
+      "pushNotification newsLetterNotification eventsNotification chatNotification"
+    );
+
+    if (!user) {
+      errorResponseHandler( "User not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    // Return notification preferences
+    return {
+      pushNotification: user?.pushNotification,
+      newsLetterNotification: user?.newsLetterNotification,
+      eventsNotification: user?.eventsNotification,
+      chatNotification: user?.chatNotification,
+    };
+
+}
