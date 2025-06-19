@@ -1542,3 +1542,26 @@ export const getUserNotificationPreferencesService = async (req: any, res: Respo
     };
 
 }
+export const getUserPrivacyPreferenceService = async (req: any, res: Response) => {
+  
+    const { id: userId } = req.user;
+
+    // Find user by ID and select only privacy fields
+    const user = await usersModel.findById(userId).select(
+      "accountType"
+    );
+
+    if (!user) {
+      errorResponseHandler( "User not found", httpStatusCode.NOT_FOUND, res);
+    }
+
+    // Return privacy preferences
+    return {
+      success: true,
+      message: "Privacy preferences retrieved successfully",
+      data: {
+        accountType: user?.accountType,
+      }
+    };
+
+}
