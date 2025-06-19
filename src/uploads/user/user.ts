@@ -1518,7 +1518,7 @@ export const togglePrivacyPreferenceService = async (req: any, res: Response) =>
 
 export const getUserNotificationPreferencesService = async (req: any, res: Response) => {
   
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     // Find user by ID and select only notification fields
     const user = await usersModel.findById(userId).select(
