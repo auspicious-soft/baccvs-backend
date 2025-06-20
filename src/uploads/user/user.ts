@@ -1404,7 +1404,7 @@ export const toggleTwoFactorAuthenticationService = async (req: any, res: Respon
 
 export const getReferalCodeService = async (req: any, res: Response) => {
     const { id: userId } = req.user;
-    const referralCodes = await ReferralCodeModel.find({ codeCreatedBy: userId });
+    const referralCodes = await ReferralCodeModel.find({ codeCreatedBy: userId }).populate('codeCreatedBy', 'userName photos').populate('referredUser', 'userName photos');
     if (!referralCodes) {
       return errorResponseHandler("Referral codes not found", httpStatusCode.NOT_FOUND, res);
     }
