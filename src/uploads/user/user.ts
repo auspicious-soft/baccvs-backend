@@ -544,22 +544,69 @@ export const passwordResetService = async (req: Request, res: Response) => {
 }
 
 export const getUserInfoService = async (req: any, res: Response) => {
-    if (!req.params.id) return errorResponseHandler("User ID is required", httpStatusCode.BAD_REQUEST, res);
+   if (!req.params.id) return errorResponseHandler("User ID is required", httpStatusCode.BAD_REQUEST, res);
 
-    const user = await usersModel.findById(req.params.id);
-    const {id:currentUserId} = req.user
-    
-    if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+  const { id: currentUserId } = req.user;
+  const targetUserId = req.params.id;
+
+  // Check if either user has blocked the other
+  const isBlocked = await blockModel.findOne({
+    $or: [
+      { blockedBy: currentUserId, blockedUser: targetUserId },
+      { blockedBy: targetUserId, blockedUser: currentUserId },
+    ],
+  });
+
+  if (isBlocked) {
+    return errorResponseHandler("Access to user data restricted", httpStatusCode.FORBIDDEN, res);
+  }
+
+  // Fetch target user data
+  const user = await usersModel.findById(targetUserId).select('-password -token -stripeCustomerId -__v');
+  if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+
+  // Get follower count
+  const followerCount = await followModel.countDocuments({
+    following_id: targetUserId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Get following count
+  const followingCount = await followModel.countDocuments({
+    follower_id: targetUserId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Check follow relationships
+  const isFollowedByCurrentUser = await followModel.exists({
+    follower_id: currentUserId,
+    following_id: targetUserId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  const isFollowingCurrentUser = await followModel.exists({
+    follower_id: targetUserId,
+    following_id: currentUserId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
 
 
 
-    return {
-        success: true,
-        message: "User retrieved successfully",
-        data: {
-            user
-        }
-    };
+  return {
+    success: true,
+    message: "User retrieved successfully",
+    data: {
+      user,
+      followerCount,
+      followingCount,
+      isFollowedByCurrentUser: !!isFollowedByCurrentUser,
+      isFollowingCurrentUser: !!isFollowingCurrentUser,
+    },
+  }
 }
 
 export const getUserInfoByEmailService = async (email: string, res: Response) => {
