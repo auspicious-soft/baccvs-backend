@@ -147,7 +147,7 @@ export const getAllProductsService = async (req: Request, res: Response) => {
     }
     
     // Get products from database
-    const products = await Product.find(query).sort({ createdAt: -1 });
+    const products = await Product.find(query).sort({ createdAt: 1 });
     
     return {
       success: true,
@@ -213,7 +213,8 @@ export const updateProductService = async (req: Request, res: Response) => {
       planType, 
       features,
       images,
-      active
+      active,
+      featureList
     } = req.body;
     
     if (!productId) {
