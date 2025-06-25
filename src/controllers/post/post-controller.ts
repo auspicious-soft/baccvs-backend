@@ -9,38 +9,6 @@ export const uploadPostPhotos = upload.array('photos', 10); // Allow up to 10 ph
 
 export const createPost = async (req: Request, res: Response) =>{
   try {
-     // Handle file uploads if files exist
-    //  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    //     // Upload files to S3
-    //     const user = req.user as { email?: string } | undefined;
-    //     const filePaths = await uploadMultipleFilesToS3(req.files, user?.email ?? "");
-        
-    //     // Add file paths to post data
-    //     req.body.photos = filePaths;
-    //  } else if (req.body.photos && Array.isArray(req.body.photos)) {
-    //     // Handle case where photos are sent as JSON strings from mobile app
-    //     try {
-    //       // Parse each photo object if it's a string
-    //       const parsedPhotos = req.body.photos.map((photo: string) => {
-    //         if (typeof photo === 'string') {
-    //           return JSON.parse(photo);
-    //         }
-    //         return photo;
-    //       });
-          
-    //       // Process mobile app photo objects
-    //       const user = req.user as { email?: string } | undefined;
-    //       const filePaths = await handleMobileAppPhotos(parsedPhotos, user?.email ?? "");
-          
-    //       // Add file paths to post data
-    //       req.body.photos = filePaths;
-    //     } catch (parseError) {
-    //       console.error("Error processing mobile photos:", parseError);
-    //       // If there's an error, continue without photos
-    //       req.body.photos = [];
-    //     }
-    //  }
-     
      const response: any = await createPostService(req, res)
      return res.status(httpStatusCode.CREATED).json(response)
   } catch (error) {

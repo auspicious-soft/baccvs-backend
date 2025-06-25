@@ -1,5 +1,5 @@
 import { Request, Response } from "express"
-import { errorParser, errorResponseHandler } from "../../lib/errors/error-response-handler"
+import { errorParser, errorResponseHandler, formatErrorResponse } from "../../lib/errors/error-response-handler"
 import { AtmosphereVibe, EventType, InterestCategory, MusicStyle, usersModel } from "../../models/user/user-schema"
 import bcrypt from "bcryptjs"
 import { generatePasswordResetToken, generatePasswordResetTokenByPhone, getPasswordResetTokenByToken } from "../../utils/mails/token"
@@ -619,128 +619,218 @@ export const getUserInfoByEmailService = async (email: string, res: Response) =>
     }
 }
 
-export const editUserInfoService = async (id: string, payload: any, req: any, res: Response) => {
-  const { id: userId } = req.user;
-  const user = await usersModel.findById(id);
+export const editUserInfoService = async ( req: any, res: Response) => {
+  const { id: userId, email: userEmail } = req.user;
+  
+  // Check if user exists and authorization
+  const user = await usersModel.findById(userId);
   if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+  
+  // Check content type - expect multipart/form-data for file uploads
+  if (!req.headers['content-type']?.includes('multipart/form-data')) {
+    return errorResponseHandler('Content-Type must be multipart/form-data', httpStatusCode.BAD_REQUEST, res);
+  }
 
-  if (userId !== id) return errorResponseHandler("Unauthorized you can only edit your own profile", httpStatusCode.UNAUTHORIZED, res);
-  
-  // Create an object with only the allowed fields
-  const allowedFields = [
-    'userName', 
-    'photos', 
-    'about', 
-    'drinking', 
-    'smoke', 
-    'marijuana', 
-    'drugs', 
-    'interestCategories', 
-    'musicStyles', 
-    'atmosphereVibes', 
-    'eventTypes', 
-    'height',
-    'location'
-  ];
-  
-  const updateData: any = {};
-  
-  // Only copy allowed fields from payload
-  allowedFields.forEach(field => {
-    if (payload[field] !== undefined) {
-      updateData[field] = payload[field];
-    }
+  return new Promise((resolve, reject) => {
+    const busboy = Busboy({ headers: req.headers });
+    const uploadPromises: Promise<string>[] = [];
+    const formData: any = {};
+
+    busboy.on('field', (fieldname: string, value: string) => {
+      // Handle form fields - parse arrays for certain fields
+      if (['interestCategories', 'musicStyles', 'atmosphereVibes', 'eventTypes'].includes(fieldname)) {
+        try {
+          formData[fieldname] = JSON.parse(value);
+        } catch {
+          formData[fieldname] = value;
+        }
+      } else if (fieldname === 'location') {
+        try {
+          formData[fieldname] = JSON.parse(value);
+        } catch {
+          formData[fieldname] = value;
+        }
+      } else {
+        formData[fieldname] = value;
+      }
+    });
+
+    busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
+      if (fieldname !== 'photos') {
+        fileStream.resume(); // Skip non-photo files
+        return;
+      }
+
+      const { filename, mimeType } = fileInfo;
+      
+      // Validate file type
+      if (!mimeType.startsWith('image/')) {
+        fileStream.resume();
+        return reject(errorResponseHandler('Only image files are allowed', httpStatusCode.BAD_REQUEST, res));
+      }
+
+      // Create a readable stream from the file stream
+      const readableStream = new Readable();
+      readableStream._read = () => {}; // Required implementation
+
+      fileStream.on('data', (chunk: any) => {
+        readableStream.push(chunk);
+      });
+
+      fileStream.on('end', () => {
+        readableStream.push(null); // End of stream
+      });
+
+      // Add upload promise to array
+      const uploadPromise = uploadStreamToS3Service(
+        readableStream,
+        filename,
+        mimeType,
+        userEmail
+      );
+      uploadPromises.push(uploadPromise);
+    });
+
+    busboy.on('finish', async () => {
+      try {
+        // Wait for all file uploads to complete (if any)
+        let uploadedPhotoKeys: string[] = [];
+        if (uploadPromises.length > 0) {
+          uploadedPhotoKeys = await Promise.all(uploadPromises);
+        }
+
+        // Create an object with only the allowed fields
+        const allowedFields = [
+          'userName', 
+          'about', 
+          'drinking', 
+          'smoke', 
+          'marijuana', 
+          'drugs', 
+          'interestCategories', 
+          'musicStyles', 
+          'atmosphereVibes', 
+          'eventTypes', 
+          'height',
+          'location'
+        ];
+        
+        const updateData: any = {};
+        
+        // Only copy allowed fields from formData
+        allowedFields.forEach(field => {
+          if (formData[field] !== undefined) {
+            updateData[field] = formData[field];
+          }
+        });
+
+        // Handle photos - either use uploaded photos or existing photos from form
+        if (uploadedPhotoKeys.length > 0) {
+          // If new photos were uploaded, use them
+          updateData.photos = uploadedPhotoKeys;
+        } else if (formData.photos !== undefined) {
+          // If no new photos but photos field exists in form, use existing photos
+          updateData.photos = Array.isArray(formData.photos) ? formData.photos : [];
+        }
+        
+        // Validate enum fields
+        if (updateData.drinking && !["Yes", "No", "prefer not to say"].includes(updateData.drinking)) {
+          return reject(errorResponseHandler("Invalid drinking value", httpStatusCode.BAD_REQUEST, res));
+        }
+        
+        if (updateData.smoke && !["Yes", "No", "prefer not to say"].includes(updateData.smoke)) {
+          return reject(errorResponseHandler("Invalid smoke value", httpStatusCode.BAD_REQUEST, res));
+        }
+        
+        if (updateData.marijuana && !["Yes", "No", "prefer not to say"].includes(updateData.marijuana)) {
+          return reject(errorResponseHandler("Invalid marijuana value", httpStatusCode.BAD_REQUEST, res));
+        }
+        
+        if (updateData.drugs && !["Yes", "No", "prefer not to say"].includes(updateData.drugs)) {
+          return reject(errorResponseHandler("Invalid drugs value", httpStatusCode.BAD_REQUEST, res));
+        }
+        
+        // Validate interestCategories
+        if (updateData.interestCategories && Array.isArray(updateData.interestCategories)) {
+          for (const category of updateData.interestCategories) {
+            if (!Object.values(InterestCategory).includes(category)) {
+              return reject(errorResponseHandler(`Invalid interest category: ${category}`, httpStatusCode.BAD_REQUEST, res));
+            }
+          }
+        }
+        
+        // Validate musicStyles
+        if (updateData.musicStyles && Array.isArray(updateData.musicStyles)) {
+          for (const style of updateData.musicStyles) {
+            if (!Object.values(MusicStyle).includes(style)) {
+              return reject(errorResponseHandler(`Invalid music style: ${style}`, httpStatusCode.BAD_REQUEST, res));
+            }
+          }
+        }
+        
+        // Validate atmosphereVibes
+        if (updateData.atmosphereVibes && Array.isArray(updateData.atmosphereVibes)) {
+          for (const vibe of updateData.atmosphereVibes) {
+            if (!Object.values(AtmosphereVibe).includes(vibe)) {
+              return reject(errorResponseHandler(`Invalid atmosphere vibe: ${vibe}`, httpStatusCode.BAD_REQUEST, res));
+            }
+          }
+        }
+        
+        // Validate eventTypes
+        if (updateData.eventTypes && Array.isArray(updateData.eventTypes)) {
+          for (const type of updateData.eventTypes) {
+            if (!Object.values(EventType).includes(type)) {
+              return reject(errorResponseHandler(`Invalid event type: ${type}`, httpStatusCode.BAD_REQUEST, res));
+            }
+          }
+        }
+        
+        // Handle location update if provided
+        if (formData.location) {
+          if (!updateData.location) {
+            updateData.location = {
+              type: 'Point',
+              coordinates: [0, 0],
+              address: ''
+            };
+          }
+          
+          if (formData.location.coordinates) {
+            updateData.location.coordinates = formData.location.coordinates;
+          }
+          
+          if (formData.location.address) {
+            updateData.location.address = formData.location.address;
+          }
+        }
+        
+        const updatedUser = await usersModel.findByIdAndUpdate(
+          userId,
+          { $set: updateData },
+          { new: true }
+        );
+
+        resolve({
+          success: true,
+          message: "User updated successfully",
+          data: updatedUser,
+        });
+
+      } catch (error) {
+        console.error('Upload or user update error:', error);
+        reject(formatErrorResponse(res, error));
+      }
+    });
+
+    busboy.on('error', (error: any) => {
+      console.error('Busboy error:', error);
+      reject(formatErrorResponse(res, error));
+    });
+
+    req.pipe(busboy);
   });
-  
-  // Validate enum fields
-  if (updateData.drinking && !["Yes", "No", "prefer not to say"].includes(updateData.drinking)) {
-    return errorResponseHandler("Invalid drinking value", httpStatusCode.BAD_REQUEST, res);
-  }
-  
-  if (updateData.smoke && !["Yes", "No", "prefer not to say"].includes(updateData.smoke)) {
-    return errorResponseHandler("Invalid smoke value", httpStatusCode.BAD_REQUEST, res);
-  }
-  
-  if (updateData.marijuana && !["Yes", "No", "prefer not to say"].includes(updateData.marijuana)) {
-    return errorResponseHandler("Invalid marijuana value", httpStatusCode.BAD_REQUEST, res);
-  }
-  
-  if (updateData.drugs && !["Yes", "No", "prefer not to say"].includes(updateData.drugs)) {
-    return errorResponseHandler("Invalid drugs value", httpStatusCode.BAD_REQUEST, res);
-  }
-  
-  // Validate interestCategories
-  if (updateData.interestCategories && Array.isArray(updateData.interestCategories)) {
-    for (const category of updateData.interestCategories) {
-      if (!Object.values(InterestCategory).includes(category)) {
-        return errorResponseHandler(`Invalid interest category: ${category}`, httpStatusCode.BAD_REQUEST, res);
-      }
-    }
-  }
-  
-  // Validate musicStyles
-  if (updateData.musicStyles && Array.isArray(updateData.musicStyles)) {
-    for (const style of updateData.musicStyles) {
-      if (!Object.values(MusicStyle).includes(style)) {
-        return errorResponseHandler(`Invalid music style: ${style}`, httpStatusCode.BAD_REQUEST, res);
-      }
-    }
-  }
-  
-  // Validate atmosphereVibes
-  if (updateData.atmosphereVibes && Array.isArray(updateData.atmosphereVibes)) {
-    for (const vibe of updateData.atmosphereVibes) {
-      if (!Object.values(AtmosphereVibe).includes(vibe)) {
-        return errorResponseHandler(`Invalid atmosphere vibe: ${vibe}`, httpStatusCode.BAD_REQUEST, res);
-      }
-    }
-  }
-  
-  // Validate eventTypes
-  if (updateData.eventTypes && Array.isArray(updateData.eventTypes)) {
-    for (const type of updateData.eventTypes) {
-      if (!Object.values(EventType).includes(type)) {
-        return errorResponseHandler(`Invalid event type: ${type}`, httpStatusCode.BAD_REQUEST, res);
-      }
-    }
-  }
-  
-  // Handle location update if provided
-  if (payload.location) {
-    if (!updateData.location) {
-      updateData.location = {
-        type: 'Point',
-        coordinates: [0, 0],
-        address: ''
-      };
-    }
-    
-    if (payload.location.coordinates) {
-      updateData.location.coordinates = payload.location.coordinates;
-    }
-    
-    if (payload.location.address) {
-      updateData.location.address = payload.location.address;
-    }
-  }
-  
-  // Ensure photos is properly handled as an array
-  if (payload.photos !== undefined) {
-    updateData.photos = Array.isArray(payload.photos) ? payload.photos : [];
-  }
-  
-  const updatedUser = await usersModel.findByIdAndUpdate(
-    id,
-    { $set: updateData },
-    { new: true }
-  );
-
-  return {
-    success: true,
-    message: "User updated successfully",
-    data: updatedUser,
-  };
-}
+};
 
 // Dashboard
 export const getDashboardStatsService = async (req: any, res: Response) => {

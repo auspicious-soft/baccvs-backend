@@ -141,7 +141,7 @@ export const getUserInfoByEmail = async (req: Request, res: Response) => {
 
 export const editUserInfo = async (req: Request, res: Response) => {
     try {
-        const response = await editUserInfoService(req.params.id, req.body,req, res);
+        const response = await editUserInfoService( req, res);
         return res.status(httpStatusCode.OK).json(response)
     } catch (error: any) {
         const { code, message } = errorParser(error)
