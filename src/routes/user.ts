@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference } from "../controllers/user/user";
+import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken } from "../controllers/user/user";
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
@@ -25,6 +25,7 @@ router.post("/create/promotion",createPromotion)
 router.post("/change-password", changePassword)
 router.route("/:id").get( getUserInfo)
 router.get("/dashboard/data",  getDashboardStats)
+router.get("/get/current/user",getUserInfoByToken)
 router.get("/all/professional/profile",getUserAllprofessionalProfiles )
 router.get("/professional/profile/:id",getProfessionalProfileById)
 router.get("/get/all/promotion",getAllPromotions)
@@ -33,7 +34,7 @@ router.get("/get/promotion/user/:id",getUserPromotions)
 router.get("/get/referal/code",getReferalCode)
 router.get("/get/user/notification/preference",getUserNotificationPreferences)
 router.get("/get/user/privacy/preference",getUserPrivacyPreference)
-// router.get("get/current/user/post",getUserPost)
+router.get("/get/current/user/post",getUserPosts)
 router.put("/update/professional/profile/:id",updateProfessionalProfile)
 router.patch("/update/user/info", editUserInfo)
 router.patch("/toggle/notification",notificationSetting)

@@ -620,46 +620,61 @@ export const deleteSquadService = async (req: any, res: Response) => {
  * Get all squads (with pagination and filters)
  */
 export const getSquadsService = async (req: any, res: Response) => {
- 
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-  
-    const { page = 1, limit = 10, status, interest } = req.query;
-    const skip = (page - 1) * limit;
+  const { id: userId } = req.user;
+  const { page = 1, limit = 10, status, interest } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
 
-    const query: any = {
-      status: { $ne: SquadStatus.INACTIVE },
-    };
+  // Fetch the current user's interestCategories
+  const user = await usersModel.findById(userId).select('interestCategories').exec();
+  if (!user) {
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-    if (status) {
-      query.status = status;
-    }
+  const query: any = {
+    status: { $ne: SquadStatus.FULL }, // Exclude full squads
+  };
 
-    if (interest) {
-      query.squadInterest = { $in: [interest] };
-    }
+  // If user has interestCategories, filter squads by those; otherwise, include all non-full squads
+  if (user.interestCategories && user.interestCategories.length > 0) {
+    query.squadInterest = { $in: user.interestCategories };
+  }
 
-    const squads = await Squad.find(query)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+  // Additional filters from query parameters
+  if (status) {
+    query.status = status;
+  }
 
-    const total = await Squad.countDocuments(query);
+  if (interest) {
+    query.squadInterest = { $in: [interest] };
+  }
 
-    return {
-      success: true,
-      message: "All Squads retrieved successfully",
-      squads,
-      pagination: {
-        total,
-        page,
-        limit,
-        pages: Math.ceil(total / limit),
-      },
-    };
- 
+  const squads = await Squad.find(query)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit))
+    .exec();
+
+  const total = await Squad.countDocuments(query);
+
+  return {
+    success: true,
+    message: "Squads retrieved successfully",
+    data: squads,
+    pagination: {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      pages: Math.ceil(total / Number(limit)),
+    },
+  };
 };
 
 /**
@@ -683,9 +698,9 @@ export const getUserSquadsService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "User Squads retrieved successfully",
-      squads,
+      data: squads,
     };
- 
+  
 };
 
 /**
@@ -757,7 +772,7 @@ export const addMemberService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Member added successfully",
-      squad: updatedSquad,
+      data: updatedSquad,
     };
 };
 
@@ -879,11 +894,11 @@ export const changeMemberRoleService = async (req: any, res: Response) => {
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: `Member role updated to ${role} successfully`,
-      squad: updatedSquad,
-    });
+      data: updatedSquad,
+    };
   } catch (error) {
     return errorResponseHandler("Failed to change member role", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
@@ -996,11 +1011,11 @@ export const transferOwnershipService = async (req: any, res: Response) => {
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
 
-    res.status(httpStatusCode.OK).json({
+    return{
       success: true,
       message: "Squad ownership transferred successfully",
-      squad: updatedSquad,
-    });
+      data: updatedSquad,
+    };
   } catch (error) {
     return errorResponseHandler("Failed to transfer ownership", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
@@ -1071,7 +1086,7 @@ export const joinSquadService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "You have joined the squad successfully",
-      squad: updatedSquad
+      data: updatedSquad
     };
 };
 
@@ -1153,10 +1168,10 @@ export const matchSquadService = async (req: any, res: Response) => {
       await targetSquad.save();
     }
 
-    res.status(httpStatusCode.OK).json({
+    return{
       success: true,
       message: "Squads matched successfully",
-    });
+    };
   } catch (error) {
     console.error("Match squad error:", error);
     return errorResponseHandler("Failed to match squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
@@ -1221,10 +1236,10 @@ export const unmatchSquadService = async (req: any, res: Response) => {
       }
     }
 
-    res.status(httpStatusCode.OK).json({
+    return{
       success: true,
       message: "Squads unmatched successfully",
-    });
+    };
   } catch (error) {
     console.error("Unmatch squad error:", error);
     return errorResponseHandler("Failed to unmatch squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
@@ -1271,10 +1286,11 @@ export const getMatchedSquadsService = async (req: any, res: Response) => {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    res.status(httpStatusCode.OK).json({
+    return{
       success: true,
-      matches: populatedSquad.matchedSquads,
-    });
+      message: "Matched squads retrieved successfully",
+      data: populatedSquad.matchedSquads,
+    };
   } catch (error) {
     console.error("Get matched squads error:", error);
     return errorResponseHandler("Failed to fetch matched squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
@@ -1332,16 +1348,17 @@ export const findPotentialMatchesService = async (req: any, res: Response) => {
 
     const total = await Squad.countDocuments(query);
 
-    res.status(httpStatusCode.OK).json({
+    return{
       success: true,
-      potentialMatches,
+      message: "Potential matches found successfully",
+      data:potentialMatches,
       pagination: {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
         pages: Math.ceil(total / parseInt(limit)),
       },
-    });
+    };
   } catch (error) {
     return errorResponseHandler("Failed to find potential matches", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
@@ -1403,14 +1420,12 @@ export const updateSquadInterestsService = async (req: any, res: Response) => {
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
 
-    res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Squad interests updated successfully",
-      squad: updatedSquad,
-    });
+      data: updatedSquad,
+    };
   } catch (error) {
     return errorResponseHandler("Failed to update squad interests", httpStatusCode.INTERNAL_SERVER_ERROR, res);
   }
 };
-
-

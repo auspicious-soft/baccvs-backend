@@ -1704,3 +1704,57 @@ export const getUserPrivacyPreferenceService = async (req: any, res: Response) =
     };
 
 }
+
+export const getUserPostsService = async (req: any, res: Response) => {
+    const { id: userId } = req.user;
+    // get user posts and reposts
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const posts = await postModels
+        .find({ user: userId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('user', 'userName photos')
+        .populate({
+          path:'taggedUsers',
+          select: 'userName photos'
+        });
+    const reposts = await RepostModel.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('user', 'userName photos')
+        .populate({
+          path: 'originalPost',
+         
+        });
+    return {
+        success: true,
+        message: "User posts retrieved successfully",
+        data: {
+            posts,
+            reposts
+        }
+    };
+  }
+
+export const getUserInfoByTokenService = async (req: any, res: Response) => {
+    const { id: userId } = req.user;
+    if (!userId) {
+        return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    }
+    
+    // Fetch user information
+    const user = await usersModel.findById(userId).select('-password -token -stripeCustomerId -tempEmail -tempPhoneNumber');
+    if (!user) {
+        return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    }
+    
+    return {
+        success: true,
+        message: "User information retrieved successfully",
+        data: user
+    };
+}

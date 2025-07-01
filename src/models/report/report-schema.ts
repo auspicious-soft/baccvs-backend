@@ -25,7 +25,7 @@ const ReportSchema = new Schema(
     },
     targetType: {
       type: String,
-      enum: ["posts", "comments","users"],
+      enum: ["posts", "comments","users","Squad"],
       required: true
     },
     target: {

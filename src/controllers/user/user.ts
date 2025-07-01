@@ -3,12 +3,13 @@ import { httpStatusCode } from "../../lib/constant"
 import { errorParser } from "../../lib/errors/error-response-handler"
 import { passswordResetSchema, verifyOtpSchema, verifyPasswordSchema } from "../../validation/client-user"
 import { formatZodErrors } from "../../validation/format-zod-errors"
-import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService, getUserNotificationPreferencesService, getUserPrivacyPreferenceService} from "../../uploads/user/user"
+import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService, getUserNotificationPreferencesService, getUserPrivacyPreferenceService, getUserPostsService, getUserInfoByTokenService} from "../../uploads/user/user"
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
 import { generateMultipleSignedUrls } from "src/configF/s3"
 import { upload, uploadMultipleFilesToS3 } from "src/configF/multer";
+import { get } from "http"
 
 // Middleware for handling file uploads
 export const uploadUserPhotos = upload.array('photos', 5); // Allow up to 5 photos
@@ -369,6 +370,30 @@ export const getUserPrivacyPreference = async (req: Request, res: Response) => {
         return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
             success: false,
             message: message || "An error occurred fetching privacy preferences"
+        });
+    }
+}
+export const getUserPosts = async(req:Request, res: Response) => {
+    try {
+        const response = await getUserPostsService(req, res);
+        return res.status(httpStatusCode.OK).json(response);
+    } catch (error: any) {
+        const { code, message } = errorParser(error);
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+            success: false,
+            message: message || "An error occurred fetching user posts"
+        });
+    }
+}
+export const getUserInfoByToken = async(req:Request,res:Response)=>{
+    try {
+        const response = await getUserInfoByTokenService(req,res)
+        return res.status(httpStatusCode.OK).json(response)
+    } catch (error:any) {
+        const {code,message} = errorParser(error)
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+            success: false,
+            message: message || "An error occurred fetching user info"
         });
     }
 }

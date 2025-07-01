@@ -7,6 +7,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { postModels } from "src/models/post/post-schema";
 import { Comment } from "src/models/comment/comment-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { Squad } from "src/models/squad/squad-schema"; // Assuming you have a Squad model
 
 export const createReportService = async (req: Request, res: Response) => {
   const { id: reporterId } = req.user as JwtPayload;
@@ -20,7 +21,7 @@ export const createReportService = async (req: Request, res: Response) => {
     );
   }
 
-  if (!["posts", "comments", "users"].includes(targetType)) {
+  if (!["posts", "comments", "users", "Squad"].includes(targetType)) {
     return errorResponseHandler(
       "Invalid target type",
       httpStatusCode.BAD_REQUEST,
@@ -48,6 +49,9 @@ export const createReportService = async (req: Request, res: Response) => {
   } else if (targetType === "users") {
     const user = await usersModel.findById(targetId).exec();
     targetExists = !!user;
+  } else if (targetType === "Squad") {
+    const squad = await Squad.findById(targetId).exec();
+    targetExists = !!squad;
   }
 
   if (!targetExists) {
@@ -63,12 +67,12 @@ export const createReportService = async (req: Request, res: Response) => {
     reporter: reporterId,
     targetType,
     target: targetId,
-    status: { $ne: ReportStatus.DISMISSED } // Allow reporting again if previous report was dismissed
+    status: { $ne: ReportStatus.DISMISSED }
   });
 
   if (existingReport) {
     return errorResponseHandler(
-      `You have already reported this content ${targetType}`,
+      `You have already reported this ${targetType}`,
       httpStatusCode.BAD_REQUEST,
       res
     );
@@ -94,7 +98,6 @@ export const createReportService = async (req: Request, res: Response) => {
 
 export const getReportByIdService = async (req: Request, res: Response) => {
   const { id } = req.params;
-  console.log('id:', id);
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return errorResponseHandler(
@@ -104,9 +107,12 @@ export const getReportByIdService = async (req: Request, res: Response) => {
     );
   }
 
-  const report = await reportModel.findById(id)
+  const report = await reportModel
+    .findById(id)
     .populate('reporter', 'userName email')
-    .populate('target')
+    .populate({
+      path: 'target',
+    })
     .exec();
 
   if (!report) {
@@ -119,6 +125,7 @@ export const getReportByIdService = async (req: Request, res: Response) => {
 
   return {
     success: true,
+    message: "Report retrieved successfully",
     data: report
   };
 };
@@ -136,9 +143,15 @@ export const getAllReportsService = async (req: Request, res: Response) => {
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  const reports = await reportModel.find(query)
+  const reports = await reportModel
+    .find(query)
     .populate('reporter', 'userName email')
-    .populate('target')
+    .populate({
+      path: 'target',
+      populate: {
+        path: targetType === 'Squad' ? 'squadName description' : '', // Adjust fields based on your Squad model
+      }
+    })
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit))
@@ -148,6 +161,7 @@ export const getAllReportsService = async (req: Request, res: Response) => {
 
   return {
     success: true,
+    message: "Reports retrieved successfully",
     data: reports,
     pagination: {
       total,
@@ -157,6 +171,7 @@ export const getAllReportsService = async (req: Request, res: Response) => {
   };
 };
 
+// The updateReportStatusService and deleteReportService remain unchanged
 export const updateReportStatusService = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body;
@@ -235,6 +250,3 @@ export const deleteReportService = async (req: Request, res: Response) => {
     message: "Report deleted successfully"
   };
 };
-
-
-
