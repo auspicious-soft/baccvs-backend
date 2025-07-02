@@ -919,7 +919,6 @@ export const leaveSquadService = async (req: any, res: Response) => {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
-  try {
     const squad = await Squad.findById(squadId);
 
     if (!squad) {
@@ -950,9 +949,7 @@ export const leaveSquadService = async (req: any, res: Response) => {
       success: true,
       message: "You have left the squad successfully",
     };
-  } catch (error) {
-    return errorResponseHandler("Failed to leave squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+
 };
 
 /**
