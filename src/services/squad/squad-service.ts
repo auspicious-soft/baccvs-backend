@@ -968,7 +968,6 @@ export const transferOwnershipService = async (req: any, res: Response) => {
     return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
   }
 
-  try {
     // Check if user is creator of the squad
     const squad = await Squad.findOne({
       _id: squadId,
@@ -1013,9 +1012,7 @@ export const transferOwnershipService = async (req: any, res: Response) => {
       message: "Squad ownership transferred successfully",
       data: updatedSquad,
     };
-  } catch (error) {
-    return errorResponseHandler("Failed to transfer ownership", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+
 };
 
 
@@ -1091,7 +1088,6 @@ export const joinSquadService = async (req: any, res: Response) => {
  * Match with another squad
  */
 export const matchSquadService = async (req: any, res: Response) => {
-  try {
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
@@ -1169,17 +1165,12 @@ export const matchSquadService = async (req: any, res: Response) => {
       success: true,
       message: "Squads matched successfully",
     };
-  } catch (error) {
-    console.error("Match squad error:", error);
-    return errorResponseHandler("Failed to match squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
 };
 
 /**
  * Unmatch from another squad
  */
 export const unmatchSquadService = async (req: any, res: Response) => {
-  try {
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
@@ -1237,17 +1228,13 @@ export const unmatchSquadService = async (req: any, res: Response) => {
       success: true,
       message: "Squads unmatched successfully",
     };
-  } catch (error) {
-    console.error("Unmatch squad error:", error);
-    return errorResponseHandler("Failed to unmatch squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+
 };
 
 /**
  * Get matched squads
  */
 export const getMatchedSquadsService = async (req: any, res: Response) => {
-  try {
     if (!authenticateUser(req, res)) return;
 
     const { id: userId } = req.user;
@@ -1288,10 +1275,6 @@ export const getMatchedSquadsService = async (req: any, res: Response) => {
       message: "Matched squads retrieved successfully",
       data: populatedSquad.matchedSquads,
     };
-  } catch (error) {
-    console.error("Get matched squads error:", error);
-    return errorResponseHandler("Failed to fetch matched squads", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
 };
 
 /**
@@ -1311,7 +1294,6 @@ export const findPotentialMatchesService = async (req: any, res: Response) => {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
-  try {
     // Check if user is a member of the squad
     const squad = await Squad.findOne({
       _id: squadId,
@@ -1356,9 +1338,6 @@ export const findPotentialMatchesService = async (req: any, res: Response) => {
         pages: Math.ceil(total / parseInt(limit)),
       },
     };
-  } catch (error) {
-    return errorResponseHandler("Failed to find potential matches", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
 };
 
 /**
@@ -1381,7 +1360,6 @@ export const updateSquadInterestsService = async (req: any, res: Response) => {
     );
   }
 
-  try {
     // Check if user is admin of the squad
     const squad = await Squad.findOne({
       _id: squadId,
@@ -1422,7 +1400,5 @@ export const updateSquadInterestsService = async (req: any, res: Response) => {
       message: "Squad interests updated successfully",
       data: updatedSquad,
     };
-  } catch (error) {
-    return errorResponseHandler("Failed to update squad interests", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-  }
+
 };
