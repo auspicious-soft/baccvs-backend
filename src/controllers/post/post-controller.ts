@@ -1,7 +1,7 @@
 import { Request, Response } from "express"
 import { httpStatusCode } from "src/lib/constant"
 import { errorParser } from "src/lib/errors/error-response-handler"
-import { createPostService, deletePostService, getAllPostOfCurrentUserService, getAllPostsService, getPostByIdService, updatePostService } from "src/services/post/post-service"
+import { createPostService, deletePostService, getAllPostOfCurrentUserService, getAllPostsService, getPostByIdService, getPostsOfOtherUserService, updatePostService } from "src/services/post/post-service"
 import { upload, uploadMultipleFilesToS3, handleMobileAppPhotos } from "src/configF/multer"
 
 // Middleware for handling file uploads for posts
@@ -87,6 +87,15 @@ export const deletepost = async (req: Request, res: Response) =>{
 export const getAllPostOfCurrentUser = async (req: Request, res: Response) =>{
   try {
      const response: any = await getAllPostOfCurrentUserService(req, res)
+            return res.status(httpStatusCode.OK).json(response)
+  } catch (error) {
+      const { code, message } = errorParser(error)
+          return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" })
+    }
+}
+export const getPostsOfOtherUser = async (req: Request, res: Response) =>{
+  try {
+     const response: any = await getPostsOfOtherUserService(req, res)
             return res.status(httpStatusCode.OK).json(response)
   } catch (error) {
       const { code, message } = errorParser(error)

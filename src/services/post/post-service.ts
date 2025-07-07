@@ -382,3 +382,25 @@ export const getAllPostOfCurrentUserService = async (req: Request, res: Response
     totalPost: totalPost
   };
 }
+
+export const getPostsOfOtherUserService = async(req:any,res:Response) => {
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED,res);
+  }
+
+  const { id: userId } = req.user as JwtPayload;
+  const { id: targetUserId } = req.params;
+
+  const posts = await postModels.find({ user: targetUserId })
+    .populate('user', 'userName')
+    .populate('taggedUsers', 'userName')
+    .sort({ createdAt: -1 });
+
+  const totalPost = await postModels.countDocuments({ user: targetUserId });
+  return {
+    success: true,
+    message: "Posts of other user retrieved successfully",
+    data: posts,
+    totalPost: totalPost
+  };
+}
