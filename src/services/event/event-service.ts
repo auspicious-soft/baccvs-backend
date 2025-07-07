@@ -402,6 +402,32 @@ export const getAllEventsService = async (req: Request, res: Response) => {
   };
 };
 
+export const getEventOfOtherUserService = async(req:any,res:Response)=>{
+  const { id: userId } = req.params;
+
+  if (!isValidObjectId(userId)) {
+    return errorResponseHandler("Invalid user ID", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  const events = await eventModel
+    .find({ creator: userId })
+    .populate("creator", "userName")
+    .populate("invitedGuests", "userName")
+    .populate("coHosts", "userName")
+    .populate("lineup")
+    .sort({ createdAt: -1 });
+
+  if (events.length === 0) {
+    return errorResponseHandler("No events found for this user", httpStatusCode.NOT_FOUND, res);
+  }
+
+  return {
+    success: true,
+    message: "Events retrieved successfully",
+    data: events,
+  };
+}
+
 export const getEventsByIdService = async (req: Request, res: Response) => {
   const event = await eventModel
     .findById(req.params.id)
