@@ -578,6 +578,9 @@ export const getUserInfoService = async (req: any, res: Response) => {
     relationship_status: FollowRelationshipStatus.FOLLOWING,
     is_approved: true,
   });
+  const eventCount = await eventModel.countDocuments({
+    creator: targetUserId,
+  });
 
   // Check follow relationships
   const isFollowedByCurrentUser = await followModel.exists({
@@ -603,6 +606,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
       user,
       followerCount,
       followingCount,
+      eventCount,
       isFollowedByCurrentUser: !!isFollowedByCurrentUser,
       isFollowingCurrentUser: !!isFollowingCurrentUser,
     },
