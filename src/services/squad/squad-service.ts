@@ -453,12 +453,284 @@ export const getSquadByIdService = async (req: any, res: Response) => {
 };
 
 export const updateSquadService = async (req: any, res: Response) => {
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
-   
-    const squadId = req.params.id;
-    const updateData = {...req.body};
+  const { id: userId, email } = req.user;
+  const squadId = req.params.id;
+
+  // Handle multipart/form-data for file uploads
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return new Promise((resolve, reject) => {
+      const busboyParser = busboy({ headers: req.headers });
+      let parsedData: any = { squadInterest: [], membersToAdd: [] };
+      let uploadedMedia: string[] = [];
+      let fileUploadPromises: Promise<void>[] = [];
+
+      busboyParser.on('field', (fieldname: string, value: string) => {
+        console.log(`Busboy - Received field: ${fieldname}=${value}`);
+        
+        if (['squadInterest', 'membersToAdd'].includes(fieldname)) {
+          try {
+            parsedData[fieldname] = JSON.parse(value);
+          } catch (error) {
+            console.log(`Busboy - Failed to parse ${fieldname}:`, error instanceof Error ? error.message : String(error));
+            return reject({
+              success: false,
+              message: `Failed to parse ${fieldname}. Must be a valid JSON array`,
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+        } else {
+          parsedData[fieldname] = value;
+        }
+      });
+
+      busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
+        console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
+        
+        if (fieldname !== 'media') {
+          console.log(`Skipping file field: ${fieldname}`);
+          fileStream.resume(); // Drain the stream
+          return;
+        }
+
+        const { filename, mimeType } = fileInfo;
+        console.log(`Processing file: ${filename}, type: ${mimeType}`);
+
+        // Validate file type (image or video)
+        const isImage = mimeType.startsWith('image/');
+        const isVideo = mimeType.startsWith('video/');
+        if (!isImage && !isVideo) {
+          console.log(`Invalid file type: ${mimeType}`);
+          fileStream.resume(); // Drain the stream
+          return reject({
+            success: false,
+            message: 'Only image or video files are allowed for squad media',
+            code: httpStatusCode.BAD_REQUEST,
+          });
+        }
+
+        // Create a promise for each file upload
+        const fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
+          // Collect file chunks
+          const chunks: Buffer[] = [];
+          
+          fileStream.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+
+          fileStream.on('end', async () => {
+            try {
+              console.log(`File stream ended. Total chunks: ${chunks.length}`);
+              
+              if (chunks.length === 0) {
+                return rejectUpload(new Error('No file data received'));
+              }
+
+              // Combine all chunks into a single buffer
+              const fileBuffer = Buffer.concat(chunks);
+              console.log(`File buffer size: ${fileBuffer.length} bytes`);
+
+              // Create readable stream from buffer
+              const readableStream = new Readable();
+              console.log('readableStream:', readableStream);
+              readableStream.push(fileBuffer);
+              readableStream.push(null); // End the stream
+
+              // Upload to S3
+              const uploadedMediaUrl = await uploadStreamToS3Service(
+                readableStream,
+                filename,
+                mimeType,
+                email || `squad_${customAlphabet('0123456789', 5)()}`
+              );
+              
+              uploadedMedia.push(uploadedMediaUrl);
+              console.log(`File uploaded successfully: ${uploadedMediaUrl}`);
+              resolveUpload();
+            } catch (error) {
+              console.error('File processing error:', error);
+              rejectUpload(error);
+            }
+          });
+
+          fileStream.on('error', (error: any) => {
+            console.error('File stream error:', error);
+            rejectUpload(error);
+          });
+        });
+
+        fileUploadPromises.push(fileUploadPromise);
+      });
+
+      busboyParser.on('finish', async () => {
+        console.log('Busboy finished parsing');
+        console.log('Parsed data:', parsedData);
+        
+        try {
+          // Wait for all file uploads to complete
+          if (fileUploadPromises.length > 0) {
+            console.log('Waiting for file uploads to complete...');
+            await Promise.all(fileUploadPromises);
+          }
+          
+          console.log('Media uploaded:', uploadedMedia);
+          
+          const updateData = { ...parsedData };
+          const { membersToAdd } = parsedData;
+          
+          // Remove membersToAdd from updateData since we'll handle it separately
+          delete updateData.membersToAdd;
+          
+          // Add uploaded media to update data if files were uploaded
+          if (uploadedMedia.length > 0) {
+            updateData.media = uploadedMedia;
+          }
+
+          // Check if at least one field is being updated
+          if (Object.keys(updateData).length === 0 && !membersToAdd) {
+            return reject({
+              success: false,
+              message: "At least one field must be provided for update",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+
+          // Check if user is admin of the squad
+          const squad = await Squad.findOne({
+            _id: squadId,
+            members: {
+              $elemMatch: {
+                user: userId,
+                role: "admin"
+              }
+            }
+          });
+          
+          if (!squad) {
+            return reject({
+              success: false,
+              message: "You don't have permission to update this squad",
+              code: httpStatusCode.FORBIDDEN,
+            });
+          }
+
+          // Handle replacing members if provided
+          if (membersToAdd && Array.isArray(membersToAdd)) {
+            // Check if the total number of members would exceed the limit
+            // +1 for the creator who must remain in the squad
+            if (membersToAdd.length + 1 > squad.maxMembers) {
+              return reject({
+                success: false,
+                message: `Cannot have ${membersToAdd.length + 1} members. Max members is ${squad.maxMembers}.`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
+            }
+            
+            // Check for duplicate member IDs
+            const uniqueMemberIds = new Set(membersToAdd);
+            if (uniqueMemberIds.size !== membersToAdd.length) {
+              return reject({
+                success: false,
+                message: "Duplicate member IDs found",
+                code: httpStatusCode.BAD_REQUEST,
+              });
+            }
+
+            // Check if members exist
+            for (const memberId of membersToAdd) {
+              const userExists = await usersModel.findById(memberId);
+              if (!userExists) {
+                return reject({
+                  success: false,
+                  message: `User with ID ${memberId} does not exist`,
+                  code: httpStatusCode.BAD_REQUEST,
+                });
+              }
+            }
+
+            // Get the creator's member object to preserve
+            const creatorMember = squad.members.find((member: any) => 
+              member.user.toString() === squad.creator.toString()
+            );
+            
+            if (!creatorMember) {
+              return reject({
+                success: false,
+                message: "Creator not found in squad members",
+                code: httpStatusCode.INTERNAL_SERVER_ERROR,
+              });
+            }
+
+            // Create new members array with creator and new members
+            const newMembers = [creatorMember];
+            
+            // Add each provided member ID (excluding the creator if they're in the list)
+            for (const memberId of membersToAdd) {
+              // Skip if it's the creator (already added)
+              if (memberId === squad.creator.toString()) continue;
+              
+              // Add as a regular member
+              newMembers.push(squad.members.create({
+                user: new mongoose.Types.ObjectId(memberId),
+                role: "member",
+                joinedAt: new Date()
+              }));
+            }
+            
+            // Replace the members array
+            (squad as any).members = newMembers;
+            await squad.save();
+          }
+
+          // Update other squad fields
+          const updatedSquad = await Squad.findByIdAndUpdate(
+            squadId,
+            { $set: updateData },
+            { new: true, runValidators: true }
+          )
+            .populate("creator", "userName photos")
+            .populate("members.user", "userName photos")
+            .populate("matchedSquads.squad");
+
+          if (!updatedSquad) {
+            return reject({
+              success: false,
+              message: "Squad not found",
+              code: httpStatusCode.NOT_FOUND,
+            });
+          }
+
+          resolve({
+            success: true,
+            message: "Squad updated successfully",
+            squad: updatedSquad
+          });
+
+        } catch (error) {
+          console.error('Squad update error:', error);
+          reject({
+            success: false,
+            message: error instanceof Error ? error.message : 'Failed to update squad',
+            code: httpStatusCode.INTERNAL_SERVER_ERROR,
+          });
+        }
+      });
+
+      busboyParser.on('error', (error: any) => {
+        console.error('Busboy error:', error);
+        reject({
+          success: false,
+          message: error.message || 'Error processing file uploads',
+          code: httpStatusCode.INTERNAL_SERVER_ERROR,
+        });
+      });
+
+      req.pipe(busboyParser);
+    });
+  } else {
+    // Handle JSON request (original logic)
+    const updateData = { ...req.body };
     const { membersToAdd } = req.body;
     
     // Remove membersToAdd from updateData since we'll handle it separately
@@ -483,6 +755,7 @@ export const updateSquadService = async (req: any, res: Response) => {
         }
       }
     });
+    
     if (!squad) {
       return errorResponseHandler(
         "You don't have permission to update this squad",
@@ -578,6 +851,7 @@ export const updateSquadService = async (req: any, res: Response) => {
       message: "Squad updated successfully",
       squad: updatedSquad
     };
+  }
 };
 
 /**

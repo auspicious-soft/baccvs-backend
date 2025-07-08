@@ -10,6 +10,7 @@ import { eventModel } from "src/models/event/event-schema";
 import { ticketModel } from "src/models/ticket/ticket-schema";
 import { uploadStreamToS3Service } from "src/configF/s3";
 import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
+import { purchaseModel } from "src/models/purchase/purchase-schema";
 
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
@@ -475,7 +476,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           try {
             parsedData[fieldname] = JSON.parse(value);
           } catch (error) {
-      return reject({
+            return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
               code: httpStatusCode.BAD_REQUEST,
@@ -579,30 +580,44 @@ const processEventUpdate = async (
 ) => {
   const event = await eventModel.findById(eventId);
   if (!event) {
-    return {
-      success: false,
-      message: "Event not found",
-      code: httpStatusCode.NOT_FOUND,
-    };
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   if (event.creator.toString() !== userId) {
-    return {
-      success: false,
-      message: "Not authorized to update this event",
-      code: httpStatusCode.FORBIDDEN,
-    };
+    return errorResponseHandler(
+      "Not authorized to update this event",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  // Check if any tickets have been purchased for this event
+  const existingPurchases = await purchaseModel.findOne({ 
+    event: eventId,
+    status: { $in: ['active', 'used', 'transferred', 'pending'] }
+  });
+
+  if (existingPurchases) {
+    return errorResponseHandler(
+      "Cannot update event details. Tickets have already been purchased for this event.",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
   }
 
   // Validate lineup
   if (data.lineup && Array.isArray(data.lineup)) {
     const invalidLineupIds = data.lineup.filter((id: string) => !isValidObjectId(id));
     if (invalidLineupIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
     const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: data.lineup } }).select("_id").lean();
@@ -610,11 +625,11 @@ const processEventUpdate = async (
       const missingIds = data.lineup.filter(
         (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
       );
-      return {
-        success: false,
-        message: `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -622,11 +637,11 @@ const processEventUpdate = async (
   if (data.coHosts && Array.isArray(data.coHosts)) {
     const invalidCoHostIds = data.coHosts.filter((id: string) => !isValidObjectId(id));
     if (invalidCoHostIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -634,11 +649,11 @@ const processEventUpdate = async (
   if (data.invitedGuests && Array.isArray(data.invitedGuests)) {
     const invalidGuestIds = data.invitedGuests.filter((id: string) => !isValidObjectId(id));
     if (invalidGuestIds.length > 0) {
-      return {
-        success: false,
-        message: `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(", ")}`,
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(", ")}`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -652,11 +667,11 @@ const processEventUpdate = async (
       typeof data.location.coordinates[0] !== "number" ||
       typeof data.location.coordinates[1] !== "number"
     ) {
-      return {
-        success: false,
-        message: "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
-        code: httpStatusCode.BAD_REQUEST,
-      };
+      return errorResponseHandler(
+        "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
   }
 
@@ -690,12 +705,7 @@ const processEventUpdate = async (
   if (data.invitedGuests) updateData.invitedGuests = data.invitedGuests;
   if (data.coHosts) updateData.coHosts = data.coHosts;
   if (data.lineup) updateData.lineup = data.lineup;
-  if (data.isFreeEvent !== undefined || data.enableReselling !== undefined) {
-    updateData.ticketing = {
-      isFree: data.isFreeEvent ?? event.ticketing?.isFree,
-      enableReselling: data.enableReselling ?? event.ticketing?.enableReselling,
-    };
-  }
+ 
   if (data.location) {
     updateData.location = {
       type: "Point",
