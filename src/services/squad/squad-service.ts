@@ -657,19 +657,19 @@ export const getSquadsService = async (req: any, res: Response) => {
   }
 
   // Find squads that the user has interacted with (liked, superliked, boosted, or disliked)
-  const userInteractions = await SquadMatch.find({
-    fromUser: userId,
-    type: { $in: ['like', 'dislike'] },
-    subType: { $in: [null, 'superlike', 'boost'] }
-  }).select('toSquad').exec();
+  // const userInteractions = await SquadMatch.find({
+  //   fromUser: userId,
+  //   type: { $in: ['like', 'dislike'] },
+  //   subType: { $in: [null, 'superlike', 'boost'] }
+  // }).select('toSquad').exec();
 
   // Extract squad IDs from interactions
-  const interactedSquadIds = userInteractions.map(interaction => interaction.toSquad);
+  // const interactedSquadIds = userInteractions.map(interaction => interaction.toSquad);
 
-  // Exclude interacted squads from the query
-  if (interactedSquadIds.length > 0) {
-    query._id = { $nin: interactedSquadIds };
-  }
+  // // Exclude interacted squads from the query
+  // if (interactedSquadIds.length > 0) {
+  //   query._id = { $nin: interactedSquadIds };
+  // }
 
   const squads = await Squad.find(query)
     .populate("creator", "userName photos")
