@@ -10,6 +10,7 @@ import { Readable } from "stream";
 import { uploadStreamToS3Service } from "src/configF/s3";
 import busboy from "busboy";
 import { customAlphabet } from "nanoid";
+import { SquadMatch } from "src/models/squadmatch/squadmatch-schema";
 
 // Validation schemas
 
@@ -638,9 +639,10 @@ export const getSquadsService = async (req: any, res: Response) => {
 
   const query: any = {
     status: { $ne: SquadStatus.FULL }, // Exclude full squads
+    'members.user': { $ne: userId }, // Exclude squads where user is a member
   };
 
-  // If user has interestCategories, filter squads by those; otherwise, include all non-full squads
+  // If user has interestCategories, filter squads by those
   if (user.interestCategories && user.interestCategories.length > 0) {
     query.squadInterest = { $in: user.interestCategories };
   }
@@ -652,6 +654,21 @@ export const getSquadsService = async (req: any, res: Response) => {
 
   if (interest) {
     query.squadInterest = { $in: [interest] };
+  }
+
+  // Find squads that the user has interacted with (liked, superliked, boosted, or disliked)
+  const userInteractions = await SquadMatch.find({
+    fromUser: userId,
+    type: { $in: ['like', 'dislike'] },
+    subType: { $in: [null, 'superlike', 'boost'] }
+  }).select('toSquad').exec();
+
+  // Extract squad IDs from interactions
+  const interactedSquadIds = userInteractions.map(interaction => interaction.toSquad);
+
+  // Exclude interacted squads from the query
+  if (interactedSquadIds.length > 0) {
+    query._id = { $nin: interactedSquadIds };
   }
 
   const squads = await Squad.find(query)

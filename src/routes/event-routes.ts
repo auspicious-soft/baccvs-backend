@@ -4,7 +4,7 @@ import { checkAuth } from "src/middleware/check-auth"
 
 const router = Router()
 
-router.post("/",checkAuth,createEvent)
+router.post("/",createEvent)
 router.get("/:id",getEventsById)
 router.get("/getallevents",getAllEvents)
 router.get("/get/eventofother/:id",getEventOfOtherUser)

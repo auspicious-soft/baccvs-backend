@@ -62,7 +62,7 @@ router.post("/create/squad", createSquad);
 router.get("/get/squad/:id", getSquadById);
 router.patch("/update/squad/:id", updateSquad);
 router.delete("/delete/squad/:id", deleteSquad);
-router.get("/get/squads", getSquads);
+router.get("/get/squads/user", getSquads);
 router.get("/get/user/squads", getUserSquads);
 router.patch("/add/member/:id", addMember);
 router.patch("/remove/member/:id", removeMember);

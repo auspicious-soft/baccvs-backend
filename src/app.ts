@@ -92,7 +92,7 @@ app.use("/api/user",checkAuth, user);
 app.use("/api/follow",checkAuth, follow);
 app.use("/api/post",checkAuth,post);
 app.use("/api/comment",comment);
-app.use("/api/event",event);
+app.use("/api/event",checkAuth,event);
 app.use("/api/like",like);
 app.use("/api/report",checkAuth,report)
 app.use("/api/repost",checkAuth,repost);
