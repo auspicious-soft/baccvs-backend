@@ -5,192 +5,174 @@ import { UserMatch } from "src/models/usermatch/usermatch-schema";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { usersModel } from "src/models/user/user-schema";
+import { createNotification } from "../userNotification/user-Notification-service";
+import { NotificationType } from "src/models/userNotification/user-Notification-schema";
 
 
 // Check and update match status
-const checkAndUpdateMatchStatus = async (fromUserId : any, toUserId : any) => {
-  // Check if the target user has already liked the current user
+const checkAndUpdateMatchStatus = async (fromUserId: any, toUserId: any) => {
   const counterpartLike = await UserMatch.findOne({
     fromUser: toUserId,
     toUser: fromUserId,
-    type: "like"
+    type: 'like',
   });
 
   if (counterpartLike) {
-    // It's a match! Update both records
     const now = new Date();
-    
-    // Update this user's like
     await UserMatch.findOneAndUpdate(
       { fromUser: fromUserId, toUser: toUserId },
       { isMatch: true, matchedAt: now }
     );
-    
-    // Update the other user's like
     await UserMatch.findOneAndUpdate(
       { fromUser: toUserId, toUser: fromUserId },
       { isMatch: true, matchedAt: now }
     );
-    
     return true;
   }
-  
   return false;
 };
 
-/**
- * Handle user like/superlike/boost
- */
-export const userLikeService = async (req : any, res : Response) => {
-  // Authentication check
+export const userLikeService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
   }
 
   const { id: fromUserId } = req.user;
   const { id: toUserId } = req.params;
   const { subType } = req.body;
 
-  // Validation checks
   if (!toUserId) {
-    return errorResponseHandler("Target user ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Target user ID is required', httpStatusCode.BAD_REQUEST, res);
   }
 
-  if (subType && !["superlike", "boost"].includes(subType)) {
-    return errorResponseHandler("Invalid subType. Must be 'superlike' or 'boost'", httpStatusCode.BAD_REQUEST, res);
+  if (subType && !['superlike', 'boost'].includes(subType)) {
+    return errorResponseHandler('Invalid subType. Must be "superlike" or "boost"', httpStatusCode.BAD_REQUEST, res);
   }
 
   if (!mongoose.Types.ObjectId.isValid(toUserId)) {
-    return errorResponseHandler("Invalid target user ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Invalid target user ID', httpStatusCode.BAD_REQUEST, res);
   }
 
   if (fromUserId === toUserId) {
-    return errorResponseHandler("Cannot like yourself", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Cannot like yourself', httpStatusCode.BAD_REQUEST, res);
   }
 
   try {
-    // Check if target user exists
     const targetUser = await usersModel.findById(toUserId);
     if (!targetUser) {
-      return errorResponseHandler("Target user not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler('Target user not found', httpStatusCode.NOT_FOUND, res);
     }
 
-    // Remove existing dislike if present
     const existingDislike = await UserMatch.findOne({
       fromUser: fromUserId,
       toUser: toUserId,
-      type: "dislike",
+      type: 'dislike',
     });
     if (existingDislike) {
       await UserMatch.findByIdAndDelete(existingDislike._id);
     }
 
-    // Check for existing like
     const existingLike = await UserMatch.findOne({
       fromUser: fromUserId,
       toUser: toUserId,
-      type: "like",
+      type: 'like',
     });
 
-    // Normalize subType (undefined becomes null for regular likes)
     const finalSubType = subType || null;
-
-    // Determine the field to decrement based on subType
-    let field = 'totalLikes'; // Correct field name
-    if (finalSubType === "superlike") {
-      field = "totalSuperLikes";
-    } else if (finalSubType === "boost") {
-      field = "totalBoosts";
+    let field = 'totalLikes';
+    if (finalSubType === 'superlike') {
+      field = 'totalSuperLikes';
+    } else if (finalSubType === 'boost') {
+      field = 'totalBoosts';
     }
 
     if (existingLike) {
       if (existingLike.subType === finalSubType) {
-        // Same subType: remove the like (toggle off)
         await UserMatch.findByIdAndDelete(existingLike._id);
-        
-        // Refund the resource when removing a like
-        await usersModel.updateOne(
-          { _id: fromUserId },
-          { $inc: { [field]: 1 } }
-        );
-        
+        await usersModel.updateOne({ _id: fromUserId }, { $inc: { [field]: 1 } });
         return {
           success: true,
-          message: finalSubType ? `${finalSubType} removed` : "Like removed",
+          message: finalSubType ? `${finalSubType} removed` : 'Like removed',
           active: false,
         };
       } else {
-        // Different subType: update the like and consume the new subType's resource
-        // First, check if the user has enough of the required resource
         const user = await usersModel.findById(fromUserId);
         if (!user || (user.toObject() as any)[field] <= 0) {
           return errorResponseHandler(
-            `Insufficient ${field.replace("total", "").toLowerCase()}`,
+            `Insufficient ${field.replace('total', '').toLowerCase()}`,
             httpStatusCode.BAD_REQUEST,
             res
           );
         }
-        
-        // Then decrement the count
-        await usersModel.updateOne(
-          { _id: fromUserId },
-          { $inc: { [field]: -1 } }
-        );
 
+        await usersModel.updateOne({ _id: fromUserId }, { $inc: { [field]: -1 } });
         const updatedLike = await UserMatch.findByIdAndUpdate(
           existingLike._id,
           { subType: finalSubType },
           { new: true }
         );
 
+        await createNotification(
+          toUserId,
+          fromUserId,
+          NotificationType.USER_LIKE,
+          finalSubType
+            ? `${targetUser.userName} ${finalSubType}d you!`
+            : `${targetUser.userName} liked you!`,
+          fromUserId
+        );
+
         return {
           success: true,
-          message: finalSubType ? `Updated to ${finalSubType}` : "Updated to regular like",
+          message: finalSubType ? `Updated to ${finalSubType}` : 'Updated to regular like',
           active: true,
           interaction: updatedLike,
         };
       }
     } else {
-      // No existing like: create a new one and consume the resource
-      // First, check if the user has enough of the required resource
       const user = await usersModel.findById(fromUserId);
       if (!user || (user.toObject() as any)[field] <= 0) {
         return errorResponseHandler(
-          `Insufficient ${field.replace("total", "").toLowerCase()}`,
+          `Insufficient ${field.replace('total', '').toLowerCase()}`,
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
-      
-      // Then decrement the count
-      await usersModel.updateOne(
-        { _id: fromUserId },
-        { $inc: { [field]: -1 } }
-      );
 
+      await usersModel.updateOne({ _id: fromUserId }, { $inc: { [field]: -1 } });
       const newLike = new UserMatch({
         fromUser: fromUserId,
         toUser: toUserId,
-        type: "like",
+        type: 'like',
         subType: finalSubType,
       });
       await newLike.save();
 
       const isMatch = await checkAndUpdateMatchStatus(fromUserId, toUserId);
 
+      await createNotification(
+        toUserId,
+        fromUserId,
+        NotificationType.USER_LIKE,
+        finalSubType
+          ? `${targetUser.userName} ${finalSubType}d you!`
+          : `${targetUser.userName} liked you!`,
+        fromUserId
+      );
+
       return {
         success: true,
-        message: finalSubType ? `${finalSubType} created` : "Like created",
+        message: finalSubType ? `${finalSubType} created` : 'Like created',
         active: true,
-        isMatch: isMatch,
+        isMatch,
         interaction: newLike,
       };
     }
   } catch (error) {
     if ((error as any).code === 11000) {
-      return errorResponseHandler("Interaction already exists", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler('Interaction already exists', httpStatusCode.BAD_REQUEST, res);
     }
-    throw error; // Let the global error handler deal with it
+    throw error;
   }
 };
 
@@ -199,39 +181,39 @@ export const userLikeService = async (req : any, res : Response) => {
  */
 export const userDislikeService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
   }
 
-  const { id: fromUserId } = req.user ;
-  const { id : toUserId } = req.params;
+  const { id: fromUserId } = req.user;
+  const { id: toUserId } = req.params;
 
   // Validate required fields
   if (!toUserId) {
-    return errorResponseHandler("Target user ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Target user ID is required', httpStatusCode.BAD_REQUEST, res);
   }
 
   // Validate user ID
   if (!mongoose.Types.ObjectId.isValid(toUserId)) {
-    return errorResponseHandler("Invalid target user ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Invalid target user ID', httpStatusCode.BAD_REQUEST, res);
   }
 
   // Prevent self-disliking
   if (fromUserId === toUserId) {
-    return errorResponseHandler("Cannot dislike yourself", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Cannot dislike yourself', httpStatusCode.BAD_REQUEST, res);
   }
 
   try {
     // Check if target user exists
     const targetUser = await usersModel.findById(toUserId);
     if (!targetUser) {
-      return errorResponseHandler("Target user not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler('Target user not found', httpStatusCode.NOT_FOUND, res);
     }
 
     // Check for existing like
     const existingLike = await UserMatch.findOne({
       fromUser: fromUserId,
       toUser: toUserId,
-      type: "like"
+      type: 'like',
     });
 
     if (existingLike) {
@@ -243,7 +225,7 @@ export const userDislikeService = async (req: any, res: Response) => {
     const existingDislike = await UserMatch.findOne({
       fromUser: fromUserId,
       toUser: toUserId,
-      type: "dislike"
+      type: 'dislike',
     });
 
     if (existingDislike) {
@@ -251,29 +233,39 @@ export const userDislikeService = async (req: any, res: Response) => {
       await UserMatch.findByIdAndDelete(existingDislike._id);
       return {
         success: true,
-        message: "Dislike removed",
-        active: false
+        message: 'Dislike removed',
+        active: false,
       };
     } else {
       // Create new dislike
       const newDislike = new UserMatch({
         fromUser: fromUserId,
         toUser: toUserId,
-        type: "dislike"
+        type: 'dislike',
       });
-      
+
       await newDislike.save();
-      
+
+      // Create notification for the disliked user
+      const sender = await usersModel.findById(fromUserId).select('userName');
+      await createNotification(
+        toUserId,
+        fromUserId,
+        NotificationType.USER_DISLIKE,
+        `${sender?.userName || 'Someone'} disliked you.`,
+        fromUserId
+      );
+
       return {
         success: true,
-        message: "User disliked successfully",
+        message: 'User disliked successfully',
         active: true,
-        interaction: newDislike
+        interaction: newDislike,
       };
     }
   } catch (error) {
-    if ((error as any).code === 11000) { // Duplicate key error
-      return errorResponseHandler("Interaction already exists", httpStatusCode.BAD_REQUEST, res);
+    if ((error as any).code === 11000) {
+      return errorResponseHandler('Interaction already exists', httpStatusCode.BAD_REQUEST, res);
     }
     throw error;
   }

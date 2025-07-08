@@ -10,7 +10,8 @@ import { Readable } from "stream";
 import { uploadStreamToS3Service } from "src/configF/s3";
 import busboy from "busboy";
 import { customAlphabet } from "nanoid";
-import { SquadMatch } from "src/models/squadmatch/squadmatch-schema";
+import { createNotification } from "../userNotification/user-Notification-service";
+import { NotificationType } from "src/models/userNotification/user-Notification-schema";
 
 // Validation schemas
 
@@ -82,7 +83,6 @@ const isSquadMember = async (squadId: string, userId: string) => {
  * Create a new squad
  */
 export const createSquadService = async (req: any, res: Response) => {
-  
   if (!authenticateUser(req, res)) return;
 
   const { id: userId, email } = req.user;
@@ -126,12 +126,11 @@ export const createSquadService = async (req: any, res: Response) => {
         const { filename, mimeType } = fileInfo;
         console.log(`Processing file: ${filename}, type: ${mimeType}`);
 
-        // Validate file type (image or video)
         const isImage = mimeType.startsWith('image/');
         const isVideo = mimeType.startsWith('video/');
         if (!isImage && !isVideo) {
           console.log(`Invalid file type: ${mimeType}`);
-          fileStream.resume(); // Drain the stream
+          fileStream.resume();
           return reject({
             success: false,
             message: 'Only image or video files are allowed for squad media',
@@ -139,9 +138,7 @@ export const createSquadService = async (req: any, res: Response) => {
           });
         }
 
-        // Create a promise for each file upload
         const fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
-          // Collect file chunks
           const chunks: Buffer[] = [];
           
           fileStream.on('data', (chunk: Buffer) => {
@@ -156,22 +153,19 @@ export const createSquadService = async (req: any, res: Response) => {
                 return rejectUpload(new Error('No file data received'));
               }
 
-              // Combine all chunks into a single buffer
               const fileBuffer = Buffer.concat(chunks);
               console.log(`File buffer size: ${fileBuffer.length} bytes`);
 
-              // Create readable stream from buffer
               const readableStream = new Readable();
               console.log('readableStream:', readableStream);
               readableStream.push(fileBuffer);
-              readableStream.push(null); // End the stream
+              readableStream.push(null);
 
-              // Upload to S3
               const uploadedMediaUrl = await uploadStreamToS3Service(
                 readableStream,
                 filename,
                 mimeType,
-                email|| `squad_${customAlphabet('0123456789', 5)()}`
+                email || `squad_${customAlphabet('0123456789', 5)()}`
               );
               
               uploadedMedia.push(uploadedMediaUrl);
@@ -197,7 +191,6 @@ export const createSquadService = async (req: any, res: Response) => {
         console.log('Parsed data:', parsedData);
         
         try {
-          // Wait for all file uploads to complete
           if (fileUploadPromises.length > 0) {
             console.log('Waiting for file uploads to complete...');
             await Promise.all(fileUploadPromises);
@@ -205,7 +198,6 @@ export const createSquadService = async (req: any, res: Response) => {
           
           console.log('Media uploaded:', uploadedMedia);
           
-          // Validate required fields
           const { title, about, squadInterest, membersToAdd } = parsedData;
           if (!title || !about || !squadInterest) {
             return reject({
@@ -215,15 +207,10 @@ export const createSquadService = async (req: any, res: Response) => {
             });
           }
 
-          // Set maxMembers to fixed value of 4 on the backend
           const maxMembers = 4;
-
-          // Initialize members array with creator as admin
           const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
 
-          // Add additional members if provided
           if (membersToAdd && Array.isArray(membersToAdd)) {
-            // Check if the total number of members would exceed the limit
             if (1 + membersToAdd.length > maxMembers) {
               return reject({
                 success: false,
@@ -232,7 +219,6 @@ export const createSquadService = async (req: any, res: Response) => {
               });
             }
             
-            // Check for duplicate member IDs
             const uniqueMemberIds = new Set(membersToAdd);
             if (uniqueMemberIds.size !== membersToAdd.length) {
               return reject({
@@ -242,7 +228,6 @@ export const createSquadService = async (req: any, res: Response) => {
               });
             }
 
-            // Check for member exists
             for (const memberId of membersToAdd) {
               const userExists = await usersModel.findById(memberId);
               if (!userExists) {
@@ -254,12 +239,8 @@ export const createSquadService = async (req: any, res: Response) => {
               }
             }
 
-            // Add each provided member ID (excluding the creator if they're in the list)
             for (const memberId of membersToAdd) {
-              // Skip if it's the creator (already added)
               if (memberId === userId) continue;
-              
-              // Add as a regular member
               squadMembers.push({
                 user: new mongoose.Types.ObjectId(memberId),
                 role: "member",
@@ -268,24 +249,37 @@ export const createSquadService = async (req: any, res: Response) => {
             }
           }
 
-          // Create new squad with uploaded media URLs
           const squad = new Squad({
             title,
             about,
             creator: userId,
             members: squadMembers,
             maxMembers,
-            media: uploadedMedia, // Array of uploaded media URLs
+            media: uploadedMedia,
             squadInterest: squadInterest || [],
             status: SquadStatus.ACTIVE,
           });
 
           await squad.save();
 
-          // Create squad conversation after squad is created
-          await createSquadConversationService((squad as any)._id);
+          // Send notifications to added members
+          if (membersToAdd && Array.isArray(membersToAdd)) {
+            const sender = await usersModel.findById(userId).select('userName');
+            for (const memberId of membersToAdd) {
+              if (memberId === userId) continue;
+              await createNotification(
+                memberId,
+                userId,
+                NotificationType.SQUAD_MEMBER_ADDED,
+                `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+                undefined,
+                squad._id.toString()
+              );
+            }
+          }
 
-          // Populate the member details for the response
+          await createSquadConversationService(squad._id.toString());
+
           const populatedSquad = await Squad.findById(squad._id)
             .populate("creator", "userName photos")
             .populate("members.user", "userName photos");
@@ -326,7 +320,6 @@ export const createSquadService = async (req: any, res: Response) => {
       req.pipe(busboyParser);
     });
   } else {
-    // Handle JSON request (original logic)
     const { title, about, media, squadInterest, membersToAdd } = req.body;
     
     if (!title || !about || !squadInterest) {
@@ -337,15 +330,10 @@ export const createSquadService = async (req: any, res: Response) => {
       );
     }
     
-    // Set maxMembers to fixed value of 4 on the backend
     const maxMembers = 4;
-
-    // Initialize members array with creator as admin
     const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
 
-    // Add additional members if provided
     if (membersToAdd && Array.isArray(membersToAdd)) {
-      // Check if the total number of members would exceed the limit
       if (1 + membersToAdd.length > maxMembers) {
         return errorResponseHandler(
           `Cannot add ${membersToAdd.length} members. Max members is ${maxMembers} including the creator.`,
@@ -354,7 +342,6 @@ export const createSquadService = async (req: any, res: Response) => {
         );
       }
       
-      // Check for duplicate member IDs
       const uniqueMemberIds = new Set(membersToAdd);
       if (uniqueMemberIds.size !== membersToAdd.length) {
         return errorResponseHandler(
@@ -364,7 +351,6 @@ export const createSquadService = async (req: any, res: Response) => {
         );
       }
 
-      // Check for member exists
       for (const memberId of membersToAdd) {
         const userExists = await usersModel.findById(memberId);
         if (!userExists) {
@@ -376,12 +362,8 @@ export const createSquadService = async (req: any, res: Response) => {
         }
       }
 
-      // Add each provided member ID (excluding the creator if they're in the list)
       for (const memberId of membersToAdd) {
-        // Skip if it's the creator (already added)
         if (memberId === userId) continue;
-        
-        // Add as a regular member
         squadMembers.push({
           user: new mongoose.Types.ObjectId(memberId),
           role: "member",
@@ -390,24 +372,37 @@ export const createSquadService = async (req: any, res: Response) => {
       }
     }
 
-    // Create new squad
     const squad = new Squad({
       title,
       about,
       creator: userId,
       members: squadMembers,
       maxMembers,
-      media: media || [], // Use provided media URLs or empty array
+      media: media || [],
       squadInterest: squadInterest || [],
       status: SquadStatus.ACTIVE,
     });
 
     await squad.save();
 
-    // Create squad conversation after squad is created
-    await createSquadConversationService((squad as any)._id);
+    // Send notifications to added members
+    if (membersToAdd && Array.isArray(membersToAdd)) {
+      const sender = await usersModel.findById(userId).select('userName');
+      for (const memberId of membersToAdd) {
+        if (memberId === userId) continue;
+        await createNotification(
+          memberId,
+          userId,
+          NotificationType.SQUAD_MEMBER_ADDED,
+          `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+          undefined,
+          squad._id.toString()
+        );
+      }
+    }
 
-    // Populate the member details for the response
+    await createSquadConversationService(squad._id.toString());
+
     const populatedSquad = await Squad.findById(squad._id)
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
@@ -998,135 +993,132 @@ export const getUserSquadsService = async (req: any, res: Response) => {
  * Add member to squad
  */
 export const addMemberService = async (req: any, res: Response) => {
+  if (!authenticateUser(req, res)) return;
 
-    if (!authenticateUser(req, res)) return;
+  const { id: userId } = req.user;
+  const { id: squadId } = req.params;
+  const memberId = req.body;
 
-    const { id: userId } = req.user;
-    const { id: squadId } = req.params;
-    const  memberId  = req.body;
+  const squad = await isSquadAdmin(squadId, userId);
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to add members to this squad",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    // Check if user is admin of the squad
-    const squad = await isSquadAdmin(squadId, userId);
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to add members to this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  if (squad.members.length >= squad.maxMembers) {
+    return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if squad is full
-    if (squad.members.length >= squad.maxMembers) {
-      return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
-    }
+  const memberIdToCheck = typeof memberId === 'object' && memberId.memberId ? memberId.memberId : memberId;
+  
+  if (squad.members.some((member: any) => member?.user?.toString() === memberIdToCheck)) {
+    return errorResponseHandler("User is already a member of this squad", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if user is already a member
-    if (squad.members.some((member : any) => member?.user?.toString() === memberId)) {
-      return errorResponseHandler("User is already a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
+  if (memberIdToCheck === userId) {
+    return errorResponseHandler("You cannot add yourself as a member", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if user is trying to add themselves
-    if (memberId === userId) {
-      return errorResponseHandler("You cannot add yourself as a member", httpStatusCode.BAD_REQUEST, res);
-    }
+  const userExists = await usersModel.findById(memberIdToCheck);
+  if (!userExists) {
+    return errorResponseHandler("User does not exist", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // check if user exists
-    console.log("memberId received:", memberId);
-    
-    // Extract memberId if it's an object
-    const memberIdToCheck = typeof memberId === 'object' && memberId.memberId 
-        ? memberId.memberId 
-        : memberId;
-        
-    const userExists = await usersModel.findById(memberIdToCheck);
-    if (!userExists) {
-      return errorResponseHandler("User does not exist", httpStatusCode.BAD_REQUEST, res);
-    }
+  squad.members.push({
+    user: new Types.ObjectId(memberIdToCheck),
+    role: "member",
+    joinedAt: new Date(),
+  });
 
-    // Add member
-    squad.members.push({
-      user: new Types.ObjectId(memberIdToCheck),
-      role: "member",
-      joinedAt: new Date(),
-    });
+  await squad.save();
 
-    await squad.save();
+  const sender = await usersModel.findById(userId).select('userName');
+  await createNotification(
+    memberIdToCheck,
+    userId,
+    NotificationType.SQUAD_MEMBER_ADDED,
+    `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+    undefined,
+    squadId
+  );
 
-    const updatedSquad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
+  const updatedSquad = await Squad.findById(squadId)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos");
 
-    if (!updatedSquad) {
-      return errorResponseHandler("Failed to retrieve updated squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
-    }
+  if (!updatedSquad) {
+    return errorResponseHandler("Failed to retrieve updated squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+  }
 
-    return {
-      success: true,
-      message: "Member added successfully",
-      data: updatedSquad,
-    };
+  return {
+    success: true,
+    message: "Member added successfully",
+    data: updatedSquad,
+  };
 };
 
 /**
  * Remove a member from a squad
  */
 export const removeMemberService = async (req: any, res: Response) => {
- 
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;  
+  const { id: userId } = req.user;
+  const { id: squadId } = req.params;
+  const { memberId } = req.body;
 
-    const { id : squadId } = req.params;
-    const { memberId } = req.body;
-
-    // Check if user is admin of the squad
-    const squad = await isSquadAdmin(squadId, userId);
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to remove members from this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Extract memberId if it's an object
-    const memberIdToCheck = typeof memberId === 'object' && memberId.memberId 
-        ? memberId.memberId 
-        : memberId;
-    
-    console.log("Checking for member:", memberIdToCheck);
-    console.log("Squad members:", squad.members.map(m => ({ 
-        id: m?.user?.toString(),
-        role: m.role 
-    })));
-    
-    // Check if target user is a member
-    const memberIndex = squad.members.findIndex(
-        (member: any) => member.user.toString() === memberIdToCheck
+  const squad = await isSquadAdmin(squadId, userId);
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to remove members from this squad",
+      httpStatusCode.FORBIDDEN,
+      res
     );
-    
-    if (memberIndex === -1) {
-      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
+  }
 
-    // Check if trying to remove the creator
-    if (squad.creator.toString() === memberId) {
-      return errorResponseHandler("Cannot remove the creator of the squad", httpStatusCode.BAD_REQUEST, res);
-    }
-    // check if creator trying to remove themselves
-    if (userId === memberId) {
-      return errorResponseHandler("Cannot remove yourself from the squad", httpStatusCode.BAD_REQUEST, res);
-    }
+  const memberIdToCheck = typeof memberId === 'object' && memberId.memberId ? memberId.memberId : memberId;
+  
+  console.log("Checking for member:", memberIdToCheck);
+  console.log("Squad members:", squad.members.map(m => ({ 
+    id: m?.user?.toString(),
+    role: m.role 
+  })));
+  
+  const memberIndex = squad.members.findIndex(
+    (member: any) => member.user.toString() === memberIdToCheck
+  );
+  
+  if (memberIndex === -1) {
+    return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Remove member
-    squad.members.splice(memberIndex, 1);
-    await squad.save();
+  if (squad.creator.toString() === memberIdToCheck) {
+    return errorResponseHandler("Cannot remove the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+  }
+  if (userId === memberIdToCheck) {
+    return errorResponseHandler("Cannot remove yourself from the squad", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    return {
-      success: true,
-      message: "Member removed successfully",
-    };
- 
+  squad.members.splice(memberIndex, 1);
+  await squad.save();
+
+  const sender = await usersModel.findById(userId).select('userName');
+  await createNotification(
+    memberIdToCheck,
+    userId,
+    NotificationType.SQUAD_MEMBER_REMOVED,
+    `${sender?.userName || 'Someone'} removed you from the squad "${squad.title}"!`,
+    undefined,
+    squadId
+  );
+
+  return {
+    success: true,
+    message: "Member removed successfully",
+  };
 };
 
 /**
@@ -1199,111 +1191,112 @@ export const changeMemberRoleService = async (req: any, res: Response) => {
  * Leave a squad
  */
 export const leaveSquadService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
+  if (!authenticateUser(req, res)) return;
 
   const { id: userId } = req.user;
-  const { id: squadId } = req.params
+  const { id: squadId } = req.params;
 
   if (!squadId) {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
-    const squad = await Squad.findById(squadId);
+  const squad = await Squad.findById(squadId);
+  if (!squad) {
+    return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+  }
 
-    if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
+  const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+  if (memberIndex === -1) {
+    return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if user is a member
-    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+  if (squad.creator.toString() === userId) {
+    return errorResponseHandler(
+      "As the creator, you cannot leave the squad. You must delete it or transfer ownership first.",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-    if (memberIndex === -1) {
-      return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
+  squad.members.splice(memberIndex, 1);
+  await squad.save();
 
-    // Check if user is the creator
-    if (squad.creator.toString() === userId) {
-      return errorResponseHandler(
-        "As the creator, you cannot leave the squad. You must delete it or transfer ownership first.",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
+  const sender = await usersModel.findById(userId).select('userName');
+  await createNotification(
+    squad.creator.toString(),
+    userId,
+    NotificationType.SQUAD_LEAVE,
+    `${sender?.userName || 'Someone'} left your squad "${squad.title}"!`,
+    userId,
+    squadId
+  );
 
-    // Remove user from members
-    squad.members.splice(memberIndex, 1);
-    await squad.save();
-
-    return {
-      success: true,
-      message: "You have left the squad successfully",
-    };
-
+  return {
+    success: true,
+    message: "You have left the squad successfully",
+  };
 };
-
 /**
  * Transfer squad ownership to another member
  */
 export const transferOwnershipService = async (req: any, res: Response) => {
-  if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
-  }
+  if (!authenticateUser(req, res)) return;
 
   const { id: userId } = req.user;
-  const { id: squadId } = req.params ;
+  const { id: squadId } = req.params;
   const { newOwnerId } = req.body;
 
   if (!squadId || !newOwnerId) {
     return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
   }
 
-    // Check if user is creator of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      creator: userId,
-    });
+  const squad = await Squad.findOne({
+    _id: squadId,
+    creator: userId,
+  });
 
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to transfer ownership of this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to transfer ownership of this squad",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    // Check if new owner is a member
-    const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
+  const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
+  if (newOwnerIndex === -1) {
+    return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    if (newOwnerIndex === -1) {
-      return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
-    }
+  squad.creator = new Types.ObjectId(newOwnerId);
+  const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+  if (currentOwnerIndex !== -1) {
+    squad.members[currentOwnerIndex].role = "member";
+  }
+  squad.members[newOwnerIndex].role = "admin";
 
-    // Update creator and member roles
-    squad.creator = new Types.ObjectId(newOwnerId);
+  await squad.save();
 
-    // Find current owner in members and set role to member
-    const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
-    if (currentOwnerIndex !== -1) {
-      squad.members[currentOwnerIndex].role = "member";
-    }
+  const sender = await usersModel.findById(userId).select('userName');
+  const newOwner = await usersModel.findById(newOwnerId).select('userName');
+  await createNotification(
+    newOwnerId,
+    userId,
+    NotificationType.SQUAD_OWNERSHIP_TRANSFER,
+    `${sender?.userName || 'Someone'} transferred ownership of the squad "${squad.title}" to you!`,
+    userId,
+    squadId
+  );
 
-    // Set new owner's role to admin
-    squad.members[newOwnerIndex].role = "admin";
+  const updatedSquad = await Squad.findById(squadId)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos");
 
-    await squad.save();
-
-    const updatedSquad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
-
-    return{
-      success: true,
-      message: "Squad ownership transferred successfully",
-      data: updatedSquad,
-    };
-
+  return {
+    success: true,
+    message: "Squad ownership transferred successfully",
+    data: updatedSquad,
+  };
 };
 
 
@@ -1320,59 +1313,62 @@ export const joinSquadService = async (req: any, res: Response) => {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
-    // Find the squad
-    const squad = await Squad.findById(squadId);
+  const squad = await Squad.findById(squadId);
+  if (!squad) {
+    return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+  }
 
-    if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
+  if (squad.members.some((member: any) => member.user.toString() === userId)) {
+    return errorResponseHandler(
+      "You are already a member of this squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-    // Check if user is already a member
-    if (squad.members.some((member: any) => member.user.toString() === userId)) {
-      return errorResponseHandler(
-        "You are already a member of this squad",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
+  if (squad.status !== SquadStatus.ACTIVE) {
+    return errorResponseHandler(
+      "This squad is not accepting new members",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-    // Check if squad is active
-    if (squad.status !== SquadStatus.ACTIVE) {
-      return errorResponseHandler(
-        "This squad is not accepting new members",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
+  if (squad.members.length >= squad.maxMembers) {
+    return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if squad is full
-    if (squad.members.length >= squad.maxMembers) {
-      return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
-    }
+  squad.members.push({
+    user: new mongoose.Types.ObjectId(userId),
+    role: "member",
+    joinedAt: new Date()
+  });
 
-    // Add user to squad members
-    squad.members.push({
-      user: new mongoose.Types.ObjectId(userId),
-      role: "member",
-      joinedAt: new Date()
-    });
+  if (squad.members.length >= squad.maxMembers) {
+    squad.status = SquadStatus.FULL;
+  }
 
-    // If squad is now full, update status
-    if (squad.members.length >= squad.maxMembers) {
-      squad.status = SquadStatus.FULL;
-    }
+  await squad.save();
 
-    await squad.save();
+  const sender = await usersModel.findById(userId).select('userName');
+  await createNotification(
+    squad.creator.toString(),
+    userId,
+    NotificationType.SQUAD_JOIN,
+    `${sender?.userName || 'Someone'} joined your squad "${squad.title}"!`,
+    userId,
+    squadId
+  );
 
-    const updatedSquad = await Squad.findById(squadId)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
+  const updatedSquad = await Squad.findById(squadId)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos");
 
-    return {
-      success: true,
-      message: "You have joined the squad successfully",
-      data: updatedSquad
-    };
+  return {
+    success: true,
+    message: "You have joined the squad successfully",
+    data: updatedSquad
+  };
 };
 
 /**

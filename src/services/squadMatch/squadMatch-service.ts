@@ -5,41 +5,36 @@ import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { SquadMatch } from "src/models/squadmatch/squadmatch-schema";
 import { Squad, SquadStatus } from "src/models/squad/squad-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { createNotification } from "../userNotification/user-Notification-service";
+import { NotificationType } from "src/models/userNotification/user-Notification-schema";
 
 /**
  * Handle user like for a squad
  */
 export const userLikeSquadService = async (req: any, res: Response) => {
-  // Authentication check
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
   }
 
-  const { id: userId } = req.user; 
+  const { id: userId } = req.user;
   const { id: squadId } = req.params;
   const { subType } = req.body;
 
-  // Validation checks
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler('Squad ID is required', httpStatusCode.BAD_REQUEST, res);
   }
 
-  if (subType && !["superlike", "boost"].includes(subType)) {
-    return errorResponseHandler("Invalid subType. Must be 'superlike' or 'boost'", httpStatusCode.BAD_REQUEST, res);
+  if (subType && !['superlike', 'boost'].includes(subType)) {
+    return errorResponseHandler('Invalid subType. Must be "superlike" or "boost"', httpStatusCode.BAD_REQUEST, res);
   }
 
-  
-    // Check if squad exists
+  try {
     const squad = await Squad.findById(squadId);
     if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler('Squad not found', httpStatusCode.NOT_FOUND, res);
     }
 
-    // Check if user is already a member of the squad
-    const isMember = squad.members.some(
-      (member: any) => member.user.toString() === userId
-    );
-
+    const isMember = squad.members.some((member: any) => member.user.toString() === userId);
     if (isMember) {
       return errorResponseHandler(
         "You cannot like a squad you're already a member of",
@@ -48,117 +43,118 @@ export const userLikeSquadService = async (req: any, res: Response) => {
       );
     }
 
-    // Remove existing dislike if present
     const existingDislike = await SquadMatch.findOne({
       fromUser: userId,
       toSquad: squadId,
-      type: "dislike",
+      type: 'dislike',
     });
     if (existingDislike) {
       await SquadMatch.findByIdAndDelete(existingDislike._id);
     }
 
-    // Check for existing like
     const existingLike = await SquadMatch.findOne({
       fromUser: userId,
       toSquad: squadId,
-      type: "like",
+      type: 'like',
     });
 
-    // Normalize subType (undefined becomes null for regular likes)
     const finalSubType = subType || null;
-
-    // Determine the field to decrement based on subType
     let field = 'totalLikes';
-    if (finalSubType === "superlike") {
-      field = "totalSuperLikes";
-    } else if (finalSubType === "boost") {
-      field = "totalBoosts";
+    if (finalSubType === 'superlike') {
+      field = 'totalSuperLikes';
+    } else if (finalSubType === 'boost') {
+      field = 'totalBoosts';
     }
 
     if (existingLike) {
       if (existingLike.subType === finalSubType) {
-        // Same subType: remove the like (toggle off)
         await SquadMatch.findByIdAndDelete(existingLike._id);
-        
-        // Refund the resource when removing a like
-        await usersModel.updateOne(
-          { _id: userId },
-          { $inc: { [field]: 1 } }
-        );
-        
+        await usersModel.updateOne({ _id: userId }, { $inc: { [field]: 1 } });
         return {
           success: true,
-          message: finalSubType ? `${finalSubType} removed` : "Like removed",
+          message: finalSubType ? `${finalSubType} removed` : 'Like removed',
           active: false,
         };
       } else {
-        // Different subType: update the like and consume the new subType's resource
-        // First, check if the user has enough of the required resource
         const user = await usersModel.findById(userId);
         if (!user || (user.toObject() as any)[field] <= 0) {
           return errorResponseHandler(
-            `Insufficient ${field.replace("total", "").toLowerCase()}`,
+            `Insufficient ${field.replace('total', '').toLowerCase()}`,
             httpStatusCode.BAD_REQUEST,
             res
           );
         }
-        
-        // Then decrement the count
-        await usersModel.updateOne(
-          { _id: userId },
-          { $inc: { [field]: -1 } }
-        );
 
+        await usersModel.updateOne({ _id: userId }, { $inc: { [field]: -1 } });
         const updatedLike = await SquadMatch.findByIdAndUpdate(
           existingLike._id,
           { subType: finalSubType },
           { new: true }
         );
 
+        const sender = await usersModel.findById(userId).select('userName');
+        await createNotification(
+          squad.creator.toString(),
+          userId,
+          NotificationType.SQUAD_LIKE,
+          finalSubType
+            ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
+            : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
+          undefined,
+          squadId
+        );
+
         return {
           success: true,
-          message: finalSubType ? `Updated to ${finalSubType}` : "Updated to regular like",
+          message: finalSubType ? `Updated to ${finalSubType}` : 'Updated to regular like',
           active: true,
           interaction: updatedLike,
         };
       }
     } else {
-      // No existing like: create a new one and consume the resource
-      // First, check if the user has enough of the required resource
       const user = await usersModel.findById(userId);
       if (!user || (user.toObject() as any)[field] <= 0) {
         return errorResponseHandler(
-          `Insufficient ${field.replace("total", "").toLowerCase()}`,
+          `Insufficient ${field.replace('total', '').toLowerCase()}`,
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
-      
-      // Then decrement the count
-      await usersModel.updateOne(
-        { _id: userId },
-        { $inc: { [field]: -1 } }
-      );
 
-      // Create new like
+      await usersModel.updateOne({ _id: userId }, { $inc: { [field]: -1 } });
       const newLike = new SquadMatch({
         fromUser: userId,
         toSquad: squadId,
-        type: "like",
-        subType: finalSubType
+        type: 'like',
+        subType: finalSubType,
       });
-      
       await newLike.save();
-      
+
+      const sender = await usersModel.findById(userId).select('userName');
+      await createNotification(
+        squad.creator.toString(),
+        userId,
+        NotificationType.SQUAD_LIKE,
+        finalSubType
+          ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
+          : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
+        undefined,
+        squadId
+      );
+
       return {
         success: true,
-        message: finalSubType ? `Squad ${finalSubType}d successfully` : "Squad liked successfully",
+        message: finalSubType ? `Squad ${finalSubType}d successfully` : 'Squad liked successfully',
         active: true,
         interaction: newLike,
       };
     }
-  
+  } catch (error) {
+    if ((error as any).code === 11000) {
+      return errorResponseHandler('Interaction already exists', httpStatusCode.BAD_REQUEST, res);
+    }
+    throw error;
+  }
 };
 
 /**
