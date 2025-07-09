@@ -443,7 +443,7 @@ export const getSquadByIdService = async (req: any, res: Response) => {
      return {
       success: true,
       message: "Squad retrieved successfully",
-      squad,
+      data:squad,
     };
 };
 
