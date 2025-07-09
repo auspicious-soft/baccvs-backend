@@ -5,6 +5,19 @@ import { httpStatusCode } from 'src/lib/constant';
 import { errorResponseHandler } from 'src/lib/errors/error-response-handler';
 import mongoose, { Types } from 'mongoose';
 import { Notification, NotificationType } from 'src/models/userNotification/user-Notification-schema';
+import Joi from 'joi';
+
+
+const notificationQuerySchema = Joi.object({
+  page: Joi.string().pattern(/^[0-9]+$/).default('1'),
+  limit: Joi.string().pattern(/^[0-9]+$/).default('10'),
+  typeFilter: Joi.string().valid('all', 'user', 'squad').default('all'),
+});
+
+// Helper function to validate query parameters
+const validateQuery = (query: any) => {
+  return notificationQuerySchema.validate(query, { abortEarly: false });
+};
 
 // Helper function to create a notification
 export const createNotification = async (
@@ -39,12 +52,40 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
   }
 
   const { id: userId } = req.user;
-  const { page = '1', limit = '10' } = req.query;
+  const { error, value } = validateQuery(req.query);
+  
+  if (error) {
+    const errorMessage = error.details.map((detail) => detail.message).join(', ');
+    return errorResponseHandler(errorMessage, httpStatusCode.BAD_REQUEST, res);
+  }
 
+  const { page, limit, typeFilter } = value;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
+  // Define notification type filter based on typeFilter
+  let typeFilterArray: NotificationType[] | undefined;
+  if (typeFilter === 'user') {
+    typeFilterArray = [NotificationType.USER_LIKE, NotificationType.USER_DISLIKE];
+  } else if (typeFilter === 'squad') {
+    typeFilterArray = [
+      NotificationType.SQUAD_LIKE,
+      NotificationType.SQUAD_MEMBER_ADDED,
+      NotificationType.SQUAD_MEMBER_REMOVED,
+      NotificationType.SQUAD_JOIN,
+      NotificationType.SQUAD_LEAVE,
+      NotificationType.SQUAD_OWNERSHIP_TRANSFER,
+      NotificationType.SQUAD_MATCH,
+      NotificationType.SQUAD_UNMATCH,
+    ];
+  }
+
+  const query: any = { recipient: userId };
+  if (typeFilterArray) {
+    query.type = { $in: typeFilterArray };
+  }
+
   try {
-    const notifications = await Notification.find({ recipient: userId })
+    const notifications = await Notification.find(query)
       .populate('sender', 'userName photos')
       .populate('relatedUser', 'userName photos')
       .populate('relatedSquad', 'title')
@@ -53,7 +94,7 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
       .limit(parseInt(limit))
       .lean();
 
-    const total = await Notification.countDocuments({ recipient: userId });
+    const total = await Notification.countDocuments(query);
 
     return {
       success: true,
@@ -68,13 +109,12 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
     };
   } catch (error) {
     return errorResponseHandler(
-      'Failed to retrieve notifications',
+      error instanceof Error ? error.message : 'Failed to retrieve notifications',
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
   }
 };
-
 // Mark a notification as read
 export const markNotificationAsReadService = async (req: any, res: Response) => {
   if (!req.user) {
@@ -88,7 +128,7 @@ export const markNotificationAsReadService = async (req: any, res: Response) => 
     return errorResponseHandler('Invalid notification ID', httpStatusCode.BAD_REQUEST, res);
   }
 
-  try {
+  
     const notification = await Notification.findOne({
       _id: notificationId,
       recipient: userId,
@@ -110,11 +150,5 @@ export const markNotificationAsReadService = async (req: any, res: Response) => 
       message: 'Notification marked as read',
       data: notification,
     };
-  } catch (error) {
-    return errorResponseHandler(
-      'Failed to mark notification as read',
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+ 
 };

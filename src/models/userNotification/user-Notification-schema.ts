@@ -29,12 +29,12 @@ const notificationSchema = new Schema<INotification>(
   {
     recipient: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'users',
       required: true,
     },
     sender: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'users',
       required: true,
     },
     type: {
@@ -52,7 +52,7 @@ const notificationSchema = new Schema<INotification>(
     },
     relatedUser: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'users',
     },
     relatedSquad: {
       type: Schema.Types.ObjectId,

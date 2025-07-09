@@ -10,6 +10,7 @@ import { getSquadMessagesController, sendSquadMessageController, getUserSquadCon
 import { createCommunity, getCommunities, getUserCommunities, getCommunityById, joinCommunity, leaveCommunity, addcommunityMember, removeCommunityMember, changeCommunityMemberRole } from "src/controllers/community/community-controller";
 import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
 import { togglePinCommunityConversation, togglePinDirectConversation, togglePinSquadConversation, updateCommunityConversationBackground, updateDirectConversationBackground, updateSquadConversationBackground } from "src/controllers/chat/chat-settings-controller";
+import { getUserNotification, markNotificationAsRead } from "src/controllers/user-notification-controller.ts/user-notification-controller";
 
 const router = Router();
 
@@ -36,6 +37,8 @@ router.get("/get/user/notification/preference",getUserNotificationPreferences)
 router.get("/get/user/privacy/preference",getUserPrivacyPreference)
 router.get("/get/current/user/post",getUserPosts)
 router.put("/update/professional/profile/:id",updateProfessionalProfile)
+router.get("/get/user/dating/notification",getUserNotification)
+router.patch("/mark/notification/read/:notificationId",markNotificationAsRead);
 router.patch("/update/user/info", editUserInfo)
 router.patch("/toggle/notification",notificationSetting)
 router.patch("/toggle/promotion/:id",togglePromotionStatus)
