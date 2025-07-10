@@ -387,19 +387,244 @@ const processEventCreation = async (
   };
 };
 
-export const getAllEventsService = async (req: Request, res: Response) => {
-  const events = await eventModel
-    .find()
-    .populate("creator", "userName")
-    .populate("invitedGuests", "userName")
-    .populate("coHosts", "userName")
-    .populate("lineup")
-    .sort({ createdAt: -1 });
+export const getUserEventFeedService = async (req: Request, res: Response) => {
+  const {
+    week,
+    date,
+    maxDistance,
+    lat,
+    lng,
+    minPrice,
+    maxPrice,
+    isFree,
+    musicType,
+    eventType,
+    venueType,
+  } = req.body;
+
+  const query: any = {};
+  const now = new Date();
+  let startDate: Date | undefined;
+  let endDate: Date | undefined;
+
+  // Date filtering
+  if (week === "this") {
+    const day = now.getDay();
+    startDate = new Date(now);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + (7 - day));
+    endDate.setHours(23, 59, 59, 999);
+  } else if (week === "next") {
+    const day = now.getDay();
+    startDate = new Date(now);
+    startDate.setHours(0, 0, 0, 0);
+    startDate.setDate(startDate.getDate() + (8 - day));
+    endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+  } else if (date) {
+    startDate = new Date(date as string);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(startDate);
+    endDate.setHours(23, 59, 59, 999);
+  }
+
+  const baseDate = new Date();
+  baseDate.setHours(0, 0, 0, 0);
+
+  if (startDate && endDate) {
+    query.date = {
+      $gte: startDate < baseDate ? baseDate : startDate,
+      $lte: endDate,
+    };
+  } else {
+    query.date = { $gte: baseDate };
+  }
+
+  // Geo filtering - Use $geoWithin with $centerSphere for aggregation pipelines
+  if (maxDistance && lat && lng) {
+    const radiusInRadians = parseFloat(maxDistance as string) / 6371; // Convert km to radians
+    query.location = {
+      $geoWithin: {
+        $centerSphere: [
+          [parseFloat(lng as string), parseFloat(lat as string)],
+          radiusInRadians
+        ]
+      }
+    };
+  }
+
+  // Event preferences
+  if (musicType) {
+    const musicTypes = Array.isArray(musicType)
+      ? musicType
+      : (musicType as string).split(",").map((t) => t.trim());
+    query["eventPreferences.musicType"] = { $in: musicTypes };
+  }
+  if (eventType) {
+    const eventTypes = Array.isArray(eventType)
+      ? eventType
+      : (eventType as string).split(",").map((t) => t.trim());
+    query["eventPreferences.eventType"] = { $in: eventTypes };
+  }
+  if (venueType) {
+    const venueTypes = Array.isArray(venueType)
+      ? venueType
+      : (venueType as string).split(",").map((t) => t.trim());
+    query["eventPreferences.venueType"] = { $in: venueTypes };
+  }
+
+  let events;
+
+  // 👉 If filtering for paid events with price range — use aggregation
+  if (isFree === "false" && (minPrice || maxPrice)) {
+    query["ticketing.isFree"] = false;
+
+    const pipeline: any[] = [
+      { $match: query },
+      {
+        $lookup: {
+          from: "tickets",
+          localField: "_id",
+          foreignField: "event",
+          as: "tickets",
+        },
+      },
+      { $match: { tickets: { $exists: true, $ne: [] } } },
+      { $unwind: "$tickets" },
+    ];
+
+    const priceMatch: any = {};
+    if (minPrice) priceMatch["tickets.price"] = { $gte: parseFloat(minPrice as string) };
+    if (maxPrice) {
+      if (priceMatch["tickets.price"]) {
+        priceMatch["tickets.price"].$lte = parseFloat(maxPrice as string);
+      } else {
+        priceMatch["tickets.price"] = { $lte: parseFloat(maxPrice as string) };
+      }
+    }
+
+    pipeline.push(
+      { $match: priceMatch },
+      {
+        $group: {
+          _id: "$_id",
+          doc: { $first: "$$ROOT" },
+          minTicketPrice: { $min: "$tickets.price" },
+          maxTicketPrice: { $max: "$tickets.price" },
+          tickets: { $push: "$tickets" },
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ["$doc", {
+              minTicketPrice: "$minTicketPrice",
+              maxTicketPrice: "$maxTicketPrice",
+              tickets: "$tickets"
+            }],
+          },
+        },
+      }
+    );
+
+    // If geo filtering is needed, add distance calculation and sort
+    if (maxDistance && lat && lng) {
+      pipeline.push({
+        $addFields: {
+          distance: {
+            $multiply: [
+              {
+                $acos: {
+                  $add: [
+                    {
+                      $multiply: [
+                        { $sin: { $degreesToRadians: parseFloat(lat as string) } },
+                        { $sin: { $degreesToRadians: { $arrayElemAt: ["$location.coordinates", 1] } } }
+                      ]
+                    },
+                    {
+                      $multiply: [
+                        { $cos: { $degreesToRadians: parseFloat(lat as string) } },
+                        { $cos: { $degreesToRadians: { $arrayElemAt: ["$location.coordinates", 1] } } },
+                        { $cos: { $degreesToRadians: { $subtract: [{ $arrayElemAt: ["$location.coordinates", 0] }, parseFloat(lng as string)] } } }
+                      ]
+                    }
+                  ]
+                }
+              },
+              6371 // Earth's radius in km
+            ]
+          }
+        }
+      });
+      pipeline.push({ $sort: { distance: 1, date: 1 } });
+    } else {
+      pipeline.push({ $sort: { date: 1 } });
+    }
+
+    events = await eventModel.aggregate(pipeline);
+
+    // Populate references
+    events = await eventModel.populate(events, [
+      { path: "creator", select: "userName" },
+      { path: "invitedGuests", select: "userName" },
+      { path: "coHosts", select: "userName" },
+      { path: "lineup" },
+    ]);
+  } else {
+    // 👉 Free events or no price filter — use .find()
+    if (isFree === "true") {
+      query["ticketing.isFree"] = true;
+    } else if (isFree === "false") {
+      query["ticketing.isFree"] = false;
+    }
+
+    // For .find() queries, we can still use $near if no aggregation is needed
+    if (maxDistance && lat && lng) {
+      query.location = {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [parseFloat(lng as string), parseFloat(lat as string)],
+          },
+          $maxDistance: parseFloat(maxDistance as string) * 1000,
+        },
+      };
+    }
+
+    events = await eventModel
+      .find(query)
+      .populate("creator", "userName photos")
+      .populate("invitedGuests", "userName")
+      .populate("coHosts", "userName photos")
+      .populate("lineup")
+      .sort({ date: 1 });
+
+    // 🧩 Manually attach tickets
+    const eventIds = events.map((e) => e._id);
+    const allTickets = await ticketModel.find({ event: { $in: eventIds } });
+
+    const ticketsMap = new Map();
+    for (const ticket of allTickets) {
+      const eid = ticket.event.toString();
+      if (!ticketsMap.has(eid)) ticketsMap.set(eid, []);
+      ticketsMap.get(eid).push(ticket);
+    }
+
+    events = events.map((event) => {
+      const e = event.toObject() as any;
+      e.tickets = ticketsMap.get(event._id.toString()) || [];
+      return e;
+    });
+  }
 
   return {
     success: true,
     message: "Events retrieved successfully",
     data: events,
+    totalCount: events.length,
   };
 };
 

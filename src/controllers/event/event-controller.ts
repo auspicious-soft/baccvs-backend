@@ -1,7 +1,7 @@
 import { Request, Response } from "express"
 import { httpStatusCode } from "src/lib/constant"
 import { errorParser } from "src/lib/errors/error-response-handler"
-import { createEventService, deleteEventService, getAllEventsService, getEventOfOtherUserService, getEventsByIdService, updateEventService } from "src/services/event/event-service"
+import { createEventService, deleteEventService, getEventOfOtherUserService, getEventsByIdService, getUserEventFeedService, updateEventService } from "src/services/event/event-service"
 
 
 
@@ -15,9 +15,9 @@ export const createEvent = async (req: Request, res: Response) =>{
     }
 }
 
-export const getAllEvents = async (req: Request, res: Response) =>{
+export const getUserEventFeed = async (req: Request, res: Response) =>{
   try {
-     const response: any = await getAllEventsService(req, res)
+     const response: any = await getUserEventFeedService(req, res)
             return res.status(httpStatusCode.OK).json(response)
   } catch (error) {
       const { code, message } = errorParser(error)
