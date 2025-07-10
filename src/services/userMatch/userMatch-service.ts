@@ -56,8 +56,9 @@ export const userLikeService = async (req: any, res: Response) => {
   if (fromUserId === toUserId) {
     return errorResponseHandler('Cannot like yourself', httpStatusCode.BAD_REQUEST, res);
   }
-
+  
   try {
+    // const fromUserName = await usersModel.findById(fromUserId)
     const targetUser = await usersModel.findById(toUserId);
     if (!targetUser) {
       return errorResponseHandler('Target user not found', httpStatusCode.NOT_FOUND, res);
@@ -117,8 +118,8 @@ export const userLikeService = async (req: any, res: Response) => {
           fromUserId,
           NotificationType.USER_LIKE,
           finalSubType
-            ? `${targetUser.userName} ${finalSubType}d you!`
-            : `${targetUser.userName} liked you!`,
+            ? `${user?.userName} ${finalSubType}d you!`
+            : `${user?.userName} liked you!`,
           fromUserId
         );
 
@@ -130,6 +131,7 @@ export const userLikeService = async (req: any, res: Response) => {
         };
       }
     } else {
+    
       const user = await usersModel.findById(fromUserId);
       if (!user || (user.toObject() as any)[field] <= 0) {
         return errorResponseHandler(
@@ -155,8 +157,8 @@ export const userLikeService = async (req: any, res: Response) => {
         fromUserId,
         NotificationType.USER_LIKE,
         finalSubType
-          ? `${targetUser.userName} ${finalSubType}d you!`
-          : `${targetUser.userName} liked you!`,
+          ? `${user.userName} ${finalSubType}d you!`
+          : `${user.userName} liked you!`,
         fromUserId
       );
 
