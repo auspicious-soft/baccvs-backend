@@ -29,12 +29,12 @@ export const userLikeSquadService = async (req: any, res: Response) => {
   }
 
   try {
-    const squad = await Squad.findById(squadId);
+    const squad = await Squad.findById(squadId).populate('members.user', 'userName');
     if (!squad) {
       return errorResponseHandler('Squad not found', httpStatusCode.NOT_FOUND, res);
     }
 
-    const isMember = squad.members.some((member: any) => member.user.toString() === userId);
+    const isMember = squad.members.some((member: any) => member.user._id.toString() === userId);
     if (isMember) {
       return errorResponseHandler(
         "You cannot like a squad you're already a member of",
@@ -66,6 +66,8 @@ export const userLikeSquadService = async (req: any, res: Response) => {
       field = 'totalBoosts';
     }
 
+    const sender = await usersModel.findById(userId).select('userName');
+
     if (existingLike) {
       if (existingLike.subType === finalSubType) {
         await SquadMatch.findByIdAndDelete(existingLike._id);
@@ -92,17 +94,21 @@ export const userLikeSquadService = async (req: any, res: Response) => {
           { new: true }
         );
 
-        const sender = await usersModel.findById(userId).select('userName');
-        await createNotification(
-          squad.creator.toString(),
-          userId,
-          NotificationType.SQUAD_LIKE,
-          finalSubType
-            ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
-            : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
-          undefined,
-          squadId
-        );
+        // Notify all squad members
+        for (const member of squad.members) {
+          if (member.user && member.user._id) {
+            await createNotification(
+              member.user._id.toString(),
+              userId,
+              NotificationType.SQUAD_LIKE,
+              finalSubType
+                ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
+                : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
+              undefined,
+              squadId
+            );
+          }
+        }
 
         return {
           success: true,
@@ -130,17 +136,21 @@ export const userLikeSquadService = async (req: any, res: Response) => {
       });
       await newLike.save();
 
-      const sender = await usersModel.findById(userId).select('userName');
-      await createNotification(
-        squad.creator.toString(),
-        userId,
-        NotificationType.SQUAD_LIKE,
-        finalSubType
-          ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
-          : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
-        undefined,
-        squadId
-      );
+      // Notify all squad members
+      for (const member of squad.members) {
+        if(member.user && member.user._id){
+        await createNotification(
+          member.user._id.toString(),
+          userId,
+          NotificationType.SQUAD_LIKE,
+          finalSubType
+            ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
+            : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
+          undefined,
+          squadId
+        );
+      }
+      }
 
       return {
         success: true,
@@ -168,23 +178,19 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
   const { id: squadId } = req.params;
 
-  // Validation checks
   if (!squadId) {
     return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
   }
 
   try {
-    // Check if squad exists
-    const squad = await Squad.findById(squadId);
+    const squad = await Squad.findById(squadId).populate('members.user', 'userName');
     if (!squad) {
       return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
     }
 
-    // Check if user is already a member of the squad
     const isMember = squad.members.some(
-      (member: any) => member.user.toString() === userId
+      (member: any) => member.user._id.toString() === userId
     );
-
     if (isMember) {
       return errorResponseHandler(
         "You cannot dislike a squad you're already a member of",
@@ -193,7 +199,6 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
       );
     }
 
-    // Remove existing like if present
     const existingLike = await SquadMatch.findOne({
       fromUser: userId,
       toSquad: squadId,
@@ -203,32 +208,43 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
       await SquadMatch.findByIdAndDelete(existingLike._id);
     }
 
-    // Check for existing dislike
     const existingDislike = await SquadMatch.findOne({
       fromUser: userId,
       toSquad: squadId,
       type: "dislike",
     });
 
+    const sender = await usersModel.findById(userId).select('userName');
+
     if (existingDislike) {
-      // Remove the dislike (toggle off)
       await SquadMatch.findByIdAndDelete(existingDislike._id);
-      
       return {
         success: true,
         message: "Dislike removed",
         active: false,
       };
     } else {
-      // Create new dislike
       const newDislike = new SquadMatch({
         fromUser: userId,
         toSquad: squadId,
-        type: "dislike"
+        type: "dislike",
       });
-      
       await newDislike.save();
-      
+
+      // Notify all squad members
+      for (const member of squad.members) {
+        if(member.user && member.user._id){
+        await createNotification(
+          member.user._id.toString(),
+          userId,
+          NotificationType.SQUAD_DISLIKE,
+          `${sender?.userName || 'Someone'} disliked your squad "${squad.title}"!`,
+          undefined,
+          squadId
+        );
+      }
+      }
+
       return {
         success: true,
         message: "Squad disliked successfully",
