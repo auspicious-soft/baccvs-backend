@@ -76,6 +76,7 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
       NotificationType.SQUAD_OWNERSHIP_TRANSFER,
       NotificationType.SQUAD_MATCH,
       NotificationType.SQUAD_UNMATCH,
+      NotificationType.SQUAD_DISLIKE,
     ];
   }
 
