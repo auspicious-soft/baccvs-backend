@@ -52,7 +52,7 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
   }
 
   const { id: userId } = req.user;
-  const { error, value } = validateQuery(req.body);
+  const { error, value } = validateQuery(req.query);
   
   if (error) {
     const errorMessage = error.details.map((detail) => detail.message).join(', ');
