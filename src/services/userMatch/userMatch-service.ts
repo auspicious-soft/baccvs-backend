@@ -6,7 +6,7 @@ import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { usersModel } from "src/models/user/user-schema";
 import { createNotification } from "../userNotification/user-Notification-service";
-import { NotificationType } from "src/models/userNotification/user-Notification-schema";
+import { Notification, NotificationType } from "src/models/userNotification/user-Notification-schema";
 
 
 // Check and update match status
@@ -327,84 +327,169 @@ export const getUserFeedService = async (req: Request, res: Response) => {
     return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
 
-  const { id: userId } = req.user as JwtPayload;
+  const { id: userId } = req.user as any;
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
 
-  try {
-    // Get IDs of users this user has disliked
-    const dislikedByMe = await UserMatch.find({
-      fromUser: userId,
-      type: "dislike"
-    }).select('toUser');
+  const {
+    minAge,
+    maxAge,
+    minDistance,
+    maxDistance,
+    interestedIn,
+    musicStyles,
+    interestCategories,
+    atmosphereVibes,
+    eventTypes,
+    language,
+    drinking,
+    smoke,
+    marijuana,
+    drugs
+  } = req.body;
+
+    const dislikedByMe = await UserMatch.find({ fromUser: userId, type: "dislike" }).select("toUser");
     const dislikedUserIds = dislikedByMe.map(match => match.toUser);
 
-    // Get IDs of users who have disliked this user
-    const dislikedByOthers = await UserMatch.find({
-      toUser: userId,
-      type: "dislike"
-    }).select('fromUser');
+    const dislikedByOthers = await UserMatch.find({ toUser: userId, type: "dislike" }).select("fromUser");
     const usersWhoDislikedMe = dislikedByOthers.map(match => match.fromUser);
 
-    // Combine both lists to exclude from feed (plus own ID)
     const excludeUserIds = [...dislikedUserIds, ...usersWhoDislikedMe, userId];
 
-    // Build query to prioritize boosted profiles
-    const boostedUsers = await UserMatch.find({
-      type: "like",
-      subType: "boost",
-    }).select('fromUser').distinct('fromUser');
+    const boostedUsers = await UserMatch.find({ type: "like", subType: "boost" })
+      .select("fromUser")
+      .distinct("fromUser");
 
-    // Get users for the feed, prioritizing boosted users
-    let userQuery = {
-      _id: { $nin: excludeUserIds }
+    const userQuery: any = {
+      _id: { $nin: excludeUserIds },
     };
-    
-    // First get boosted users (if any)
+
+    // 🎂 Age range
+    if (minAge && maxAge) {
+      const today = new Date();
+      const minDOB = new Date(today.getFullYear() - parseInt(maxAge as string), today.getMonth(), today.getDate());
+      const maxDOB = new Date(today.getFullYear() - parseInt(minAge as string), today.getMonth(), today.getDate());
+      userQuery.dob = { $gte: minDOB, $lte: maxDOB };
+    }
+
+    const currentUser = await usersModel.findById(userId);
+    const currentLocation : any = currentUser?.location;
+
+    const geoQuery: any = {};
+
+    if (currentLocation?.coordinates && maxDistance) {
+      geoQuery.location = {
+        $nearSphere: {
+          $geometry: {
+            type: "Point",
+            coordinates: currentLocation.coordinates,
+          },
+          $minDistance: parseInt(minDistance as string || "0") * 1000,
+          $maxDistance: parseInt(maxDistance as string) * 1000
+        }
+      };
+    }
+
+    // 🧑‍🤝‍🧑 Gender
+    if (interestedIn) {
+      const genderFilter = Array.isArray(interestedIn) ? interestedIn : [interestedIn];
+      userQuery.gender = { $in: genderFilter };
+    }
+
+    if (musicStyles) {
+      const music = Array.isArray(musicStyles) ? musicStyles : [musicStyles];
+      userQuery.musicStyles = { $in: music };
+    }
+
+    if (interestCategories) {
+      const interests = Array.isArray(interestCategories) ? interestCategories : [interestCategories];
+      userQuery.interestCategories = { $in: interests };
+    }
+
+    if (atmosphereVibes) {
+      const vibes = Array.isArray(atmosphereVibes) ? atmosphereVibes : [atmosphereVibes];
+      userQuery.atmosphereVibes = { $in: vibes };
+    }
+
+    if (eventTypes) {
+      const events = Array.isArray(eventTypes) ? eventTypes : [eventTypes];
+      userQuery.eventTypes = { $in: events };
+    }
+
+    if (language) {
+      const langs = Array.isArray(language) ? language : [language];
+      userQuery.language = { $in: langs };
+    }
+
+    if (drinking) {
+      userQuery.drinking = { $in: Array.isArray(drinking) ? drinking : [drinking] };
+    }
+    if (smoke) {
+      userQuery.smoke = { $in: Array.isArray(smoke) ? smoke : [smoke] };
+    }
+    if (marijuana) {
+      userQuery.marijuana = { $in: Array.isArray(marijuana) ? marijuana : [marijuana] };
+    }
+    if (drugs) {
+      userQuery.drugs = { $in: Array.isArray(drugs) ? drugs : [drugs] };
+    }
+
+    // ✨ Boosted users first
     let users: Array<mongoose.Document> = [];
+
     if (boostedUsers.length > 0) {
       const boostedQuery = {
         ...userQuery,
-        _id: { $in: boostedUsers, $nin: excludeUserIds }
+        _id: { $in: boostedUsers, $nin: excludeUserIds },
+        ...geoQuery
       };
-      
+
       const boostedProfiles = await usersModel.find(boostedQuery)
-        .select('-password')
-        .limit(Math.min(5, limit)) // Limit boosted profiles to 5 or less
+        .select("-password")
+        .limit(Math.min(5, limit))
         .sort({ createdAt: -1 });
-      
-      users = [...boostedProfiles as mongoose.Document[]];
+
+      users = [...boostedProfiles];
     }
-    
-    // If we need more users to fill the limit
+
+    // 🧍‍♀️ Regular users
     if (users.length < limit) {
       const remainingLimit = limit - users.length;
       const remainingSkip = Math.max(0, skip - users.length);
-      
-      // For non-boosted users, exclude both disliked and already fetched boosted ones
+
       const nonBoostedQuery = {
         ...userQuery,
-        _id: { $nin: [...excludeUserIds, ...users.map(u => u._id)] }
+        _id: { $nin: [...excludeUserIds, ...users.map(u => u._id)] },
+        ...geoQuery
       };
-      
+
       const regularProfiles = await usersModel.find(nonBoostedQuery)
-        .select('-password')
+        .select("-password")
         .skip(remainingSkip)
         .limit(remainingLimit)
         .sort({ createdAt: -1 });
-      
+
       users = [...users, ...regularProfiles];
     }
 
-    // Calculate total for pagination
-    const total = await usersModel.countDocuments({
-      _id: { $nin: excludeUserIds }
-    });
+    // ✅ Don't use $nearSphere in count query
+    const countQuery = {
+      ...userQuery
+    };
+
+    const userUnreadNotification = await Notification.countDocuments({
+      recipient:userId,
+      isRead:false
+    })
+    const total = await usersModel.countDocuments(countQuery);
 
     return {
       success: true,
-      data: users,
+      data: {
+        users,
+      userUnreadNotification
+    },
       pagination: {
         current: page,
         limit,
@@ -412,10 +497,9 @@ export const getUserFeedService = async (req: Request, res: Response) => {
         pages: Math.ceil(total / limit)
       }
     };
-  } catch (error) {
-    throw error;
-  }
+
 };
+
 
 /**
  * Get statistics about user's likes/dislikes
