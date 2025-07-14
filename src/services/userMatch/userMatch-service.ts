@@ -347,7 +347,7 @@ export const getUserFeedService = async (req: Request, res: Response) => {
     smoke,
     marijuana,
     drugs
-  } = req.body;
+  } = req.query;
 
     const dislikedByMe = await UserMatch.find({ fromUser: userId, type: "dislike" }).select("toUser");
     const dislikedUserIds = dislikedByMe.map(match => match.toUser);
