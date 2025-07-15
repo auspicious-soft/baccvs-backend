@@ -78,7 +78,7 @@ app.get('/reset-password', (req, res) => {
 app.get('/bulk-purchase-test', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'bulk-purchase-test.html'));
 });
-
+ 
 connectDB();
 
 app.get("/", (_, res: any) => {
