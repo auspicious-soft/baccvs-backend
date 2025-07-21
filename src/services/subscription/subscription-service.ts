@@ -38,7 +38,7 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
   session.startTransaction();
 
   try {
-    const { paymentType, productId, ticketId, eventId, quantity, amount, resaleId } = req.body;
+    const { paymentType, productId, ticketId, eventId, quantity, amount, resaleId,likeType } = req.body;
 
     if (!req.user) {
       return errorResponseHandler("User data not found in request", 400, res);
@@ -395,6 +395,13 @@ export const createCheckoutSessionService = async (req: Request, res: Response) 
           },
         },
       };
+    } else if (paymentType === "PURCHASE_LIKE" ){
+      if(!likeType || amount){
+        return errorResponseHandler("likeType and amount to buy like",400,res)
+      }
+      if (amount <= 0) {
+        return errorResponseHandler("Amount must be greater than zero", 400, res);
+      }
     } else {
       throw new Error("Invalid payment type");
     }

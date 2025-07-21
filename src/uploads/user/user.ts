@@ -1872,7 +1872,7 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
 export const getFollowListService = async (req: any, res: Response) => {
   const currentUserId = req.user.id;
   const type = req.query.type as 'followers' | 'following';
-  const userId = (req.query.userId as string) || currentUserId;
+  // const userId = (req.query.userId as string) || currentUserId; 
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
@@ -1892,8 +1892,8 @@ export const getFollowListService = async (req: any, res: Response) => {
 
   // Construct query with search
   const query = type === 'followers'
-    ? { following_id: userId }
-    : { follower_id: userId };
+    ? { following_id: currentUserId }
+    : { follower_id: currentUserId };
 
   // If search query exists, filter by username
   const userFilter = searchQuery
