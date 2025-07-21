@@ -3,7 +3,7 @@ import { httpStatusCode } from "../../lib/constant"
 import { errorParser } from "../../lib/errors/error-response-handler"
 import { passswordResetSchema, verifyOtpSchema, verifyPasswordSchema } from "../../validation/client-user"
 import { formatZodErrors } from "../../validation/format-zod-errors"
-import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService, getUserNotificationPreferencesService, getUserPrivacyPreferenceService, getUserPostsService, getUserInfoByTokenService, getFollowerListService} from "../../uploads/user/user"
+import { signUpService, forgotPasswordService, newPassswordAfterOTPVerifiedService, passwordResetService, getDashboardStatsService, getUserInfoService, getUserInfoByEmailService, editUserInfoService, verifyOtpPasswordResetService, verifyEmailService, verifyOtpEmailService, loginUserService, verifyCurrentPasswordService, resetPasswordWithTokenService, notificationSettingService, toggleTwoFactorAuthenticationService, getReferalCodeService, changePasswordService, getAllFollowedUsersService, togglePrivacyPreferenceService, getUserNotificationPreferencesService, getUserPrivacyPreferenceService, getUserPostsService, getUserInfoByTokenService, getFollowListService} from "../../uploads/user/user"
 import { validateReferralCodeService } from "../referal/referal"
 import { changeEmailSchema, changePhoneSchema } from "../../validation/client-user"
 import { initiateEmailChangeService, verifyAndChangeEmailService, initiatePhoneChangeService, verifyAndChangePhoneService } from "../../uploads/user/user"
@@ -398,9 +398,9 @@ export const getUserInfoByToken = async(req:Request,res:Response)=>{
     }
 }
 
-export const getFollowerList = async (req:Request,res:Response)=>{
+export const getFollowList = async (req:Request,res:Response)=>{
     try {
-        const response = await getFollowerListService(req,res)
+        const response = await getFollowListService(req,res)
         return res.status(httpStatusCode.OK).json(response)
     } catch (error) {
         const {code,message} = errorParser(error)

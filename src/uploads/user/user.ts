@@ -1869,78 +1869,84 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
     };
 }
 
-export const getFollowerListService = async (req: any, res: Response) => {
-    const currentUserId = req.user.id;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const skip = (page - 1) * limit;
-    const searchQuery = req.query.search as string;
+export const getFollowListService = async (req: any, res: Response) => {
+  const currentUserId = req.user.id;
+  const type = req.query.type as 'followers' | 'following';
+  const userId = (req.query.userId as string) || currentUserId;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
+  const searchQuery = req.query.search as string;
 
-    // Get current user with location
-    const currentUser = await usersModel.findById(currentUserId);
+  const currentUser = await usersModel.findById(currentUserId);
+  if (
+    !currentUser ||
+    !(
+      currentUser.location &&
+      typeof currentUser.location === 'object' &&
+      Array.isArray((currentUser.location as any).coordinates)
+    )
+  ) {
+    return errorResponseHandler("Current user not found or location not set", httpStatusCode.NOT_FOUND, res);
+  }
+
+  // Construct query with search
+  const query = type === 'followers'
+    ? { following_id: userId }
+    : { follower_id: userId };
+
+  // If search query exists, filter by username
+  const userFilter = searchQuery
+    ? { userName: { $regex: searchQuery, $options: 'i' } } // case-insensitive search
+    : {};
+
+  const followDocs = await followModel
+    .find(query)
+    .skip(skip)
+    .limit(limit);
+
+  const userIds = followDocs.map(doc =>
+    type === 'followers' ? doc.follower_id : doc.following_id
+  );
+
+  // Fetch users matching the userIds and search query
+  const users = await usersModel.find({
+    _id: { $in: userIds },
+    ...userFilter // Apply the search filter here
+  }).select("userName photos location");
+
+  const enrichedUsers = await Promise.all(users.map(async user => {
+    // Check mutual follow flags
+    const [isFollowingThem, isFollowedByThem] = await Promise.all([
+      followModel.exists({ follower_id: currentUserId, following_id: user._id }),
+      followModel.exists({ follower_id: user._id, following_id: currentUserId })
+    ]);
+
+    // Distance Calculation (Haversine formula via MongoDB $geoNear or manually)
+    let distanceInMiles = null;
     if (
-      !currentUser ||
-      !currentUser.location ||
-      !Array.isArray((currentUser.location as any).coordinates)
+      user.location &&
+      typeof user.location === 'object' &&
+      Array.isArray((user.location as any).coordinates)
     ) {
-      return errorResponseHandler("Current user not found or location not set", httpStatusCode.NOT_FOUND, res);
+      const [lng1, lat1] = (currentUser.location as { coordinates: [number, number] }).coordinates;
+      const [lng2, lat2] = (user.location as any).coordinates;
+      distanceInMiles = calculateDistanceInMiles(lat1, lng1, lat2, lng2);
     }
-
-    // Step 1: Get list of followers
-    const followerRelations = await followModel.find({ following_id: currentUserId })
-      .skip(skip)
-      .limit(limit);
-
-    const followerIds = followerRelations.map(f => f.follower_id);
-
-    if (followerIds.length === 0) {
-      return res.json({
-        success: true,
-        message: "No followers found",
-        data: [],
-      });
-    }
-
-    // Step 2: Search filter
-    const userQuery: any = { _id: { $in: followerIds } };
-    if (searchQuery) {
-      userQuery.userName = { $regex: searchQuery, $options: "i" };
-    }
-
-    const followers = await usersModel.find(userQuery).select("userName photos location");
-
-    // Step 3: Enrich with extra info
-    const enriched = await Promise.all(followers.map(async (user) => {
-      const [isFollowingThem, isFollowedByThem] = await Promise.all([
-        followModel.exists({ follower_id: currentUserId, following_id: user._id }),
-        followModel.exists({ follower_id: user._id, following_id: currentUserId }),
-      ]);
-
-      let distanceInMiles: number | null = null;
-      if (
-        user.location &&
-        Array.isArray((user.location as any).coordinates)
-      ) {
-        const [lng1, lat1] = (currentUser.location as any).coordinates;
-        const [lng2, lat2] = (user.location as any).coordinates;
-        distanceInMiles = calculateDistanceInMiles(lat1, lng1, lat2, lng2);
-      }
-
-      return {
-        _id: user._id,
-        userName: user.userName,
-        photos: user.photos,
-        isFollowingThem: !!isFollowingThem,
-        isFollowedByThem: !!isFollowedByThem,
-        distanceInMiles: distanceInMiles ? +distanceInMiles.toFixed(2) : null
-      };
-    }));
 
     return {
-      success: true,
-      message: "Follower list fetched successfully",
-      data: enriched
+      _id: user._id,
+      userName: user.userName,
+      photos: user.photos,
+      isFollowingThem: !!isFollowingThem,
+      isFollowedByThem: !!isFollowedByThem,
+      distanceInMiles: distanceInMiles ? Number(distanceInMiles.toFixed(2)) : null
     };
+  }));
 
+  return {
+    success: true,
+    message: `User ${type} list fetched successfully`,
+    data: enrichedUsers
+  };
 };
-
