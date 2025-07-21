@@ -398,7 +398,7 @@ export const getUserInfoByToken = async(req:Request,res:Response)=>{
     }
 }
 
-export const getFollowList = async (req:Response,res:Response)=>{
+export const getFollowList = async (req:Request,res:Response)=>{
     try {
         const response = await getFollowListService(req,res)
         return res.status(httpStatusCode.OK).json(response)
