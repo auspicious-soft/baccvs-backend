@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowList } from "../controllers/user/user";
+import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowerList } from "../controllers/user/user";
 import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
@@ -11,7 +11,6 @@ import { createCommunity, getCommunities, getUserCommunities, getCommunityById, 
 import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
 import { togglePinCommunityConversation, togglePinDirectConversation, togglePinSquadConversation, updateCommunityConversationBackground, updateDirectConversationBackground, updateSquadConversationBackground } from "src/controllers/chat/chat-settings-controller";
 import { getUserNotification, markNotificationAsRead } from "src/controllers/user-notification-controller.ts/user-notification-controller";
-
 const router = Router();
 
 router.post("/verify-password",  verifyCurrentPassword);
@@ -48,7 +47,7 @@ router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
 
 // create api to get all user 
 router.get("/get/all/followedUser", getAllFollowedUsers)
-router.get("/get/follow/list",getFollowList)
+router.get("/get/follower/list",getFollowerList)
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
