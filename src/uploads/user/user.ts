@@ -1936,11 +1936,11 @@ export const getFollowerListService = async (req: any, res: Response) => {
       };
     }));
 
-    return res.json({
+    return {
       success: true,
       message: "Follower list fetched successfully",
       data: enriched
-    });
+    };
 
 };
 
