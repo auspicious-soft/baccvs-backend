@@ -10,7 +10,7 @@ import { Notification, NotificationType } from "src/models/userNotification/user
 
 
 // Check and update match status
-const checkAndUpdateMatchStatus = async (fromUserId: any, toUserId: any) => {
+const checkAndUpdateMatchStatus : any = async (fromUserId: any, toUserId: any) => {
   const counterpartLike = await UserMatch.findOne({
     fromUser: toUserId,
     toUser: fromUserId,
@@ -165,9 +165,10 @@ export const userLikeService = async (req: any, res: Response) => {
       return {
         success: true,
         message: finalSubType ? `${finalSubType} created` : 'Like created',
-        active: true,
+        data:{active: true,
         isMatch,
-        interaction: newLike,
+        interaction: newLike
+        }
       };
     }
   } catch (error) {
@@ -347,7 +348,7 @@ export const getUserFeedService = async (req: Request, res: Response) => {
     smoke,
     marijuana,
     drugs
-  } = req.query;
+  } = req.body;
 
     const dislikedByMe = await UserMatch.find({ fromUser: userId, type: "dislike" }).select("toUser");
     const dislikedUserIds = dislikedByMe.map(match => match.toUser);

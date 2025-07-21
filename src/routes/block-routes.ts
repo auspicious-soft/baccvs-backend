@@ -11,7 +11,7 @@ const router = Router();
 router.post("/:targetUserId", blockUser);
 
 // Unblock a user
-router.delete("/:targetUserId", unblockUser);
+router.post("/user/:targetUserId", unblockUser);
 
 // Get all blocked users
 router.get("/", getBlockedUsers);

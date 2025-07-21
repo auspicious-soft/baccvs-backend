@@ -19,19 +19,33 @@ import { LikeModel } from "src/models/like/like-schema"
 import { RepostModel } from "src/models/repost/repost-schema"
 import { eventModel } from "src/models/event/event-schema"
 import { UserMatch } from "src/models/usermatch/usermatch-schema"
-import { Comment } from "src/models/comment/comment-schema"
 import { Readable } from 'stream';
 import Busboy from 'busboy';
 import { uploadStreamToS3Service } from "src/configF/s3";
 import { blockModel } from "src/models/block/block-schema"
+import { Comment } from "src/models/comment/comment-schema";
 configDotenv()
 
+const EARTH_RADIUS_MILES = 3963.2;
 
 const sanitizeUser = (user: any) => {
   const sanitized = user.toObject();
   delete sanitized.password;
   return sanitized;
 };
+// Helper function
+function calculateDistanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRadians = (deg: number) => deg * (Math.PI / 180);
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLon / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_MILES * c;
+}
 
 export const signUpService = async (req: any, userData: any, authType: string, res: Response) => {
   if (!userData) {
@@ -341,13 +355,33 @@ if(!userData) return errorResponseHandler("User data is required", httpStatusCod
         if (passwordValidationResponse) return passwordValidationResponse;
     }
   
-    user.token = generateUserToken(user as any);
-    
+    user.token = generateUserToken(user as any);   
     await user.save();
+       const followerCount = await followModel.countDocuments({
+    following_id: user._id,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Get following count
+  const followingCount = await followModel.countDocuments({
+    follower_id: user._id,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+  const eventCount = await eventModel.countDocuments({
+    creator: user._id,
+  });
     return {
         success: true,
         message: "Logged in successfully",
-        data: sanitizeUser(user),
+        data:{ 
+           user: sanitizeUser(user),
+          followerCount,
+          followingCount,
+          eventCount
+        }
+
     };
   };
 
@@ -550,16 +584,20 @@ export const getUserInfoService = async (req: any, res: Response) => {
   const targetUserId = req.params.id;
 
   // Check if either user has blocked the other
-  const isBlocked = await blockModel.findOne({
+  const isBlockedByCurrentUser = await blockModel.findOne({
     $or: [
       { blockedBy: currentUserId, blockedUser: targetUserId },
+    ],
+  });
+  const isBlockedByTargetUser = await blockModel.findOne({
+    $or: [
       { blockedBy: targetUserId, blockedUser: currentUserId },
     ],
   });
 
-  if (isBlocked) {
-    return errorResponseHandler("Access to user data restricted", httpStatusCode.FORBIDDEN, res);
-  }
+  // if (isBlocked) {
+  //   return errorResponseHandler("Access to user data restricted", httpStatusCode.FORBIDDEN, res);
+  // }
 
   // Fetch target user data
   const user = await usersModel.findById(targetUserId).select('-password -token -stripeCustomerId -__v');
@@ -609,6 +647,8 @@ export const getUserInfoService = async (req: any, res: Response) => {
       eventCount,
       isFollowedByCurrentUser: !!isFollowedByCurrentUser,
       isFollowingCurrentUser: !!isFollowingCurrentUser,
+      isBlockedByCurrentUser:isBlockedByCurrentUser === null ? false : true,
+      isBlockedByTargetUser:isBlockedByTargetUser === null ? false : true
     },
   }
 }
@@ -1710,39 +1750,84 @@ export const getUserPrivacyPreferenceService = async (req: any, res: Response) =
 }
 
 export const getUserPostsService = async (req: any, res: Response) => {
-    const { id: userId } = req.user;
-    // get user posts and reposts
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const skip = (page - 1) * limit;
-    const posts = await postModels
-        .find({ user: userId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('user', 'userName photos')
-        .populate({
-          path:'taggedUsers',
-          select: 'userName photos'
-        });
-    const reposts = await RepostModel.find({ user: userId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('user', 'userName photos')
-        .populate({
-          path: 'originalPost',
-         
-        });
-    return {
-        success: true,
-        message: "User posts retrieved successfully",
-        data: {
-            posts,
-            reposts
-        }
-    };
-  }
+  const { id: userId } = req.user;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
+
+  // Get user posts
+  const posts = await postModels
+    .find({ user: userId })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('user', 'userName photos')
+    .populate({
+      path: 'taggedUsers',
+      select: 'userName photos'
+    });
+
+  // Attach likeCount, repostCount, commentCount, isLiked
+  const postWithCounts = await Promise.all(
+    posts.map(async (post: any) => {
+      const [repostCount, likeCount, commentCount, isLiked] = await Promise.all([
+        RepostModel.countDocuments({ originalPost: post._id }),
+        LikeModel.countDocuments({ targetType: 'posts', target: post._id }),
+        Comment.countDocuments({ post: post._id, isDeleted: false }),
+        LikeModel.exists({ user: userId, targetType: 'posts', target: post._id })
+      ]);
+
+      return {
+        ...post.toObject(),
+        repostCount,
+        likeCount,
+        commentCount,
+        isLikedByUser: Boolean(isLiked)
+      };
+    })
+  );
+
+  // Get user reposts
+  const reposts = await RepostModel.find({ user: userId })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('user', 'userName photos')
+    .populate({
+      path: 'originalPost',
+      populate: {
+        path: 'user',
+        select: 'userName photos'
+      }
+    });
+
+  // Attach likeCount, commentCount, isLiked
+  const repostsWithCounts = await Promise.all(
+    reposts.map(async (repost: any) => {
+      const [likeCount, commentCount, isLiked] = await Promise.all([
+        LikeModel.countDocuments({ targetType: 'reposts', target: repost._id }),
+        Comment.countDocuments({ repost: repost._id, isDeleted: false }),
+        LikeModel.exists({ user: userId, targetType: 'reposts', target: repost._id })
+      ]);
+
+      return {
+        ...repost.toObject(),
+        likeCount,
+        commentCount,
+        isLikedByUser: Boolean(isLiked)
+      };
+    })
+  );
+
+  return {
+    success: true,
+    message: "User posts retrieved successfully",
+    data: {
+      posts: postWithCounts,
+      reposts: repostsWithCounts
+    }
+  };
+};
 
 export const getUserInfoByTokenService = async (req: any, res: Response) => {
     const { id: userId } = req.user;
@@ -1755,10 +1840,113 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
     if (!user) {
         return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
     }
+
+     const followerCount = await followModel.countDocuments({
+    following_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Get following count
+  const followingCount = await followModel.countDocuments({
+    follower_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+  const eventCount = await eventModel.countDocuments({
+    creator: userId,
+  });
     
     return {
         success: true,
         message: "User information retrieved successfully",
-        data: user
+        data: {
+          user,
+          followerCount,
+          followingCount,
+          eventCount
+        }
     };
 }
+
+export const getFollowListService = async (req: any, res: Response) => {
+  const currentUserId = req.user.id;
+  const type = req.query.type as 'followers' | 'following';
+  const userId = (req.query.userId as string) || currentUserId;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
+  const searchQuery = req.query.search as string;
+
+  const currentUser = await usersModel.findById(currentUserId);
+  if (
+    !currentUser ||
+    !(
+      currentUser.location &&
+      typeof currentUser.location === 'object' &&
+      Array.isArray((currentUser.location as any).coordinates)
+    )
+  ) {
+    return errorResponseHandler("Current user not found or location not set", httpStatusCode.NOT_FOUND, res);
+  }
+
+  // Construct query with search
+  const query = type === 'followers'
+    ? { following_id: userId }
+    : { follower_id: userId };
+
+  // If search query exists, filter by username
+  const userFilter = searchQuery
+    ? { userName: { $regex: searchQuery, $options: 'i' } } // case-insensitive search
+    : {};
+
+  const followDocs = await followModel
+    .find(query)
+    .skip(skip)
+    .limit(limit);
+
+  const userIds = followDocs.map(doc =>
+    type === 'followers' ? doc.follower_id : doc.following_id
+  );
+
+  // Fetch users matching the userIds and search query
+  const users = await usersModel.find({
+    _id: { $in: userIds },
+    ...userFilter // Apply the search filter here
+  }).select("userName photos location");
+
+  const enrichedUsers = await Promise.all(users.map(async user => {
+    // Check mutual follow flags
+    const [isFollowingThem, isFollowedByThem] = await Promise.all([
+      followModel.exists({ follower_id: currentUserId, following_id: user._id }),
+      followModel.exists({ follower_id: user._id, following_id: currentUserId })
+    ]);
+
+    // Distance Calculation (Haversine formula via MongoDB $geoNear or manually)
+    let distanceInMiles = null;
+    if (
+      user.location &&
+      typeof user.location === 'object' &&
+      Array.isArray((user.location as any).coordinates)
+    ) {
+      const [lng1, lat1] = (currentUser.location as { coordinates: [number, number] }).coordinates;
+      const [lng2, lat2] = (user.location as any).coordinates;
+      distanceInMiles = calculateDistanceInMiles(lat1, lng1, lat2, lng2);
+    }
+
+    return {
+      _id: user._id,
+      userName: user.userName,
+      photos: user.photos,
+      isFollowingThem: !!isFollowingThem,
+      isFollowedByThem: !!isFollowedByThem,
+      distanceInMiles: distanceInMiles ? Number(distanceInMiles.toFixed(2)) : null
+    };
+  }));
+
+  return {
+    success: true,
+    message: `User ${type} list fetched successfully`,
+    data: enrichedUsers
+  };
+};

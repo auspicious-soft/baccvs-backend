@@ -1,5 +1,5 @@
 import { Router} from "express"
-import { createEvent, deleteEvent, getEventOfOtherUser, getEventsById, getUserEventFeed, updateEvent } from "src/controllers/event/event-controller"
+import { createEvent, deleteEvent, getEventOfOtherUser, getEventsById, getUserEventFeed, getUserEvents, updateEvent } from "src/controllers/event/event-controller"
 import { checkAuth } from "src/middleware/check-auth"
 
 const router = Router()
@@ -7,6 +7,7 @@ const router = Router()
 router.post("/",createEvent)
 router.get("/:id",getEventsById)
 router.get("/user/event/feed",getUserEventFeed)
+router.get("/user/events",getUserEvents)
 router.get("/get/eventofother/:id",getEventOfOtherUser)
 router.put("/update-event",updateEvent)
 router.delete("/delete-event",deleteEvent)
