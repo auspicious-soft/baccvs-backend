@@ -48,7 +48,7 @@ router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
 
 // create api to get all user 
 router.get("/get/all/followedUser", getAllFollowedUsers)
-router.get("/get/follower/list",getFollowList)
+router.get("/get/follow/list",getFollowList)
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
