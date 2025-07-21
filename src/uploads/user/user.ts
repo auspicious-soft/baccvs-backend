@@ -1870,13 +1870,15 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
 }
 
 export const getFollowListService = async (req: any, res: Response) => {
-  const currentUserId = req.user.id;
-  const type = req.query.type as 'followers' | 'following';
-  // const userId = (req.query.userId as string) || currentUserId; 
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const skip = (page - 1) * limit;
-  const searchQuery = req.query.search as string;
+  
+    const currentUserId = req.user.id;
+    const type = req.query.type as 'followers' | 'following';
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const searchQuery = req.query.search as string;
+
+    console.log('Request params:', { currentUserId, type, page, limit, searchQuery });
 
   const currentUser = await usersModel.findById(currentUserId);
   if (
@@ -1895,25 +1897,36 @@ export const getFollowListService = async (req: any, res: Response) => {
     ? { following_id: currentUserId }
     : { follower_id: currentUserId };
 
+  console.log('Follow query:', query);
+
   // If search query exists, filter by username
-  const userFilter = searchQuery
-    ? { userName: { $regex: searchQuery, $options: 'i' } } // case-insensitive search
+  const userFilter = searchQuery && searchQuery.trim()
+    ? { userName: { $regex: searchQuery.trim(), $options: 'i' } } // case-insensitive search
     : {};
 
-  const followDocs = await followModel
-    .find(query)
-    .skip(skip)
-    .limit(limit);
+  console.log('User filter:', userFilter);
 
-  const userIds = followDocs.map(doc =>
+  // Get all follow relationships first (without pagination)
+  const allFollowDocs = await followModel.find(query);
+  
+  console.log('All follow docs count:', allFollowDocs.length);
+
+  const allUserIds = allFollowDocs.map(doc =>
     type === 'followers' ? doc.follower_id : doc.following_id
   );
 
-  // Fetch users matching the userIds and search query
+  console.log('All user IDs:', allUserIds);
+
+  // Fetch users matching the userIds and search query, then apply pagination
   const users = await usersModel.find({
-    _id: { $in: userIds },
+    _id: { $in: allUserIds },
     ...userFilter // Apply the search filter here
-  }).select("userName photos location");
+  })
+  .select("userName photos location")
+  .skip(skip)
+  .limit(limit);
+
+  console.log('Users found after filter and pagination:', users.length);
 
   const enrichedUsers = await Promise.all(users.map(async user => {
     // Check mutual follow flags
@@ -1944,9 +1957,17 @@ export const getFollowListService = async (req: any, res: Response) => {
     };
   }));
 
+  console.log('Enriched users:', enrichedUsers);
+
+  // Send the response properly
   return {
     success: true,
     message: `User ${type} list fetched successfully`,
-    data: enrichedUsers
+    data:{ enrichedUsers,
+    pagination: {
+      currentPage: page,
+      limit: limit,
+      total: allFollowDocs.length
+    }}
   };
 };
