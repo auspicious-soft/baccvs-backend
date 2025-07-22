@@ -783,6 +783,7 @@ export const editUserInfoService = async (req: any, res: Response) => {
           'height',
           'location',
           'language',
+          "zodiacSign"
         ];
         
         const updateData: any = {};
@@ -926,6 +927,10 @@ export const editUserInfoService = async (req: any, res: Response) => {
         if (formData.work) {
           updateData.work = formData.work;
         }
+        if (formData.zodiacSign) {
+          updateData.zodiacSign = formData.zodiacSign;
+        }
+        console.log('zodiacSign:', formData.zodiacSign);
         
         if (Array.isArray(formData.language) && formData.language.length > 0) {
           updateData.language = formData.language;
