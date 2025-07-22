@@ -694,9 +694,15 @@ export const editUserInfoService = async ( req: any, res: Response) => {
         } catch {
           formData[fieldname] = value;
         }
-      } else {
-        formData[fieldname] = value;
-      }
+      } else if (fieldname === 'language') {
+  try {
+    formData[fieldname] = JSON.parse(value);
+  } catch {
+    formData[fieldname] = value;
+  }
+} else {
+  formData[fieldname] = value;
+}
     });
 
     busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
@@ -750,13 +756,15 @@ export const editUserInfoService = async ( req: any, res: Response) => {
           'drinking', 
           'smoke', 
           'marijuana', 
-          'drugs', 
+          'drugs',
+          'work',
           'interestCategories', 
           'musicStyles', 
           'atmosphereVibes', 
           'eventTypes', 
           'height',
-          'location'
+          'location',
+          'language',
         ];
         
         const updateData: any = {};
@@ -847,6 +855,13 @@ export const editUserInfoService = async ( req: any, res: Response) => {
           if (formData.location.address) {
             updateData.location.address = formData.location.address;
           }
+          if (formData.work) {
+            updateData.work = formData.work;
+          }
+         if (Array.isArray(formData.language) && formData.language.length > 0) {
+  updateData.language = formData.language;
+}
+
         }
         
         const updatedUser = await usersModel.findByIdAndUpdate(
