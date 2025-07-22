@@ -142,13 +142,22 @@ export const getUserInfoByEmail = async (req: Request, res: Response) => {
 
 export const editUserInfo = async (req: Request, res: Response) => {
     try {
-        const response = await editUserInfoService( req, res);
-        return res.status(httpStatusCode.OK).json(response)
+        const response = await editUserInfoService(req, res);
+        return res.status(httpStatusCode.OK).json(response);
     } catch (error: any) {
-        const { code, message } = errorParser(error)
-        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" });
+        // Check if response was already sent
+        if (res.headersSent) {
+            console.error('Response already sent, cannot send error response:', error);
+            return;
+        }
+
+        const { code, message } = errorParser(error);
+        return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ 
+            success: false, 
+            message: message || "An error occurred" 
+        });
     }
-}
+};
 
 // Dashboard
 export const getDashboardStats = async (req: Request, res: Response) => {
