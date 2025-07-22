@@ -663,7 +663,7 @@ export const getUserInfoByEmailService = async (email: string, res: Response) =>
     }
 }
 
-export const editUserInfoService = async ( req: any, res: Response) => {
+export const editUserInfoService = async (req: any, res: Response) => {
   const { id: userId, email: userEmail } = req.user;
   
   // Check if user exists and authorization
@@ -695,14 +695,32 @@ export const editUserInfoService = async ( req: any, res: Response) => {
           formData[fieldname] = value;
         }
       } else if (fieldname === 'language') {
-  try {
-    formData[fieldname] = JSON.parse(value);
-  } catch {
-    formData[fieldname] = value;
-  }
-} else {
-  formData[fieldname] = value;
-}
+        try {
+          formData[fieldname] = JSON.parse(value);
+        } catch {
+          formData[fieldname] = value;
+        }
+      } else if (fieldname === 'existingPhotos') {
+        // Handle existing photos that user wants to keep
+        try {
+          const parsed = JSON.parse(value);
+          formData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          // If it's not JSON, treat as single value or empty
+          formData[fieldname] = value ? [value] : [];
+        }
+      } else if (fieldname === 'photosToDelete') {
+        // Handle photos that user wants to delete
+        try {
+          const parsed = JSON.parse(value);
+          formData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          // If it's not JSON, treat as single value or empty
+          formData[fieldname] = value ? [value] : [];
+        }
+      } else {
+        formData[fieldname] = value;
+      }
     });
 
     busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
@@ -776,13 +794,61 @@ export const editUserInfoService = async ( req: any, res: Response) => {
           }
         });
 
-        // Handle photos - either use uploaded photos or existing photos from form
-        if (uploadedPhotoKeys.length > 0) {
-          // If new photos were uploaded, use them
-          updateData.photos = uploadedPhotoKeys;
-        } else if (formData.photos !== undefined) {
-          // If no new photos but photos field exists in form, use existing photos
-          updateData.photos = Array.isArray(formData.photos) ? formData.photos : [];
+        // Enhanced photo management logic
+        let finalPhotos: string[] = [];
+        
+        // Get current photos from database (S3 keys like "users/email/image/webp/timestamp-filename")
+        const currentPhotos = user.photos || [];
+        
+        // Handle photos to delete (if any) - these will be S3 keys
+        const photosToDelete = Array.isArray(formData.photosToDelete) 
+          ? formData.photosToDelete 
+          : (formData.photosToDelete && formData.photosToDelete.length > 0 ? [formData.photosToDelete] : []);
+        
+        // Handle existing photos that user wants to keep - these will be S3 keys
+        const existingPhotosToKeep = Array.isArray(formData.existingPhotos) 
+          ? formData.existingPhotos 
+          : (formData.existingPhotos && formData.existingPhotos.length > 0 ? [formData.existingPhotos] : []);
+        
+        // Log for debugging
+        console.log('Current photos in DB:', currentPhotos);
+        console.log('Photos to delete:', photosToDelete);
+        console.log('Existing photos to keep:', existingPhotosToKeep);
+        
+        // If existingPhotos is explicitly sent, use only those (filtered)
+        if (formData.existingPhotos !== undefined) {
+          // Keep only existing photos that are not in the delete list and exist in current photos
+          finalPhotos = existingPhotosToKeep.filter((photoKey: string) => 
+            !photosToDelete.includes(photoKey) && currentPhotos.includes(photoKey)
+          );
+        } else {
+          // If no explicit existing photos list, keep all current photos except those to delete
+          finalPhotos = currentPhotos.filter((photoKey: string) => 
+            !photosToDelete.includes(photoKey)
+          );
+        }
+        
+        // Add newly uploaded photos (uploadedPhotoKeys will be S3 keys from uploadStreamToS3Service)
+        finalPhotos = [...finalPhotos, ...uploadedPhotoKeys];
+        
+        // Remove duplicates (just in case)
+        finalPhotos = [...new Set(finalPhotos)];
+        
+        // Update photos in updateData
+        updateData.photos = finalPhotos;
+        
+        console.log('Final photos array:', finalPhotos);
+
+        // Optional: Delete removed photos from S3 storage
+        if (photosToDelete.length > 0) {
+          try {
+            // You can implement this function to delete from S3
+            // await deletePhotosFromS3Service(photosToDelete);
+            console.log('Photos marked for S3 deletion:', photosToDelete);
+          } catch (error) {
+            console.error('Error deleting photos from S3:', error);
+            // Don't fail the entire operation if S3 deletion fails
+          }
         }
         
         // Validate enum fields
@@ -855,13 +921,14 @@ export const editUserInfoService = async ( req: any, res: Response) => {
           if (formData.location.address) {
             updateData.location.address = formData.location.address;
           }
-          if (formData.work) {
-            updateData.work = formData.work;
-          }
-         if (Array.isArray(formData.language) && formData.language.length > 0) {
-  updateData.language = formData.language;
-}
-
+        }
+        
+        if (formData.work) {
+          updateData.work = formData.work;
+        }
+        
+        if (Array.isArray(formData.language) && formData.language.length > 0) {
+          updateData.language = formData.language;
         }
         
         const updatedUser = await usersModel.findByIdAndUpdate(
