@@ -929,8 +929,8 @@ export const editUserInfoService = async (req: any, res: Response) => {
         }
         if (formData.zodiacSign) {
           updateData.zodiacSign = formData.zodiacSign;
+          
         }
-        console.log('zodiacSign:', formData.zodiacSign);
         
         if (Array.isArray(formData.language) && formData.language.length > 0) {
           updateData.language = formData.language;
@@ -941,11 +941,30 @@ export const editUserInfoService = async (req: any, res: Response) => {
           { $set: updateData },
           { new: true }
         );
+           const followerCount = await followModel.countDocuments({
+    following_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Get following count
+  const followingCount = await followModel.countDocuments({
+    follower_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+  const eventCount = await eventModel.countDocuments({
+    creator: userId,
+  });
 
         resolve({
           success: true,
           message: "User updated successfully",
-          data: updatedUser,
+          data: {user: updatedUser,
+            followerCount,
+            followingCount,
+            eventCount
+          },
         });
 
       } catch (error) {
