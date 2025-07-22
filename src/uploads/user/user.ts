@@ -783,7 +783,8 @@ export const editUserInfoService = async (req: any, res: Response) => {
           'height',
           'location',
           'language',
-          "zodiacSign"
+          "zodiacSign",
+          "gender"
         ];
         
         const updateData: any = {};
@@ -929,6 +930,10 @@ export const editUserInfoService = async (req: any, res: Response) => {
         }
         if (formData.zodiacSign) {
           updateData.zodiacSign = formData.zodiacSign;
+          
+        }
+        if (formData.gender) {
+          updateData.gender = formData.gender;
           
         }
         
