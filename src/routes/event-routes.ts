@@ -6,7 +6,7 @@ const router = Router()
 
 router.post("/",createEvent)
 router.get("/:id",getEventsById)
-router.get("/user/event/feed",getUserEventFeed)
+router.post("/user/event/feed",getUserEventFeed)
 router.get("/user/events",getUserEvents)
 router.get("/get/eventofother/:id",getEventOfOtherUser)
 router.put("/update-event",updateEvent)
