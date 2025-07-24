@@ -640,7 +640,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
 
     if (filterApplied) {
       const filterQuery = buildFilterQuery({ date: { $gte: baseDate } });
-      const pipeline = buildEventPipeline(filterQuery);
+      const pipeline : any = buildEventPipeline(filterQuery);
       const events = await eventModel.aggregate(pipeline);
 
       return {
@@ -660,15 +660,15 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     if (user.eventTypes?.length) {
       forYouQuery["eventPreferences.eventType"] = { $in: user.eventTypes };
     }
-    if (user.atmosphereVibes?.length) {
-      forYouQuery["eventPreferences.atmosphereVibe"] = { $in: user.atmosphereVibes };
-    }
-    if (user.interestCategories?.length) {
-      forYouQuery["interestCategories"] = { $in: user.interestCategories };
-    }
-    if (user.language?.length) {
-      forYouQuery["language"] = { $in: user.language };
-    }
+    // if (user.atmosphereVibes?.length) {
+    //   forYouQuery["eventPreferences.atmosphereVibe"] = { $in: user.atmosphereVibes };
+    // }
+    // if (user.interestCategories?.length) {
+    //   forYouQuery["interestCategories"] = { $in: user.interestCategories };
+    // }
+    // if (user.language?.length) {
+    //   forYouQuery["language"] = { $in: user.language };
+    // }
 
     // Today's events query
     const startToday = new Date();
