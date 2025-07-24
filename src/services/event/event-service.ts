@@ -633,6 +633,155 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     return pipeline;
   };
 
+  // Special pipeline builder for today's events with distance and spots left
+  const buildTodayEventPipeline = (matchQuery: any, userLocation?: any) => {
+    const pipeline: any[] = [];
+
+    // Add distance calculation if user has saved location
+    if (userLocation && userLocation.coordinates && userLocation.coordinates.length === 2) {
+      const [userLng, userLat] = userLocation.coordinates;
+      // Use $geoNear as first stage (requires 2dsphere index on location field)
+      pipeline.push(
+        {
+          $geoNear: {
+            near: {
+              type: "Point",
+              coordinates: [userLng, userLat]
+            },
+            distanceField: "distance",
+            spherical: true,
+            query: matchQuery
+          }
+        }
+      );
+    } else {
+      pipeline.push({ $match: matchQuery });
+    }
+
+    // Add price filter if specified (only if not using geoNear)
+    if (!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2) {
+      const pricePipeline = buildPricePipeline(minPrice, maxPrice);
+      pipeline.push(...pricePipeline);
+    } else {
+      // Handle price filter manually when using geoNear
+      if (minPrice !== undefined || maxPrice !== undefined) {
+        pipeline.push(
+          {
+            $lookup: {
+              from: "tickets",
+              localField: "_id",
+              foreignField: "event",
+              as: "tickets"
+            }
+          }
+        );
+        
+        const priceMatch: any = {};
+        if (minPrice !== undefined) {
+          priceMatch["tickets.price"] = { $gte: minPrice };
+        }
+        if (maxPrice !== undefined) {
+          priceMatch["tickets.price"] = { 
+            ...priceMatch["tickets.price"],
+            $lte: maxPrice 
+          };
+        }
+
+        pipeline.push({
+          $match: {
+            $or: [
+              { "tickets": { $size: 0 } }, // No tickets (free event)
+              priceMatch
+            ]
+          }
+        });
+      }
+    }
+
+    // Add population lookups with spots left calculation
+    pipeline.push(
+      {
+        $lookup: {
+          from: "users",
+          localField: "creator",
+          foreignField: "_id",
+          as: "creator",
+          pipeline: [{ $project: { userName: 1, photos: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "invitedGuests",
+          foreignField: "_id",
+          as: "invitedGuests",
+          pipeline: [{ $project: { userName: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "coHosts",
+          foreignField: "_id",
+          as: "coHosts",
+          pipeline: [{ $project: { userName: 1, photos: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "professionalProfiles",
+          localField: "lineup",
+          foreignField: "_id",
+          as: "lineup"
+        }
+      }
+    );
+
+    // Add tickets lookup only if not already added for price filtering
+    if (!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2 || (minPrice === undefined && maxPrice === undefined)) {
+      pipeline.push({
+        $lookup: {
+          from: "tickets",
+          localField: "_id",
+          foreignField: "event",
+          as: "tickets"
+        }
+      });
+    }
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: "purchases",
+          localField: "_id",
+          foreignField: "event",
+          as: "purchases"
+        }
+      },
+      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          totalSold: {
+            $sum: "$purchases.quantity"
+          },
+          spotsLeft: {
+            $subtract: ["$capacity", { $sum: "$purchases.quantity" }]
+          },
+          distanceKm: {
+            $cond: {
+              if: { $ifNull: ["$distance", false] },
+              then: { $round: [{ $divide: ["$distance", 1000] }, 2] },
+              else: null
+            }
+          }
+        }
+      },
+      { $sort: { date: 1 } }
+    );
+
+    return pipeline;
+  };
+
   // Handle different feed types
   if (type === "discover") {
     const user = await usersModel.findById(userId).lean();
@@ -735,7 +884,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     // Execute all queries in parallel
     const [foryouEvents, todayEvents, trendingEvents] = await Promise.all([
       eventModel.aggregate(buildEventPipeline(forYouQuery)),
-      eventModel.aggregate(buildEventPipeline(todayQuery)),
+      eventModel.aggregate(buildTodayEventPipeline(todayQuery, user.location)),
       purchaseModel.aggregate(trendingPipeline)
     ]);
 
