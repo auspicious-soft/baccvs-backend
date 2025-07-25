@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 import Busboy from "busboy";
 import { Readable } from "stream";
 import { customAlphabet } from "nanoid";
@@ -409,6 +409,8 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
   const now = new Date();
   const baseDate = new Date();
   baseDate.setHours(0, 0, 0, 0);
+
+  const userObjectId = new mongoose.Types.ObjectId(userId);
 
   // Optimized populate function with single aggregation
   const populateEventsOptimized = async (eventIds: any[]) => {
@@ -901,7 +903,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
 
   // Optimized queries for other types
   if (type === "myEvents") {
-    const pipeline = buildEventPipeline({ creator: userId });
+    const pipeline = buildEventPipeline({ creator: userObjectId });
     const events = await eventModel.aggregate(pipeline);
     
     return {
@@ -916,7 +918,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
 
   if (type === "past") {
     const pipeline = buildEventPipeline({ 
-      creator: userId, 
+      creator: userObjectId, 
       date: { $lt: baseDate } 
     });
     pipeline[pipeline.length - 1] = { $sort: { date: -1 } }; // Sort descending for past events
@@ -935,7 +937,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
 
   if (type === "upcoming") {
     const pipeline = buildEventPipeline({ 
-      creator: userId, 
+      creator: userObjectId, 
       date: { $gte: baseDate } 
     });
     const events = await eventModel.aggregate(pipeline);
