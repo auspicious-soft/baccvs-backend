@@ -909,8 +909,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     return {
       success: true,
       message: "My events fetched successfully",
-      data: {
-        populated: events,
+      data: { events,
         totalCount: events.length
       }
     };
@@ -928,8 +927,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     return {
       success: true,
       message: "Past events fetched successfully",
-      data: {
-        populated: events,
+      data: { events,
         totalCount: events.length
       }
     };
@@ -945,8 +943,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     return {
       success: true,
       message: "Upcoming events fetched successfully",
-      data: {
-        populated: events,
+      data: {events,
         totalCount: events.length
       }
     };
