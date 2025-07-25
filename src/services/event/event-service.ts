@@ -1134,25 +1134,145 @@ export const getUserEventsService = async (req:any,res:Response)=>{
 }
 
 export const getEventsByIdService = async (req: Request, res: Response) => {
+  const eventId = req.params.id;
+  
+  // Get the main event with populated fields
   const event = await eventModel
-    .findById(req.params.id)
-    .populate("creator")
-    .populate("invitedGuests")
-    .populate("coHosts")
+    .findById(eventId)
+    .populate("creator", "userName photos")
+    .populate("invitedGuests", "userName")
+    .populate("coHosts", "userName photos")
     .populate("lineup");
 
   if (!event) {
     return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
   }
 
+  // Get tickets for this event
   const tickets = await ticketModel.find({ event: event._id }).populate("event");
+
+  // Get purchase data for this event to calculate tickets sold
+  const purchases = await purchaseModel.find({ event: event._id });
+  const totalTicketsSold = purchases.reduce((sum, purchase) => sum + (purchase.quantity || 0), 0);
+
+  // Get creator statistics
+  const creatorStats = await Promise.all([
+    // Total events hosted by creator
+    eventModel.countDocuments({ creator: event.creator._id }),
+    // Total tickets sold across all creator's events
+    eventModel.aggregate([
+      { $match: { creator: event.creator._id } },
+      {
+        $lookup: {
+          from: "purchases",
+          localField: "_id",
+          foreignField: "event",
+          as: "purchases"
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } }
+        }
+      }
+    ])
+  ]);
+
+  const creatorTotalEvents = creatorStats[0];
+  const creatorTotalTicketsSold = creatorStats[1][0]?.totalTicketsSold || 0;
+
+  // Get coHosts statistics
+  const coHostsStats = await Promise.all(
+    event.coHosts.map(async (coHost: any) => {
+      const [totalEvents, ticketsSoldData] = await Promise.all([
+        // Total events created by this coHost
+        eventModel.countDocuments({ creator: coHost._id }),
+        // Total tickets sold across all coHost's events
+        eventModel.aggregate([
+          { $match: { creator: coHost._id } },
+          {
+            $lookup: {
+              from: "purchases",
+              localField: "_id",
+              foreignField: "event",
+              as: "purchases"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } }
+            }
+          }
+        ])
+      ]);
+
+      return {
+        coHost: {
+          _id: coHost._id,
+          userName: coHost.userName,
+          photos: coHost.photos
+        },
+        totalEventsCreated: totalEvents,
+        totalTicketsSold: ticketsSoldData[0]?.totalTicketsSold || 0
+      };
+    })
+  );
+
+  // Add sold flag and remaining quantity to tickets
+  const ticketsWithSoldInfo = await Promise.all(
+    tickets.map(async (ticket) => {
+      // Get purchases for this specific ticket
+      const ticketPurchases = purchases.filter(
+        purchase => purchase.ticket && purchase.ticket.toString() === ticket._id.toString()
+      );
+      
+      const soldQuantity = ticketPurchases.reduce((sum, purchase) => sum + (purchase.quantity || 0), 0);
+      const remainingQuantity = (ticket.quantity || 0) - soldQuantity;
+      
+      return {
+        ...ticket.toObject(),
+        soldQuantity,
+        remainingQuantity,
+        isSoldOut: remainingQuantity <= 0,
+        hasSales: soldQuantity > 0
+      };
+    })
+  );
+
+  // Calculate event capacity and spots left
+  const totalCapacity = event.capacity || 0;
+  const spotsLeft = Math.max(0, totalCapacity - totalTicketsSold);
 
   return {
     success: true,
     message: "Event and tickets retrieved successfully",
     data: {
-      event,
-      tickets,
+      event: {
+        ...event.toObject(),
+        totalTicketsSold,
+        spotsLeft,
+        capacityUtilization: totalCapacity > 0 ? ((totalTicketsSold / totalCapacity) * 100).toFixed(2) : 0
+      },
+      tickets: ticketsWithSoldInfo,
+      creatorStats: {
+        creator: {
+          _id: event.creator._id,
+          userName: event.creator.userName,
+          photos: event.creator.photos
+        },
+        totalEventsHosted: creatorTotalEvents,
+        totalTicketsSoldAcrossAllEvents: creatorTotalTicketsSold
+      },
+      coHostsStats,
+      eventSalesStats: {
+        totalTicketsSold,
+        totalRevenue: purchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0),
+        totalPurchases: purchases.length,
+        spotsLeft,
+        isSoldOut: spotsLeft <= 0
+      }
     },
   };
 };
