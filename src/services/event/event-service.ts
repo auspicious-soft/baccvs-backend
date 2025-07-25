@@ -569,7 +569,138 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     ];
   };
 
-  // Main aggregation pipeline builder
+  // Enhanced pipeline builder with distance calculation
+  const buildEventPipelineWithDistance = (matchQuery: any, userLocation?: any, includeSpotsLeft: boolean = false) => {
+    const pipeline: any[] = [];
+
+    // Add distance calculation if user has location
+    if (userLocation && userLocation.coordinates && userLocation.coordinates.length === 2) {
+      const [userLng, userLat] = userLocation.coordinates;
+      // Use $geoNear as first stage (requires 2dsphere index on location field)
+      pipeline.push(
+        {
+          $geoNear: {
+            near: {
+              type: "Point",
+              coordinates: [userLng, userLat]
+            },
+            distanceField: "distance",
+            spherical: true,
+            query: matchQuery
+          }
+        }
+      );
+    } else {
+      pipeline.push({ $match: matchQuery });
+    }
+
+    // Add location filter if specified and not using geoNear with user location
+    if ((!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2) && lat && lng && maxDistance) {
+      const locationPipeline = buildLocationPipeline(lat, lng, maxDistance);
+      if (locationPipeline.length) {
+        pipeline.splice(-1, 1, ...locationPipeline, { $match: matchQuery });
+      }
+    }
+
+    // Add price filter
+    const pricePipeline = buildPricePipeline(minPrice, maxPrice);
+    if (pricePipeline.length) {
+      pipeline.push(...pricePipeline);
+    }
+
+    // Add population lookups
+    pipeline.push(
+      {
+        $lookup: {
+          from: "users",
+          localField: "creator",
+          foreignField: "_id",
+          as: "creator",
+          pipeline: [{ $project: { userName: 1, photos: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "invitedGuests",
+          foreignField: "_id",
+          as: "invitedGuests",
+          pipeline: [{ $project: { userName: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "coHosts",
+          foreignField: "_id",
+          as: "coHosts",
+          pipeline: [{ $project: { userName: 1, photos: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "professionalProfiles",
+          localField: "lineup",
+          foreignField: "_id",
+          as: "lineup"
+        }
+      }
+    );
+
+    // Add tickets lookup if not already added
+    if (!pricePipeline.length) {
+      pipeline.push({
+        $lookup: {
+          from: "tickets",
+          localField: "_id",
+          foreignField: "event",
+          as: "tickets"
+        }
+      });
+    }
+
+    // Add purchases lookup and spots calculation if needed
+    if (includeSpotsLeft) {
+      pipeline.push({
+        $lookup: {
+          from: "purchases",
+          localField: "_id",
+          foreignField: "event",
+          as: "purchases"
+        }
+      });
+    }
+
+    pipeline.push(
+      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } }
+    );
+
+    // Add calculated fields
+    const addFields: any = {};
+    
+    // Add distance calculation
+    addFields.distanceKm = {
+      $cond: {
+        if: { $ifNull: ["$distance", false] },
+        then: { $round: [{ $divide: ["$distance", 1000] }, 2] },
+        else: null
+      }
+    };
+
+    // Add spots left calculation if needed
+    if (includeSpotsLeft) {
+      addFields.totalSold = { $sum: "$purchases.quantity" };
+      addFields.spotsLeft = {
+        $subtract: ["$capacity", { $sum: "$purchases.quantity" }]
+      };
+    }
+
+    pipeline.push({ $addFields: addFields });
+
+    return pipeline;
+  };
+
+  // Main aggregation pipeline builder (keep for backward compatibility)
   const buildEventPipeline = (matchQuery: any) => {
     const pipeline: any[] = [{ $match: matchQuery }];
 
@@ -784,11 +915,12 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     return pipeline;
   };
 
+  // Get user data for location
+  const user = await usersModel.findById(userId).lean();
+  if (!user) return { success: false, message: "User not found" };
+
   // Handle different feed types
   if (type === "discover") {
-    const user = await usersModel.findById(userId).lean();
-    if (!user) return { success: false, message: "User not found" };
-
     if (filterApplied) {
       const filterQuery = buildFilterQuery({ date: { $gte: baseDate } });
       const pipeline : any = buildEventPipeline(filterQuery);
@@ -811,15 +943,6 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     if (user.eventTypes?.length) {
       forYouQuery["eventPreferences.eventType"] = { $in: user.eventTypes };
     }
-    // if (user.atmosphereVibes?.length) {
-    //   forYouQuery["eventPreferences.atmosphereVibe"] = { $in: user.atmosphereVibes };
-    // }
-    // if (user.interestCategories?.length) {
-    //   forYouQuery["interestCategories"] = { $in: user.interestCategories };
-    // }
-    // if (user.language?.length) {
-    //   forYouQuery["language"] = { $in: user.language };
-    // }
 
     // Today's events query
     const startToday = new Date();
@@ -901,49 +1024,55 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     };
   }
 
-  // Optimized queries for other types
+  // Updated queries for other types with distance calculation
   if (type === "myEvents") {
-    const pipeline = buildEventPipeline({ creator: userObjectId });
+    const pipeline = buildEventPipelineWithDistance({ creator: userObjectId }, user.location);
+    pipeline.push({ $sort: { date: 1 } });
     const events = await eventModel.aggregate(pipeline);
     
     return {
       success: true,
       message: "My events fetched successfully",
-      data: { events,
+      data: { 
+        events,
         totalCount: events.length
       }
     };
   }
 
   if (type === "past") {
-    const pipeline = buildEventPipeline({ 
+    const pipeline = buildEventPipelineWithDistance({ 
       creator: userObjectId, 
       date: { $lt: baseDate } 
-    });
-    pipeline[pipeline.length - 1] = { $sort: { date: -1 } }; // Sort descending for past events
+    }, user.location);
+    pipeline.push({ $sort: { date: -1 } }); // Sort descending for past events
     
     const events = await eventModel.aggregate(pipeline);
     
     return {
       success: true,
       message: "Past events fetched successfully",
-      data: { events,
+      data: { 
+        events,
         totalCount: events.length
       }
     };
   }
 
   if (type === "upcoming") {
-    const pipeline = buildEventPipeline({ 
+    const pipeline = buildEventPipelineWithDistance({ 
       creator: userObjectId, 
       date: { $gte: baseDate } 
-    });
+    }, user.location, true); // Include spots left for upcoming events
+    pipeline.push({ $sort: { date: 1 } });
+    
     const events = await eventModel.aggregate(pipeline);
     
     return {
       success: true,
       message: "Upcoming events fetched successfully",
-      data: {events,
+      data: {
+        events,
         totalCount: events.length
       }
     };
