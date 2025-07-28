@@ -52,16 +52,69 @@ export const getTickets = async (_req: any, res: Response) => {
 };
 
 export const getTicketById = async (req: any, res: Response) => {
+    const ticketId = req.params.id;
 
-    const ticket = await ticketModel.findById(req.params.id).populate('event');
+    // Get the ticket with populated event
+    const ticket = await ticketModel.findById(ticketId).populate('event');
     if (!ticket) {
       return errorResponseHandler("Ticket not found", httpStatusCode.NOT_FOUND, res);
     }
+
+    // Get purchase statistics for this ticket
+    const purchaseStats = await purchaseModel.aggregate([
+      {
+        $match: {
+          ticket: new mongoose.Types.ObjectId(ticketId),
+          status: { $in: ['active', 'used', 'transferred'] } // Only count valid purchases
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalSold: { $sum: '$quantity' },
+          totalSaleAmount: { $sum: '$totalPrice' }
+        }
+      }
+    ]);
+
+    // Get recent buyers (last 10 purchases with buyer details)
+    const recentBuyers = await purchaseModel
+      .find({
+        ticket: ticketId,
+        status: { $in: ['active', 'used', 'transferred'] }
+      })
+      .populate('buyer', 'name email profilePicture') // Adjust fields based on your user schema
+      .sort({ purchaseDate: -1 }) // Most recent first
+      .select('buyer quantity totalPrice purchaseDate status');
+
+    // Extract statistics or set defaults
+    const stats = purchaseStats[0] || { totalSold: 0, totalSaleAmount: 0 };
+    const totalAvailable = ticket.quantity - stats.totalSold;
+    const isSoldOut = totalAvailable <= 0;
+
+    // Enhanced ticket data
+    const enhancedTicket = {
+      ...ticket.toObject(),
+      totalSold: stats.totalSold,
+      totalAvailable: totalAvailable,
+      totalSaleAmount: stats.totalSaleAmount,
+      isSoldOut: isSoldOut,
+      recentBuyers: recentBuyers.map(purchase => ({
+        buyer: purchase.buyer,
+        quantity: purchase.quantity,
+        totalPrice: purchase.totalPrice,
+        purchaseDate: purchase.purchaseDate,
+        status: purchase.status
+      }))
+    };
+
     return {
       success: true,
       message: "Ticket fetched successfully",
-      data: ticket
+      data: enhancedTicket
     };
+
+
 };
 
 export const getTicketsByEvent = async (req: any, res: Response) => {

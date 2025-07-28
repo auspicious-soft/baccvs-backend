@@ -11,7 +11,7 @@ import { createCommunity, getCommunities, getUserCommunities, getCommunityById, 
 import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
 import { togglePinCommunityConversation, togglePinDirectConversation, togglePinSquadConversation, updateCommunityConversationBackground, updateDirectConversationBackground, updateSquadConversationBackground } from "src/controllers/chat/chat-settings-controller";
 import { getUserNotification, markNotificationAsRead } from "src/controllers/user-notification-controller.ts/user-notification-controller";
-import { getTicketsByEventController, updateTicketController } from "src/controllers/ticket/ticket-controller";
+import { getTicketByIdController, getTicketsByEventController, updateTicketController } from "src/controllers/ticket/ticket-controller";
 
 const router = Router();
 
@@ -42,6 +42,7 @@ router.get("/get/user/dating/notification",getUserNotification)
 router.patch("/mark/notification/read/:notificationId",markNotificationAsRead);
 router.get("/event/tickets/:eventId", getTicketsByEventController);
 router.patch("/edit/ticket/:id",updateTicketController)
+router.get("/get/ticket/:id",getTicketByIdController)
 router.patch("/update/user/info", editUserInfo)
 router.patch("/toggle/notification",notificationSetting)
 router.patch("/toggle/promotion/:id",togglePromotionStatus)
