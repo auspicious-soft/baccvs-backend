@@ -180,7 +180,7 @@ export const getTicketsByEvent = async (req: any, res: Response) => {
       totalSalesAmount: 0
     });
 
-    return res.status(httpStatusCode.OK).json({
+    return {
       success: true,
       message: "Tickets fetched successfully",
       data: {
@@ -192,7 +192,6 @@ export const getTicketsByEvent = async (req: any, res: Response) => {
       }
     }
     }
-  );
 };
 
 export const updateTicket = async (req: any, res: Response) => {
