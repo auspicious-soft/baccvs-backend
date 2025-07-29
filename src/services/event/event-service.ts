@@ -390,7 +390,7 @@ const processEventCreation = async (
   };
 };
 
-export const getUserEventFeedService = async (req: Request, res: Response) => {
+export const getUserEventFeedService = async (req: any, res: Response) => {
   const { id: userId } = req.user as any;
   const {
     type = "discover",
@@ -413,6 +413,64 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
   baseDate.setHours(0, 0, 0, 0);
 
   const userObjectId = new mongoose.Types.ObjectId(userId);
+
+  // Helper function to add engagement data lookups
+  const addEngagementLookups = () => [
+    {
+      $lookup: {
+        from: "likes",
+        let: { eventId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$target", "$$eventId"] },
+                  { $eq: ["$targetType", "event"] }
+                ]
+              }
+            }
+          }
+        ],
+        as: "likes"
+      }
+    },
+    {
+      $lookup: {
+        from: "comments",
+        localField: "_id",
+        foreignField: "event",
+        as: "comments"
+      }
+    },
+    {
+      $lookup: {
+        from: "likes",
+        let: { eventId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$target", "$$eventId"] },
+                  { $eq: ["$targetType", "event"] },
+                  { $eq: ["$user", userObjectId] }
+                ]
+              }
+            }
+          }
+        ],
+        as: "userLike"
+      }
+    }
+  ];
+
+  // Helper function to add engagement calculated fields
+  const addEngagementFields = () => ({
+    likeCount: { $size: "$likes" },
+    commentCount: { $size: "$comments" },
+    isLikedByCurrentUser: { $gt: [{ $size: "$userLike" }, 0] }
+  });
 
   // Optimized populate function with single aggregation
   const populateEventsOptimized = async (eventIds: any[]) => {
@@ -463,7 +521,20 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
           as: "tickets"
         }
       },
-      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } }
+      ...addEngagementLookups(),
+      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          ...addEngagementFields()
+        }
+      },
+      {
+        $project: {
+          likes: 0,
+          comments: 0,
+          userLike: 0
+        }
+      }
     ];
 
     return await eventModel.aggregate(pipeline);
@@ -571,7 +642,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     ];
   };
 
-  // Enhanced pipeline builder with distance calculation
+  // Enhanced pipeline builder with distance calculation and engagement data
   const buildEventPipelineWithDistance = (matchQuery: any, userLocation?: any, includeSpotsLeft: boolean = false) => {
     const pipeline: any[] = [];
 
@@ -673,12 +744,17 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
       });
     }
 
+    // Add engagement data lookups
+    pipeline.push(...addEngagementLookups());
+
     pipeline.push(
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } }
     );
 
     // Add calculated fields
-    const addFields: any = {};
+    const addFields: any = {
+      ...addEngagementFields()
+    };
     
     // Add distance calculation
     addFields.distanceKm = {
@@ -699,10 +775,19 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
 
     pipeline.push({ $addFields: addFields });
 
+    // Remove temporary fields
+    pipeline.push({
+      $project: {
+        likes: 0,
+        comments: 0,
+        userLike: 0
+      }
+    });
+
     return pipeline;
   };
 
-  // Main aggregation pipeline builder (keep for backward compatibility)
+  // Main aggregation pipeline builder with engagement data
   const buildEventPipeline = (matchQuery: any) => {
     const pipeline: any[] = [{ $match: matchQuery }];
 
@@ -760,15 +845,33 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
           foreignField: "event",
           as: "tickets"
         }
-      },
+      }
+    );
+
+    // Add engagement data lookups
+    pipeline.push(...addEngagementLookups());
+
+    pipeline.push(
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          ...addEngagementFields()
+        }
+      },
+      {
+        $project: {
+          likes: 0,
+          comments: 0,
+          userLike: 0
+        }
+      },
       { $sort: { date: 1 } }
     );
 
     return pipeline;
   };
 
-  // Special pipeline builder for today's events with distance and spots left
+  // Special pipeline builder for today's events with distance, spots left, and engagement
   const buildTodayEventPipeline = (matchQuery: any, userLocation?: any) => {
     const pipeline: any[] = [];
 
@@ -892,7 +995,13 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
           foreignField: "event",
           as: "purchases"
         }
-      },
+      }
+    );
+
+    // Add engagement data lookups
+    pipeline.push(...addEngagementLookups());
+
+    pipeline.push(
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
@@ -908,7 +1017,15 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
               then: { $round: [{ $divide: ["$distance", 1000] }, 2] },
               else: null
             }
-          }
+          },
+          ...addEngagementFields()
+        }
+      },
+      {
+        $project: {
+          likes: 0,
+          comments: 0,
+          userLike: 0
         }
       },
       { $sort: { date: 1 } }
@@ -955,7 +1072,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
       date: { $gte: startToday, $lte: endToday } 
     });
 
-    // Trending events with optimized aggregation
+    // Trending events with optimized aggregation and engagement data
     const trendingPipeline = [
       {
         $group: {
@@ -986,7 +1103,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
       trendingPipeline.push(...locationPipeline, ...pricePipeline);
     }
 
-    // Add population to trending
+    // Add population and engagement to trending
     trendingPipeline.push(
       {
         $lookup: {
@@ -1005,7 +1122,20 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
           as: "tickets"
         }
       },
-      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } }
+      ...addEngagementLookups(),
+      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          ...addEngagementFields()
+        }
+      },
+      {
+        $project: {
+          likes: 0,
+          comments: 0,
+          userLike: 0
+        }
+      }
     );
 
     // Execute all queries in parallel
@@ -1026,7 +1156,7 @@ export const getUserEventFeedService = async (req: Request, res: Response) => {
     };
   }
 
-  // Updated queries for other types with distance calculation
+  // Updated queries for other types with distance calculation and engagement
   if (type === "myEvents") {
     const pipeline = buildEventPipelineWithDistance({ creator: userObjectId }, user.location);
     pipeline.push({ $sort: { date: 1 } });
@@ -1135,7 +1265,7 @@ export const getUserEventsService = async (req:any,res:Response)=>{
   };
 }
 
-export const getEventsByIdService = async (req: Request, res: Response) => {
+export const getEventsByIdService = async (req: any, res: Response) => {
   const eventId = req.params.id;
   const currentUserId = req.user?.id || req.user?._id; // Assuming user is available in req.user
   
