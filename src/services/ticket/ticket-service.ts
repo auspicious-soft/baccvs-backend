@@ -194,6 +194,39 @@ export const getTicketsByEvent = async (req: any, res: Response) => {
     }
 };
 
+// Helper function to calculate total ticket quantities for an event
+const getTotalTicketQuantityForEvent = async (eventId: string, excludeTicketId?: string) => {
+    const query: any = { event: eventId };
+    if (excludeTicketId) {
+        query._id = { $ne: excludeTicketId };
+    }
+    
+    const tickets = await ticketModel.find(query);
+    return tickets.reduce((total, ticket) => total + ticket.quantity, 0);
+};
+
+// Helper function to validate total capacity for an event
+const validateEventCapacity = async (eventId: string, ticketIdToUpdate: string, newQuantity: number, eventCapacity: number) => {
+    const allEventTickets = await ticketModel.find({ event: eventId });
+    
+    let totalQuantity = 0;
+    allEventTickets.forEach(ticket => {
+        if (ticket._id.toString() === ticketIdToUpdate) {
+            // Use the new quantity for the ticket being updated
+            totalQuantity += newQuantity;
+        } else {
+            // Use existing quantity for other tickets
+            totalQuantity += ticket.quantity;
+        }
+    });
+    
+    return {
+        isValid: totalQuantity <= eventCapacity,
+        totalQuantity,
+        eventCapacity
+    };
+};
+
 export const updateTicket = async (req: any, res: Response) => {
     const ticketId = req.params.id;
     const userId = req.user?.id; // Assuming user ID is available in req.user from auth middleware
@@ -202,7 +235,7 @@ export const updateTicket = async (req: any, res: Response) => {
     // First, get the ticket with populated event data
     const existingTicket = await ticketModel.findById(ticketId).populate('event');
     if (!existingTicket) {
-      return errorResponseHandler("Ticket not found", httpStatusCode.NOT_FOUND, res);
+        return errorResponseHandler("Ticket not found", httpStatusCode.NOT_FOUND, res);
     }
 
     // Check if user is the creator of the event or a co-host
@@ -211,56 +244,86 @@ export const updateTicket = async (req: any, res: Response) => {
     const isCoHost = event.coHosts && event.coHosts.some((coHost: any) => coHost.toString() === userId);
 
     if (!isEventCreator && !isCoHost) {
-      return errorResponseHandler("You are not authorized to update this ticket", httpStatusCode.FORBIDDEN, res);
+        return errorResponseHandler("You are not authorized to update this ticket", httpStatusCode.FORBIDDEN, res);
     }
 
     // Check if any tickets have been sold
     const soldTicketsCount = await purchaseModel.countDocuments({
-      ticket: ticketId,
-      status: { $in: ['active', 'used', 'transferred'] } // Count valid purchases
+        ticket: ticketId,
+        status: { $in: ['active', 'used', 'transferred'] } // Count valid purchases
     });
 
     if (soldTicketsCount > 0) {
-      return errorResponseHandler("Cannot update ticket as it has already been sold", httpStatusCode.BAD_REQUEST, res);
+        return errorResponseHandler("Cannot update ticket as it has already been sold", httpStatusCode.BAD_REQUEST, res);
     }
 
     // If quantity is being updated, check against event capacity
     if (updateData.quantity !== undefined) {
-      // Get all tickets for this event (excluding the current ticket being updated)
-      const otherTickets = await ticketModel.find({
-        event: event._id,
-        _id: { $ne: ticketId }
-      });
+        // Validate that quantity is a positive number
+        if (updateData.quantity < 0) {
+            return errorResponseHandler("Ticket quantity cannot be negative", httpStatusCode.BAD_REQUEST, res);
+        }
 
-      // Calculate total quantity of other tickets
-      const otherTicketsQuantity = otherTickets.reduce((total, ticket) => total + ticket.quantity, 0);
-      
-      // Check if new total would exceed event capacity
-      const newTotalQuantity = otherTicketsQuantity + updateData.quantity;
-      
-      if (newTotalQuantity > event.capacity) {
-        return errorResponseHandler(
-          `Total ticket quantity (${newTotalQuantity}) cannot exceed event capacity (${event.capacity})`,
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
-      }
+        // Get all tickets for this event (including the current ticket being updated)
+        const allEventTickets = await ticketModel.find({
+            event: event._id
+        });
+
+        // Calculate total quantity excluding the current ticket's old quantity
+        let totalOtherTicketsQuantity = 0;
+        let currentTicketOldQuantity = 0;
+
+        allEventTickets.forEach(ticket => {
+            if (ticket._id.toString() === ticketId) {
+                // This is the ticket being updated - store its current quantity
+                currentTicketOldQuantity = ticket.quantity;
+            } else {
+                // Add other tickets' quantities
+                totalOtherTicketsQuantity += ticket.quantity;
+            }
+        });
+        
+        // Calculate new total quantity with the updated ticket quantity
+        const newTotalQuantity = Number(totalOtherTicketsQuantity) + Number(updateData.quantity);
+
+        // Check if new total would exceed event capacity
+        if (newTotalQuantity > event.capacity) {
+            return errorResponseHandler(
+                `Total ticket quantity (${newTotalQuantity}) cannot exceed event capacity (${event.capacity}). ` +
+                `Other tickets total: ${totalOtherTicketsQuantity}, Your new ticket quantity: ${updateData.quantity}, ` +
+                `Current ticket quantity: ${currentTicketOldQuantity}`,
+                httpStatusCode.BAD_REQUEST,
+                res
+            );
+        }
+
+        // Additional validation: Ensure each ticket has at least some quantity
+        // (You might want to allow 0 if tickets can be temporarily disabled)
+        if (updateData.quantity === 0) {
+            console.warn(`Ticket ${ticketId} quantity set to 0 - this will make the ticket unavailable`);
+        }
+
+        // Log the capacity check for debugging
+        console.log(`Capacity check - Event: ${event._id}, Capacity: ${event.capacity}, ` +
+                   `Other tickets: ${totalOtherTicketsQuantity}, New ticket quantity: ${updateData.quantity}, ` +
+                   `Total: ${newTotalQuantity}`);
     }
 
     // Proceed with the update
     const updatedTicket = await ticketModel.findByIdAndUpdate(
-      ticketId,
-      updateData,
-      { new: true, runValidators: true }
+        ticketId,
+        {available:updateData.quantity,...updateData},
+        { new: true, runValidators: true }
     ).populate('event');
 
+    // Optional: Log the update for audit purposes
+    console.log(`Ticket ${ticketId} updated by user ${userId}. New quantity: ${updateData.quantity || existingTicket.quantity}`);
+
     return {
-      success: true,
-      message: "Ticket updated successfully",
-      data: updatedTicket
+        success: true,
+        message: "Ticket updated successfully",
+        data: updatedTicket
     };
-
-
 };
 
 export const updateTicketAvailability = async (req: any, res: Response) => {
