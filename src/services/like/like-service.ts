@@ -7,6 +7,9 @@ import { JwtPayload } from "jsonwebtoken";
 import { postModels } from "src/models/post/post-schema";
 import { Comment } from "src/models/comment/comment-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
+import { eventModel } from "src/models/event/event-schema";
+// Import your Event model here
+// import { EventModel } from "src/models/event/event-schema";
 
 // Toggle like (create/delete)
 export const toggleLikeService = async (req: Request, res: Response) => {
@@ -22,8 +25,8 @@ export const toggleLikeService = async (req: Request, res: Response) => {
     return errorResponseHandler("Target type and ID are required", httpStatusCode.BAD_REQUEST, res);
   }
 
-  // Validate targetType
-  if (!["posts", "comments", "reposts"].includes(targetType)) {
+  // Validate targetType - now includes "event"
+  if (!["posts", "comments", "reposts", "event"].includes(targetType)) {
     return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
   }
 
@@ -45,11 +48,15 @@ export const toggleLikeService = async (req: Request, res: Response) => {
     } else if (targetType === "reposts") {
       const repost = await RepostModel.findOne({ _id: targetId }).exec();
       targetExists = !!repost;
+    } else if (targetType === "event") {
+      const event = await eventModel.findOne({ _id: targetId }).exec();
+      targetExists = !!event;
+      // targetExists = true;
     }
 
     if (!targetExists) {
       return errorResponseHandler(
-        `${targetType.charAt(0).toUpperCase() + targetType.slice(1, -1)} not found`,
+        `${targetType.charAt(0).toUpperCase() + targetType.slice(1)} not found`,
         httpStatusCode.NOT_FOUND,
         res
       );
@@ -67,7 +74,7 @@ export const toggleLikeService = async (req: Request, res: Response) => {
       await LikeModel.findByIdAndDelete(existingLike._id);
       return {
         success: true,
-        message: `${targetType.slice(0, -1)} unliked successfully`,
+        message: `${getTargetDisplayName(targetType)} unliked successfully`,
         liked: false
       };
     } else {
@@ -80,7 +87,7 @@ export const toggleLikeService = async (req: Request, res: Response) => {
       await newLike.save();
       return {
         success: true,
-        message: `${targetType.slice(0, -1)} liked successfully`,
+        message: `${getTargetDisplayName(targetType)} liked successfully`,
         liked: true
       };
     }
@@ -92,6 +99,22 @@ export const toggleLikeService = async (req: Request, res: Response) => {
   }
 };
 
+// Helper function to get display name for different target types
+const getTargetDisplayName = (targetType: string): string => {
+  switch (targetType) {
+    case "posts":
+      return "Post";
+    case "comments":
+      return "Comment";
+    case "reposts":
+      return "Repost";
+    case "event":
+      return "Event";
+    default:
+      return targetType;
+  }
+};
+
 // Get all likes with pagination
 export const getLikesService = async (req: Request, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
@@ -99,7 +122,7 @@ export const getLikesService = async (req: Request, res: Response) => {
   const skip = (page - 1) * limit;
 
   const likes = await LikeModel.find()
-    .populate('userId', '-password')
+    .populate('user', '-password')
     .skip(skip)
     .limit(limit)
     .sort({ createdAt: -1 });
@@ -127,9 +150,10 @@ export const getLikesByUserService = async (req: Request, res: Response) => {
   const { id: userId } = req.user as JwtPayload;
   const { targetType } = req.query;
 
-  const query: any = { user: userId }; // Changed from userId to user to match schema
+  const query: any = { user: userId };
   if (targetType) {
-    if (!["posts", "comments", "reposts"].includes(targetType as string)) {
+    // Updated to include "event"
+    if (!["posts", "comments", "reposts", "event"].includes(targetType as string)) {
       return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
     }
     query.targetType = targetType;
@@ -151,12 +175,12 @@ export const getLikesByUserService = async (req: Request, res: Response) => {
   };
 };
 
-// Get likes for a specific target (post/comment/repost)
+// Get likes for a specific target (post/comment/repost/event)
 export const getLikesByTargetService = async (req: Request, res: Response) => {
   const { targetType, targetId } = req.params;
 
-  // Validate targetType
-  if (!["posts", "comments", "reposts"].includes(targetType)) {
+  // Validate targetType - now includes "event"
+  if (!["posts", "comments", "reposts", "event"].includes(targetType)) {
     return errorResponseHandler("Invalid target type", httpStatusCode.BAD_REQUEST, res);
   }
 
@@ -176,5 +200,3 @@ export const getLikesByTargetService = async (req: Request, res: Response) => {
     count: likes.length
   };
 };
-
-

@@ -9,7 +9,7 @@ const LikeSchema = new Schema(
     },
     targetType: {
       type: String,
-      enum: ["posts", "comments","reposts"],
+      enum: ["posts", "comments","reposts","event"],
       required: true
     },
     target: {
