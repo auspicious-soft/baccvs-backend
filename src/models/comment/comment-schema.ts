@@ -26,26 +26,29 @@ interface ICommentModel extends Model<IComment> {
 
 const CommentSchema = new Schema(
   {
-    // Either post or repost must be provided, but not both
+    // Either post, repost, or event must be provided, but only one
     post: {
       type: Schema.Types.ObjectId,
       ref: 'posts',
       required: function(this: any) {
-        return !this.repost;
+        // Required only if neither repost nor event is provided
+        return !this.repost && !this.event;
       }
     },
     repost: {
       type: Schema.Types.ObjectId,
       ref: 'reposts',
       required: function(this: any) {
-        return !this.post;
+        // Required only if neither post nor event is provided
+        return !this.post && !this.event;
       }
     },
     event: {
       type: Schema.Types.ObjectId,
-      ref: 'event',
+      ref: 'event',  // Make sure this matches your event model name
       required: function(this: any) {
-        return !this.post;
+        // Required only if neither post nor repost is provided
+        return !this.post && !this.repost;
       }
     },
     user: {
@@ -65,20 +68,31 @@ const CommentSchema = new Schema(
     },
     text: {
       type: String,
-      trim: true
+      trim: true,
+      required: function(this: any) {
+        return this.type === 'text';
+      }
     },
     audioUrl: {
-      type: String
+      type: String,
+      required: function(this: any) {
+        return this.type === 'audio';
+      }
     },
     isDeleted: {
       type: Boolean,
       default: false
     },
+    likes: [{
+      type: Schema.Types.ObjectId,
+      ref: 'users'
+    }]
   },
   {
     timestamps: true
   }
 );
+
 
 // Validate that either post or repost is provided, but not both
 CommentSchema.pre('validate', function (next) {
