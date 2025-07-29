@@ -12,6 +12,8 @@ import { uploadStreamToS3Service } from "src/configF/s3";
 import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
 import { purchaseModel } from "src/models/purchase/purchase-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { LikeModel } from "src/models/like/like-schema";
+import { Comment } from "src/models/comment/comment-schema";
 
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
@@ -1135,6 +1137,7 @@ export const getUserEventsService = async (req:any,res:Response)=>{
 
 export const getEventsByIdService = async (req: Request, res: Response) => {
   const eventId = req.params.id;
+  const currentUserId = req.user?.id || req.user?._id; // Assuming user is available in req.user
   
   // Get the main event with populated fields
   const event = await eventModel
@@ -1142,7 +1145,7 @@ export const getEventsByIdService = async (req: Request, res: Response) => {
     .populate("creator", "userName photos")
     .populate("invitedGuests", "userName")
     .populate("coHosts", "userName photos")
-    .populate("lineup");
+    .populate("lineup")
 
   if (!event) {
     return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
@@ -1154,6 +1157,19 @@ export const getEventsByIdService = async (req: Request, res: Response) => {
   // Get purchase data for this event to calculate tickets sold
   const purchases = await purchaseModel.find({ event: event._id });
   const totalTicketsSold = purchases.reduce((sum, purchase) => sum + (purchase.quantity || 0), 0);
+
+  // Get like count, comment count, and user's like status
+  const [likeCount, commentCount, userLike] = await Promise.all([
+    LikeModel.countDocuments({ targetType: "event", target: eventId }),
+    Comment.countDocuments({ event: eventId }),
+    currentUserId ? LikeModel.findOne({ 
+      user: currentUserId, 
+      targetType: "event", 
+      target: eventId 
+    }) : null
+  ]);
+
+  const isLikedByCurrentUser = !!userLike;
 
   // Get creator statistics
   const creatorStats = await Promise.all([
@@ -1253,7 +1269,10 @@ export const getEventsByIdService = async (req: Request, res: Response) => {
         ...event.toObject(),
         totalTicketsSold,
         spotsLeft,
-        capacityUtilization: totalCapacity > 0 ? ((totalTicketsSold / totalCapacity) * 100).toFixed(2) : 0
+        capacityUtilization: totalCapacity > 0 ? ((totalTicketsSold / totalCapacity) * 100).toFixed(2) : 0,
+        likeCount,
+        commentCount,
+        isLikedByCurrentUser
       },
       tickets: ticketsWithSoldInfo,
       creatorStats: {
@@ -1272,6 +1291,11 @@ export const getEventsByIdService = async (req: Request, res: Response) => {
         totalPurchases: purchases.length,
         spotsLeft,
         isSoldOut: spotsLeft <= 0
+      },
+      engagement: {
+        likeCount,
+        commentCount,
+        isLikedByCurrentUser
       }
     },
   };
@@ -1284,8 +1308,8 @@ export const updateEventService = async (req: Request, res: Response) => {
 
   const { id: userId } = req.user as JwtPayload;
   let parsedData: any = {};
-  let coverPhoto: string | null = null;
-  let videos: string[] = [];
+  let newCoverPhoto: string | null = null;
+  let newVideos: string[] = [];
 
   // Handle multipart/form-data for file uploads
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
@@ -1306,6 +1330,28 @@ export const updateEventService = async (req: Request, res: Response) => {
               code: httpStatusCode.BAD_REQUEST,
             });
           }
+        } else if (fieldname === 'existingCoverPhoto') {
+          // Handle existing cover photo that user wants to keep
+          parsedData[fieldname] = value;
+        } else if (fieldname === 'existingVideos') {
+          // Handle existing videos that user wants to keep
+          try {
+            const parsed = JSON.parse(value);
+            parsedData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            parsedData[fieldname] = value ? [value] : [];
+          }
+        } else if (fieldname === 'mediaToDelete') {
+          // Handle media that user wants to delete (can be cover photo or videos)
+          try {
+            const parsed = JSON.parse(value);
+            parsedData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            parsedData[fieldname] = value ? [value] : [];
+          }
+        } else if (fieldname === 'deleteCoverPhoto') {
+          // Flag to delete current cover photo
+          parsedData[fieldname] = value === 'true';
         } else {
           parsedData[fieldname] = value;
         }
@@ -1349,7 +1395,8 @@ export const updateEventService = async (req: Request, res: Response) => {
           filename,
           mimeType,
           parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        );
+        ).then(url => ({ url, fieldname })); // Track which field this upload is for
+
         uploadPromises.push(uploadPromise);
       });
 
@@ -1357,16 +1404,18 @@ export const updateEventService = async (req: Request, res: Response) => {
         try {
           // Wait for file uploads
           const uploadedFiles = await Promise.all(uploadPromises);
-          uploadedFiles.forEach((url, index) => {
-            if (index === 0 && !coverPhoto && !parsedData.coverPhoto) {
-              coverPhoto = url;
-            } else {
-              videos.push(url);
+          
+          // Separate uploaded files by type
+          uploadedFiles.forEach(({ url , fieldname }) => {
+            if (fieldname === 'coverPhoto') {
+              newCoverPhoto = url;
+            } else if (fieldname === 'videos') {
+              newVideos.push(url);
             }
           });
 
           // Proceed with event update
-          resolve(await processEventUpdate(parsedData, userId, req.params.id, coverPhoto, videos, res));
+          resolve(await processEventUpdate(parsedData, userId, req.params.id, newCoverPhoto, newVideos, res));
         } catch (error) {
           console.error("Upload error:", error);
           reject({
@@ -1398,8 +1447,8 @@ const processEventUpdate = async (
   data: any,
   userId: string,
   eventId: string,
-  coverPhoto: string | null,
-  videos: string[],
+  newCoverPhoto: string | null,
+  newVideos: string[],
   res: Response
 ) => {
   const event = await eventModel.findById(eventId);
@@ -1537,11 +1586,91 @@ const processEventUpdate = async (
       address: data.location.address || null,
     };
   }
-  if (coverPhoto || videos.length > 0 || data.media) {
-    updateData.media = {
-      coverPhoto: coverPhoto || data.media?.coverPhoto || event.media?.coverPhoto,
-      videos: videos.length > 0 ? videos : data.media?.videos || event.media?.videos,
-    };
+
+  // Enhanced media management logic
+  let finalCoverPhoto: string | null = null;
+  let finalVideos: string[] = [];
+  
+  // Get current media from database
+  const currentCoverPhoto = event.media?.coverPhoto || null;
+  const currentVideos = event.media?.videos || [];
+  
+  // Handle media to delete (can include cover photo URL or video URLs)
+  const mediaToDelete = Array.isArray(data.mediaToDelete) 
+    ? data.mediaToDelete 
+    : (data.mediaToDelete && data.mediaToDelete.length > 0 ? [data.mediaToDelete] : []);
+  
+  // Log for debugging
+  console.log('Current cover photo:', currentCoverPhoto);
+  console.log('Current videos:', currentVideos);
+  console.log('Media to delete:', mediaToDelete);
+  console.log('Delete cover photo flag:', data.deleteCoverPhoto);
+  console.log('Existing cover photo to keep:', data.existingCoverPhoto);
+  console.log('Existing videos to keep:', data.existingVideos);
+  
+  // Handle cover photo
+  if (newCoverPhoto) {
+    // New cover photo uploaded
+    finalCoverPhoto = newCoverPhoto;
+  } else if (data.deleteCoverPhoto || (mediaToDelete.includes(currentCoverPhoto))) {
+    // User wants to delete current cover photo
+    finalCoverPhoto = null;
+  } else if (data.existingCoverPhoto !== undefined) {
+    // User explicitly specified which cover photo to keep
+    finalCoverPhoto = data.existingCoverPhoto || null;
+  } else {
+    // Keep current cover photo
+    finalCoverPhoto = currentCoverPhoto;
+  }
+  
+  // Handle videos
+  const existingVideosToKeep = Array.isArray(data.existingVideos) 
+    ? data.existingVideos 
+    : (data.existingVideos && data.existingVideos.length > 0 ? [data.existingVideos] : []);
+  
+  if (data.existingVideos !== undefined) {
+    // User explicitly specified which videos to keep (filtered to remove deleted ones)
+    finalVideos = existingVideosToKeep.filter((videoUrl: string) => 
+      !mediaToDelete.includes(videoUrl) && currentVideos.includes(videoUrl)
+    );
+  } else {
+    // If no explicit existing videos list, keep all current videos except those to delete
+    finalVideos = currentVideos.filter((videoUrl: string) => 
+      !mediaToDelete.includes(videoUrl)
+    );
+  }
+  
+  // Add newly uploaded videos
+  finalVideos = [...finalVideos, ...newVideos];
+  
+  // Remove duplicates
+  finalVideos = [...new Set(finalVideos)];
+  
+  // Update media in updateData
+  updateData.media = {
+    coverPhoto: finalCoverPhoto,
+    videos: finalVideos,
+  };
+  
+  console.log('Final cover photo:', finalCoverPhoto);
+  console.log('Final videos:', finalVideos);
+
+  // Optional: Delete removed media from S3 storage
+  const mediaItemsToDelete = [];
+  if (data.deleteCoverPhoto && currentCoverPhoto) {
+    mediaItemsToDelete.push(currentCoverPhoto);
+  }
+  mediaItemsToDelete.push(...mediaToDelete);
+  
+  if (mediaItemsToDelete.length > 0) {
+    try {
+      // You can implement this function to delete from S3
+      // await deleteMediaFromS3Service(mediaItemsToDelete);
+      console.log('Media marked for S3 deletion:', mediaItemsToDelete);
+    } catch (error) {
+      console.error('Error deleting media from S3:', error);
+      // Don't fail the entire operation if S3 deletion fails
+    }
   }
 
   const updatedEvent = await eventModel
