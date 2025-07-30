@@ -348,15 +348,39 @@ export const updateTicketAvailability = async (req: any, res: Response) => {
 };
 
 export const deleteTicket = async (req: any, res: Response) => {
-    const deletedTicket = await ticketModel.findByIdAndDelete(req.params.id);
-    if (!deletedTicket) {
+    const { id: userId } = req.user; // Fixed destructuring
+    const ticketId = req.params.id;
+
+    // Find the ticket and populate the event
+    const ticketToDelete = await ticketModel.findById(ticketId).populate('event');
+    
+    if (!ticketToDelete) {
       return errorResponseHandler("Ticket not found", httpStatusCode.NOT_FOUND, res);
     }
+
+    // Check if user is authorized (must be event creator)
+    if (ticketToDelete.event.creator.toString() !== userId) {
+      return errorResponseHandler("You are not authorized to delete this ticket", httpStatusCode.FORBIDDEN, res);
+    }
+
+    // Check if ticket has any purchases - prevent deletion if it does
+    const existingPurchases = await purchaseModel.find({ ticket: ticketId });
+    if (existingPurchases.length > 0) {
+      return errorResponseHandler(
+        "Cannot delete ticket that has been purchased", 
+        httpStatusCode.BAD_REQUEST, 
+        res
+      );
+    }
+
+    // Delete the ticket
+    await ticketModel.findByIdAndDelete(ticketId);
 
     return {
       success: true,
       message: "Ticket deleted successfully"
-    }
+    };
+
 };
 
 export const deleteTicketsByEvent = async (req: any, res: Response) => {
