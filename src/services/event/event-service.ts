@@ -1496,16 +1496,19 @@ export const updateEventService = async (req: Request, res: Response) => {
         const { filename, mimeType } = fileInfo;
 
         // Validate file type
-        const isImage = mimeType.startsWith("image/") && fieldname === "coverPhoto";
-        const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
-        if (!isImage && !isVideo) {
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: "Only image files are allowed for coverPhoto and video files for videos",
-            code: httpStatusCode.BAD_REQUEST,
-          });
-        }
+       const isCoverPhoto = fieldname === "coverPhoto" && mimeType.startsWith("image/");
+const isVideoOrImageInVideos =
+  fieldname === "videos" && (mimeType.startsWith("video/") || mimeType.startsWith("image/"));
+
+if (!isCoverPhoto && !isVideoOrImageInVideos) {
+  fileStream.resume();
+  return reject({
+    success: false,
+    message: "Only images allowed for coverPhoto and image/video files allowed for videos",
+    code: httpStatusCode.BAD_REQUEST,
+  });
+}
+
 
         // Create readable stream
         const readableStream = new Readable();
