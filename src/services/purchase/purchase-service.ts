@@ -78,3 +78,30 @@ export const purchaseTicketService = async (req: Request, res: Response) => {
     data: purchase
   };
 }
+
+export const getPurchaseTicketsService = async (req: Request, res: Response) => {
+  // Check if user is authenticated
+  if (!req.user) {
+    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+  }
+
+  const { id: userId } = req.user as JwtPayload;
+
+    // Fetch all purchase records for the authenticated user
+    const purchases = await purchaseModel
+      .find({ buyer: userId,status:{$nin:['refunded', 'disabled','pending']} })
+      .populate("ticket") 
+      .populate("event") 
+      .select("-__v") 
+      .lean(); 
+
+    if (!purchases || purchases.length === 0) {
+      return errorResponseHandler("No purchases found for this user", httpStatusCode.NOT_FOUND, res);
+    }
+
+    return {
+      success: true,
+      message:"Purchase records retrieved successfully",
+      data: purchases,
+    };
+  }
