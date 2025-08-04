@@ -17,7 +17,7 @@ export const createProfessionalProfile = async (req: Request, res: Response) => 
 }
 export const getAllProfessionalProfiles = async (req: Request, res: Response) => {
     try {
-        const response = await createProfessionalProfileService(req, res);
+        const response = await getAllProfessionalProfilesService(req, res);
         return res.status(httpStatusCode.OK).json(response);
     } catch (error: any) {
         const { code, message } = errorParser(error);

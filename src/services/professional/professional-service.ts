@@ -183,61 +183,61 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
    };
 }
 
-export const getAllProfessionalProfilesService = async (req:any, res:any) => {
-  const { role, musicType, eventType, venueType, near } = req.query;
+// export const getAllProfessionalProfilesService = async (req:any, res:any) => {
+//   const { role, musicType, eventType, venueType, near } = req.query;
 
-  // Build query
-  const query: any = {};
-  if (role && Object.values(ProfileType).includes(role as string)) {
-    query.Role = role;
-  }
-  if (musicType && Object.values(MusicType).includes(musicType as string)) {
-    query["preferences.musicTypes"] = musicType;
-  }
-  if (eventType && Object.values(EventType).includes(eventType as string)) {
-    query["preferences.eventTypes"] = eventType;
-  }
-  if (venueType && Object.values(VenueType).includes(venueType as string)) {
-    query["preferences.venueTypes"] = venueType;
-  }
+//   // Build query
+//   const query: any = {};
+//   if (role && Object.values(ProfileType).includes(role as string)) {
+//     query.Role = role;
+//   }
+//   if (musicType && Object.values(MusicType).includes(musicType as string)) {
+//     query["preferences.musicTypes"] = musicType;
+//   }
+//   if (eventType && Object.values(EventType).includes(eventType as string)) {
+//     query["preferences.eventTypes"] = eventType;
+//   }
+//   if (venueType && Object.values(VenueType).includes(venueType as string)) {
+//     query["preferences.venueTypes"] = venueType;
+//   }
 
-  // Geospatial query for 'near' (expects lng,lat)
-  if (near) {
-    const coordinates = (near as string).split(",").map(Number);
-    if (coordinates.length !== 2 || coordinates.some(isNaN)) {
-      errorResponseHandler(
-        "Longitude and latitude are required",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-    const [lng, lat] = coordinates;
-    query.location = {
-      $near: {
-        $geometry: {
-          type: "Point",
-          coordinates: [lng, lat],
-        },
-        $maxDistance: 10000, // 10km radius (adjust as needed)
-      },
-    };
-  }
+//   // Geospatial query for 'near' (expects lng,lat)
+//   if (near) {
+//     const coordinates = (near as string).split(",").map(Number);
+//     if (coordinates.length !== 2 || coordinates.some(isNaN)) {
+//       errorResponseHandler(
+//         "Longitude and latitude are required",
+//         httpStatusCode.BAD_REQUEST,
+//         res
+//       );
+//     }
+//     const [lng, lat] = coordinates;
+//     query.location = {
+//       $near: {
+//         $geometry: {
+//           type: "Point",
+//           coordinates: [lng, lat],
+//         },
+//         $maxDistance: 10000, // 10km radius (adjust as needed)
+//       },
+//     };
+//   }
 
-  const profiles = await ProfessionalProfileModel.find(query).populate(
-    "user",
-    "email firstName lastName"
-  );
-  if (!profiles || profiles.length === 0) {
-    return res.status(httpStatusCode.NOT_FOUND).json({
-      message: "No profiles found",
-    });
-  }
-  return {
-    success: true,
-    message: "Profiles retrieved successfully",
-    profiles,
-  }
-}
+//   const profiles = await ProfessionalProfileModel.find(query).populate(
+//     "user",
+//     "email firstName lastName"
+//   );
+//   if (!profiles || profiles.length === 0) {
+//     return res.status(httpStatusCode.NOT_FOUND).json({
+//       message: "No profiles found",
+//     });
+//   }
+//   return {
+//     success: true,
+//     message: "Profiles retrieved successfully",
+//     profiles,
+//   }
+// }
 
 export const getProfessionalProfileByIdService = async (req:any, res:any) => {
   const {id} = req.params
@@ -285,9 +285,36 @@ export const getUserAllprofessionalProfilesService = async (req:any, res:any) =>
   return {
     success: true,
     message: "Profile retrieved successfully",
-    profile,
+    data:profile,
   };
 }
+export const getAllProfessionalProfilesService = async (req: any, res: any) => {
+  const { id } = req.user;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return errorResponseHandler(
+      "Invalid profile ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const profiles = await ProfessionalProfileModel.find({ user: { $ne: id } }).populate("user");
+
+  if (!profiles || profiles.length === 0) {
+    return errorResponseHandler(
+      "No professional profiles found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  return res.status(httpStatusCode.OK).json({
+    success: true,
+    message: "Profiles retrieved successfully",
+    ata:profiles,
+  });
+};
 
 export const updateProfessionalProfileService = async (req:any, res:any) => {
   const { id: user } = req.user;

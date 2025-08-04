@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowList } from "../controllers/user/user";
-import { createProfessionalProfile, deleteProfessionalProfile, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
+import { createProfessionalProfile, deleteProfessionalProfile, getAllProfessionalProfiles, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
 import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, joinSquad, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
@@ -29,6 +29,7 @@ router.route("/:id").get( getUserInfo)
 router.get("/dashboard/data",  getDashboardStats)
 router.get("/get/current/user",getUserInfoByToken)
 router.get("/all/professional/profile",getUserAllprofessionalProfiles )
+router.get("/all/professional",getAllProfessionalProfiles )
 router.get("/professional/profile/:id",getProfessionalProfileById)
 router.get("/get/all/promotion",getAllPromotions)
 router.get("/get/promotion/:id",getPromotionById)
