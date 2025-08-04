@@ -288,6 +288,7 @@ export const getUserAllprofessionalProfilesService = async (req:any, res:any) =>
     data:profile,
   };
 }
+
 export const getAllProfessionalProfilesService = async (req: any, res: any) => {
   const { id } = req.user;
 
@@ -309,11 +310,11 @@ export const getAllProfessionalProfilesService = async (req: any, res: any) => {
     );
   }
 
-  return res.status(httpStatusCode.OK).json({
+  return {
     success: true,
     message: "Profiles retrieved successfully",
-    ata:profiles,
-  });
+    data:profiles,
+  };
 };
 
 export const updateProfessionalProfileService = async (req:any, res:any) => {
