@@ -43,7 +43,6 @@ const resaleSchema = new mongoose.Schema({
   buyers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'users',
-    required: true
   }],
 }, {
   timestamps: true
