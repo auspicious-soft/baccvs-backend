@@ -44,7 +44,7 @@ export const getUserConversationsService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Conversations retrieved successfully",
-      conversations: enhancedConversations
+      data: enhancedConversations
     };
   } catch (error) {
     console.error("Error fetching conversations:", error);
@@ -117,11 +117,12 @@ export const getConversationMessagesService = async (req: any, res: Response) =>
 
     return {
       success: true,
-      messages: messages.reverse(), // Return in chronological order
-      pagination: {
+      message:"conversation fetched successfully",
+      data: {
+        messages: messages.reverse(), // Return in chronological order
         page,
+        hasMore: messages.length === limit,
         limit,
-        hasMore: messages.length === limit
       }
     };
   } catch (error) {
@@ -229,8 +230,11 @@ export const sendMessageService = async (req: any, res: Response) => {
 
     return {
       success: true,
-      message: populatedMessage,
-      conversation: conversation._id
+      message: "message send successfully",
+      data: {
+        populatedMessage,
+        conversationId: conversation._id
+      }
     };
   } catch (error) {
     console.error("Error sending message:", error);
@@ -291,7 +295,7 @@ export const markMessagesAsReadService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Messages marked as read",
-      updatedCount: result.modifiedCount
+      data: result.modifiedCount
     };
   } catch (error) {
     console.error("Error marking messages as read:", error);
