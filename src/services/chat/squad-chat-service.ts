@@ -188,9 +188,11 @@ export const sendSquadMessageService = async (req: any, res: Response) => {
 
     return {
       success: true,
-      message: populatedMessage,
+      message:"message sent successfully",
+      data:{ populatedMessage,
       squadConversation: squadConversation._id
-    };
+    }
+  }
   } catch (error) {
     console.error("Error sending squad message:", error);
     return errorResponseHandler(
@@ -250,7 +252,8 @@ export const getUserSquadConversationsService = async (req: any, res: Response) 
 
     return {
       success: true,
-      squadConversations: enhancedSquadConversations
+      message:"conversation fecthed successfully",
+      data: enhancedSquadConversations
     };
   } catch (error) {
     console.error("Error fetching squad conversations:", error);
