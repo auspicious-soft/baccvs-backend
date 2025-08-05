@@ -142,7 +142,6 @@ export const getCommunitiesService = async (req: Request, res: Response) => {
     page = 1 
   } = req.query;
 
-  try {
     const query: any = {};
 
     // Apply filters if provided
@@ -178,29 +177,22 @@ export const getCommunitiesService = async (req: Request, res: Response) => {
 
     return {
       success: true,
-      communities,
+      data:{
+        communities,
       pagination: {
         total: totalCount,
         page: Number(page),
         limit: Number(limit),
         pages: Math.ceil(totalCount / Number(limit))
-      }
+      }}
     };
-  } catch (error) {
-    console.error("Error getting communities:", error);
-    return errorResponseHandler(
-      "Failed to get communities",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Get communities the user is a member of
 export const getUserCommunitiesService = async (req: any, res: Response) => {
   const userId = req.user.id;
 
-  try {
     const communities = await Community.find({
       "members.user": userId
     })
@@ -210,23 +202,16 @@ export const getUserCommunitiesService = async (req: any, res: Response) => {
 
     return {
       success: true,
-      communities
+      mesage:"Data fetched successfully",
+      data:communities
     };
-  } catch (error) {
-    console.error("Error getting user communities:", error);
-    return errorResponseHandler(
-      "Failed to get user communities",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Get a specific community by ID
 export const getCommunityByIdService = async (req: Request, res: Response) => {
   const { id } = req.params;
 
-  try {
     const community = await Community.findById(id)
       .populate("creator", "userName photos")
       .populate("members.user", "userName photos");
@@ -241,16 +226,10 @@ export const getCommunityByIdService = async (req: Request, res: Response) => {
 
     return {
       success: true,
-      community
+      message:"message fetched successfully",
+      data:community
     };
-  } catch (error) {
-    console.error("Error getting community:", error);
-    return errorResponseHandler(
-      "Failed to get community",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Join a community
@@ -308,7 +287,7 @@ export const joinCommunityService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully joined community",
-      community: updatedCommunity
+      data: updatedCommunity
     };
 
 };
@@ -363,7 +342,7 @@ export const leaveCommunityService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully left community",
-      community: updatedCommunity
+      data: updatedCommunity
     };
   
 };
@@ -444,7 +423,7 @@ export const addMemberService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully added member to community",
-      community: updatedCommunity
+      data: updatedCommunity
     };
  
 };
@@ -521,7 +500,7 @@ export const removeMemberService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully removed member from community",
-      community: updatedCommunity
+      data: updatedCommunity
     };
 };
 
@@ -606,7 +585,7 @@ export const changeMemberRoleService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully updated member role",
-      community: updatedCommunity
+      data: updatedCommunity
     };
  
 };
@@ -682,7 +661,6 @@ export const transferOwnershipService = async (req: any, res: Response) => {
     return {
       success: true,
       message: "Successfully transferred community ownership",
-      community: updatedCommunity
+      data: updatedCommunity
     };
 };
-
