@@ -23,14 +23,15 @@ const __dirname = path.dirname(__filename)        // <-- Define __dirname
 
 const PORT = process.env.PORT || 8000
 const app = express()
-
+app.set("trust proxy", true)
 app.post("/api/subscription/webhook", bodyParser.raw({ type: "application/json" }), handleSubscriptionWebhook);
 
 const server = http.createServer(app)
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST","PUT","PATCH","DELETE"]
+    methods: ["GET", "POST","PUT","PATCH","DELETE"],
+    credentials: true,
   }
 })
  
@@ -40,7 +41,7 @@ io.use(socketAuthMiddleware);
 // Setup Socket.IO
 setupSocketServer(io);
 
-app.set("trust proxy", true)
+
 app.use(bodyParser.json({
     verify: (req: any, res, buf) => {
       req.rawBody = buf.toString();

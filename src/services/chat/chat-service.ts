@@ -120,6 +120,7 @@ export const getConversationMessagesService = async (req: any, res: Response) =>
       message:"conversation fetched successfully",
       data: {
         messages: messages.reverse(), // Return in chronological order
+        conversation:conversation,
         page,
         hasMore: messages.length === limit,
         limit,
