@@ -10,7 +10,6 @@ import mongoose from "mongoose";
 export const getUserConversationsService = async (req: any, res: Response) => {
   const userId = req.user.id;
 
-  try {
     const conversations = await Conversation.find({
       participants: userId,
       isActive: true
@@ -25,19 +24,24 @@ export const getUserConversationsService = async (req: any, res: Response) => {
       })
       .sort({ updatedAt: -1 });
 
-    // Add user-specific fields
+    // Add user-specific fields and filter participants
     const enhancedConversations = conversations.map(conversation => {
       const conversationObj = conversation.toObject() as any;
-      
+
+      // Filter out the current user from participants array
+      conversationObj.participants = conversationObj.participants.filter(
+        (participant: any) => participant._id.toString() !== userId.toString()
+      );
+
       // Add user-specific pin status
-      conversationObj.isPinned = conversation.isPinned.get(userId) || false;
-      
+      conversationObj.isPinned = conversation.isPinned?.get(userId) || false;
+
       // Add user-specific background settings
-      conversationObj.backgroundSettings = conversation.backgroundSettings.get(userId) || {
+      conversationObj.backgroundSettings = conversation.backgroundSettings?.get(userId) || {
         backgroundImage: null,
         backgroundColor: null
       };
-      
+
       return conversationObj;
     });
 
@@ -46,15 +50,9 @@ export const getUserConversationsService = async (req: any, res: Response) => {
       message: "Conversations retrieved successfully",
       data: enhancedConversations
     };
-  } catch (error) {
-    console.error("Error fetching conversations:", error);
-    return errorResponseHandler(
-      "Failed to fetch conversations",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
+
 
 // Get messages for a specific conversation
 export const getConversationMessagesService = async (req: any, res: Response) => {
@@ -71,13 +69,12 @@ export const getConversationMessagesService = async (req: any, res: Response) =>
     );
   }
 
-  try {
     // Check if conversation exists and user is a participant
     const conversation = await Conversation.findOne({
       _id: conversationId,
       participants: userId,
       isActive: true
-    });
+    }).populate("participants","userName photos")
 
     if (!conversation) {
       return errorResponseHandler(
@@ -86,6 +83,11 @@ export const getConversationMessagesService = async (req: any, res: Response) =>
         res
       );
     }
+     // Filter out the current user from participants
+    const conversationObj = conversation.toObject();
+    conversationObj.participants = conversationObj.participants.filter(
+      (participant: any) => participant._id.toString() !== userId.toString()
+    );
 
     // Get messages with pagination
     const skip = (page - 1) * limit;
@@ -120,20 +122,13 @@ export const getConversationMessagesService = async (req: any, res: Response) =>
       message:"conversation fetched successfully",
       data: {
         messages: messages.reverse(), // Return in chronological order
-        conversation:conversation,
+        conversation:conversationObj,
         page,
         hasMore: messages.length === limit,
         limit,
       }
     };
-  } catch (error) {
-    console.error("Error fetching messages:", error);
-    return errorResponseHandler(
-      "Failed to fetch messages",
-      httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
-    );
-  }
+
 };
 
 // Send a message to another user
