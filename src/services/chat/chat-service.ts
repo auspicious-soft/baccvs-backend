@@ -10,22 +10,22 @@ import mongoose from "mongoose";
 export const getUserConversationsService = async (req: any, res: Response) => {
   const userId = req.user.id;
 
-    const conversations = await Conversation.find({
-      participants: userId,
-      isActive: true
+  const conversations = await Conversation.find({
+    participants: userId,
+    isActive: true
+  })
+    .populate({
+      path: "participants",
+      select: "userName photos"
     })
-      .populate({
-        path: "participants",
-        select: "userName photos"
-      })
-      .populate({
-        path: "lastMessage",
-        select: "text messageType createdAt sender readBy"
-      })
-      .sort({ updatedAt: -1 });
+    .populate({
+      path: "lastMessage",
+      select: "text messageType createdAt sender readBy"
+    })
+    .sort({ updatedAt: -1 });
 
-    // Add user-specific fields and filter participants
-    const enhancedConversations = conversations.map(conversation => {
+  const enhancedConversations = await Promise.all(
+    conversations.map(async (conversation) => {
       const conversationObj = conversation.toObject() as any;
 
       // Filter out the current user from participants array
@@ -42,16 +42,27 @@ export const getUserConversationsService = async (req: any, res: Response) => {
         backgroundColor: null
       };
 
+      // Count unread messages for current user in this conversation
+      const unreadCount = await Message.countDocuments({
+        conversation: conversation._id,
+        sender: { $ne: userId },
+        isDeleted: false,
+        'readBy.user': { $ne: userId }
+      });
+
+      conversationObj.unreadCount = unreadCount;
+
       return conversationObj;
-    });
+    })
+  );
 
-    return {
-      success: true,
-      message: "Conversations retrieved successfully",
-      data: enhancedConversations
-    };
-
+  return {
+    success: true,
+    message: "Conversations retrieved successfully",
+    data: enhancedConversations
+  };
 };
+
 
 
 // Get messages for a specific conversation
