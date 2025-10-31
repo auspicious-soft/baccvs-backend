@@ -118,10 +118,10 @@ const UserSchema  = new mongoose.Schema( {
       type: Types.ObjectId,
       ref: "ReferralCode"
     },    
-    fcmToken: {
+    fcmToken: [{
       type: String,
       default: null,
-    }, 
+    }], 
     tempEmail: {
       type: String,
       default: null,
