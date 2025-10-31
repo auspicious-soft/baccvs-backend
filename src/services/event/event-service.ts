@@ -15,6 +15,37 @@ import { usersModel } from "src/models/user/user-schema";
 import { LikeModel } from "src/models/like/like-schema";
 import { Comment } from "src/models/comment/comment-schema";
 
+function getTimezoneOffset(timezone: string, date: Date): number {
+  try {
+    // Create a formatter for the specific timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    // Get the date parts in the target timezone
+    const parts = formatter.formatToParts(date);
+    const getPart = (type: string) => 
+      parts.find(part => part.type === type)?.value || '0';
+
+    // Reconstruct the date in the target timezone
+    const tzDate = new Date(
+      `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`
+    );
+
+    // Calculate offset in minutes
+    return Math.round((date.getTime() - tzDate.getTime()) / 60000);
+  } catch (error) {
+    throw new Error(`Invalid timezone: ${timezone}`);
+  }
+}
+
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
     return errorResponseHandler(
@@ -31,16 +62,23 @@ export const createEventService = async (req: Request, res: Response) => {
 
   // Handle multipart/form-data for file uploads
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
-
     return new Promise((resolve, reject) => {
       const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Array<{ promise: Promise<string>; fieldname: string }> = [];
+      const uploadPromises: Array<{
+        promise: Promise<string>;
+        fieldname: string;
+      }> = [];
 
       busboy.on("field", (fieldname: string, value: string) => {
         if (
-          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(
-            fieldname
-          )
+          [
+            "location",
+            "tickets",
+            "lineup",
+            "invitedGuests",
+            "coHosts",
+            "eventPreferences",
+          ].includes(fieldname)
         ) {
           try {
             parsedData[fieldname] = JSON.parse(value);
@@ -56,64 +94,66 @@ export const createEventService = async (req: Request, res: Response) => {
         }
       });
 
-      busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
-      
+      busboy.on(
+        "file",
+        async (fieldname: string, fileStream: any, fileInfo: any) => {
+          if (!["coverPhoto", "videos"].includes(fieldname)) {
+            fileStream.resume();
+            return;
+          }
 
-        if (!["coverPhoto", "videos"].includes(fieldname)) {
-          fileStream.resume();
-          return;
-        }
+          const { filename, mimeType } = fileInfo;
 
-        const { filename, mimeType } = fileInfo;
+          // Validate file type with fallback for extension
+          const isImage =
+            (mimeType.startsWith("image/") ||
+              /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
+            fieldname === "coverPhoto";
+          const isVideo =
+            mimeType.startsWith("video/") && fieldname === "videos";
 
-        // Validate file type with fallback for extension
-        const isImage =
-          (mimeType.startsWith("image/") || /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
-          fieldname === "coverPhoto";
-        const isVideo = mimeType.startsWith("video/") && fieldname === "videos";
+          if (!isImage && !isVideo) {
+            fileStream.resume();
+            return reject({
+              success: false,
+              message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
 
+          // Create readable stream
+          const readableStream = new Readable();
+          readableStream._read = () => {};
 
-
-        if (!isImage && !isVideo) {
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
-            code: httpStatusCode.BAD_REQUEST,
+          fileStream.on("data", (chunk: any) => {
+            readableStream.push(chunk);
           });
+
+          fileStream.on("end", () => {
+            readableStream.push(null);
+          });
+
+          // Upload to S3 and track which field it belongs to
+          const uploadPromise = uploadStreamToS3Service(
+            readableStream,
+            filename,
+            mimeType,
+            parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
+          ).catch((err) => {
+            throw err;
+          });
+
+          uploadPromises.push({ promise: uploadPromise, fieldname });
         }
-
-        // Create readable stream
-        const readableStream = new Readable();
-        readableStream._read = () => {};
-
-        fileStream.on("data", (chunk: any) => {
-          readableStream.push(chunk);
-        });
-
-        fileStream.on("end", () => {
-          readableStream.push(null);
-        });
-
-        // Upload to S3 and track which field it belongs to
-        const uploadPromise = uploadStreamToS3Service(
-          readableStream,
-          filename,
-          mimeType,
-          parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        ).catch((err) => {
-          throw err;
-        });
-
-        uploadPromises.push({ promise: uploadPromise, fieldname });
-      });
+      );
 
       busboy.on("finish", async () => {
-
         try {
           // Wait for file uploads
           if (uploadPromises.length > 0) {
-            const uploadResults = await Promise.all(uploadPromises.map((item) => item.promise));
+            const uploadResults = await Promise.all(
+              uploadPromises.map((item) => item.promise)
+            );
 
             // Process uploads based on their fieldname
             uploadResults.forEach((url, index) => {
@@ -127,7 +167,6 @@ export const createEventService = async (req: Request, res: Response) => {
           } else {
           }
 
-
           // Check if we have a coverPhoto from either upload or form field
           const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
           if (!finalCoverPhoto) {
@@ -140,12 +179,22 @@ export const createEventService = async (req: Request, res: Response) => {
           }
 
           // Proceed with event creation
-          resolve(await processEventCreation(parsedData, creatorId, coverPhoto, videos, res));
+          resolve(
+            await processEventCreation(
+              parsedData,
+              creatorId,
+              coverPhoto,
+              videos,
+              res
+            )
+          );
         } catch (error) {
           console.error("Upload error:", error);
           reject({
             success: false,
-            message: (error instanceof Error ? error.message : String(error)) || "Failed to upload files",
+            message:
+              (error instanceof Error ? error.message : String(error)) ||
+              "Failed to upload files",
             code: httpStatusCode.INTERNAL_SERVER_ERROR,
           });
         }
@@ -193,19 +242,32 @@ const processEventCreation = async (
     enableReselling,
     location,
     tickets,
+    timezone
   } = data;
 
   // Validate required fields
-  if (!title || !date || !startTime || !endTime || !venue || !capacity || isFreeEvent === undefined) {
+  if (
+    !title ||
+    !date ||
+    !startTime ||
+    !endTime ||
+    !venue ||
+    !capacity ||
+    isFreeEvent === undefined ||
+    !timezone
+  ) {
     return errorResponseHandler(
-      "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent)",
+      "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent, timezone)",
       httpStatusCode.BAD_REQUEST,
       res
     );
   }
 
   // Validate tickets array
-  if (isFreeEvent === 'false' && (!tickets || !Array.isArray(tickets) || tickets.length === 0)) {
+  if (
+    isFreeEvent === "false" &&
+    (!tickets || !Array.isArray(tickets) || tickets.length === 0)
+  ) {
     return errorResponseHandler(
       "Tickets are required for creating an event with paid entry",
       httpStatusCode.BAD_REQUEST,
@@ -222,20 +284,27 @@ const processEventCreation = async (
     );
   }
 
-  if( isFreeEvent === 'false') {
-  const totalTicketQuantity = tickets.reduce((sum: number, ticket: any) => sum + (ticket.quantity || 0), 0);
-  if (totalTicketQuantity > capacity) {
-    return errorResponseHandler(
-      `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
-      httpStatusCode.BAD_REQUEST,
-      res
+  if (isFreeEvent === "false") {
+    const totalTicketQuantity = tickets.reduce(
+      (sum: number, ticket: any) => sum + (ticket.quantity || 0),
+      0
     );
+    if (totalTicketQuantity > capacity) {
+      return errorResponseHandler(
+        `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
   }
-}
 
   // Validate invited guests for private events
   if (eventVisibility === EventVisibility.PRIVATE) {
-    if (!invitedGuests || !Array.isArray(invitedGuests) || invitedGuests.length === 0) {
+    if (
+      !invitedGuests ||
+      !Array.isArray(invitedGuests) ||
+      invitedGuests.length === 0
+    ) {
       return errorResponseHandler(
         "Private events must have at least one invited guest",
         httpStatusCode.BAD_REQUEST,
@@ -243,10 +312,14 @@ const processEventCreation = async (
       );
     }
 
-    const invalidIds = invitedGuests.filter((id: string) => !isValidObjectId(id));
+    const invalidIds = invitedGuests.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidIds.length > 0) {
       return errorResponseHandler(
-        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(", ")}`,
+        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(
+          ", "
+        )}`,
         httpStatusCode.BAD_REQUEST,
         res
       );
@@ -255,7 +328,9 @@ const processEventCreation = async (
 
   // Validate lineup
   if (lineup && Array.isArray(lineup) && lineup.length > 0) {
-    const invalidLineupIds = lineup.filter((id: string) => !isValidObjectId(id));
+    const invalidLineupIds = lineup.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidLineupIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
@@ -264,12 +339,17 @@ const processEventCreation = async (
       );
     }
 
-    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: lineup } })
+    const existingProfiles = await ProfessionalProfileModel.find({
+      _id: { $in: lineup },
+    })
       .select("_id")
       .lean();
     if (existingProfiles.length !== lineup.length) {
       const missingIds = lineup.filter(
-        (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
+        (id: string) =>
+          !existingProfiles.some(
+            (profile: any) => profile._id.toString() === id
+          )
       );
       return errorResponseHandler(
         `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
@@ -281,10 +361,14 @@ const processEventCreation = async (
 
   // Validate coHosts
   if (coHosts && Array.isArray(coHosts) && coHosts.length > 0) {
-    const invalidCoHostIds = coHosts.filter((id: string) => !isValidObjectId(id));
+    const invalidCoHostIds = coHosts.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidCoHostIds.length > 0) {
       return errorResponseHandler(
-        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
+        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(
+          ", "
+        )}`,
         httpStatusCode.BAD_REQUEST,
         res
       );
@@ -308,6 +392,25 @@ const processEventCreation = async (
       );
     }
   }
+  // --- Combine date + startTime into a UTC Date object ---
+  const localDateTimeString = `${date}T${startTime}:00`; // e.g., "2025-10-30T18:30:00"
+  const eventDateTime = new Date(localDateTimeString);
+
+  if (isNaN(eventDateTime.getTime())) {
+    return errorResponseHandler(
+      "Invalid date or startTime format",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+  const userTimezoneOffset = getTimezoneOffset(timezone, eventDateTime);
+
+  const utcDateTime = new Date(
+    eventDateTime.getTime() - userTimezoneOffset * 60000
+  );
+
+  // Store both for reference
+  const localDateTime = eventDateTime;
 
   // Create the event
   const newEvent = new eventModel({
@@ -317,6 +420,9 @@ const processEventCreation = async (
     date,
     startTime,
     endTime,
+    utcDateTime,
+    localDateTime,
+    timezone,
     venue,
     capacity,
     eventPreferences: eventPreferences || {
@@ -350,21 +456,21 @@ const processEventCreation = async (
   });
 
   const savedEvent = await newEvent.save();
- 
+
   // Create tickets
   let createdTickets: any[] = [];
-  if(isFreeEvent === 'false'){
-  const ticketDocs = tickets.map((ticket: any) => ({
-    event: savedEvent._id,
-    name: ticket.name,
-    quantity: ticket.quantity,
-    price: ticket.price || 0,
-    benefits: ticket.benefits,
-    available: ticket.quantity,
-    isResellable: savedEvent.ticketing?.enableReselling || false,
-  }));
+  if (isFreeEvent === "false") {
+    const ticketDocs = tickets.map((ticket: any) => ({
+      event: savedEvent._id,
+      name: ticket.name,
+      quantity: ticket.quantity,
+      price: ticket.price || 0,
+      benefits: ticket.benefits,
+      available: ticket.quantity,
+      isResellable: savedEvent.ticketing?.enableReselling || false,
+    }));
 
-   createdTickets = await ticketModel.insertMany(ticketDocs);
+    createdTickets = await ticketModel.insertMany(ticketDocs);
   }
   // Populate event fields
   await savedEvent.populate([
@@ -405,7 +511,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
     musicType,
     eventType,
     venueType,
-    filterApplied = false
+    filterApplied = false,
   } = req.body;
 
   const now = new Date();
@@ -426,22 +532,22 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
               $expr: {
                 $and: [
                   { $eq: ["$target", "$$eventId"] },
-                  { $eq: ["$targetType", "event"] }
-                ]
-              }
-            }
-          }
+                  { $eq: ["$targetType", "event"] },
+                ],
+              },
+            },
+          },
         ],
-        as: "likes"
-      }
+        as: "likes",
+      },
     },
     {
       $lookup: {
         from: "comments",
         localField: "_id",
         foreignField: "event",
-        as: "comments"
-      }
+        as: "comments",
+      },
     },
     {
       $lookup: {
@@ -454,22 +560,22 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
                 $and: [
                   { $eq: ["$target", "$$eventId"] },
                   { $eq: ["$targetType", "event"] },
-                  { $eq: ["$user", userObjectId] }
-                ]
-              }
-            }
-          }
+                  { $eq: ["$user", userObjectId] },
+                ],
+              },
+            },
+          },
         ],
-        as: "userLike"
-      }
-    }
+        as: "userLike",
+      },
+    },
   ];
 
   // Helper function to add engagement calculated fields
   const addEngagementFields = () => ({
     likeCount: { $size: "$likes" },
     commentCount: { $size: "$comments" },
-    isLikedByCurrentUser: { $gt: [{ $size: "$userLike" }, 0] }
+    isLikedByCurrentUser: { $gt: [{ $size: "$userLike" }, 0] },
   });
 
   // Optimized populate function with single aggregation
@@ -484,8 +590,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "creator",
           foreignField: "_id",
           as: "creator",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -493,8 +599,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "invitedGuests",
           foreignField: "_id",
           as: "invitedGuests",
-          pipeline: [{ $project: { userName: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -502,39 +608,39 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "coHosts",
           foreignField: "_id",
           as: "coHosts",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
           from: "professionalProfiles",
           localField: "lineup",
           foreignField: "_id",
-          as: "lineup"
-        }
+          as: "lineup",
+        },
       },
       {
         $lookup: {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       },
       ...addEngagementLookups(),
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
-          ...addEngagementFields()
-        }
+          ...addEngagementFields(),
+        },
       },
       {
         $project: {
           likes: 0,
           comments: 0,
-          userLike: 0
-        }
-      }
+          userLike: 0,
+        },
+      },
     ];
 
     return await eventModel.aggregate(pipeline);
@@ -543,7 +649,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   // Optimized filter application with better indexing
   const buildFilterQuery = (baseQuery: any = {}) => {
     const query = { ...baseQuery };
-    
+
     if (musicType?.length) {
       query["eventPreferences.musicType"] = { $in: musicType };
     }
@@ -586,7 +692,11 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   };
 
   // Optimized distance and price filtering using aggregation
-  const buildLocationPipeline = (lat?: number, lng?: number, maxDistance?: number) => {
+  const buildLocationPipeline = (
+    lat?: number,
+    lng?: number,
+    maxDistance?: number
+  ) => {
     if (lat === undefined || lng === undefined || maxDistance === undefined) {
       return [];
     }
@@ -596,13 +706,13 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
         $geoNear: {
           near: {
             type: "Point",
-            coordinates: [lng, lat]
+            coordinates: [lng, lat],
           },
           distanceField: "distance",
           maxDistance: maxDistance * 1000, // Convert km to meters
-          spherical: true
-        }
-      }
+          spherical: true,
+        },
+      },
     ];
   };
 
@@ -616,9 +726,9 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       priceMatch["tickets.price"] = { $gte: minPrice };
     }
     if (maxPrice !== undefined) {
-      priceMatch["tickets.price"] = { 
+      priceMatch["tickets.price"] = {
         ...priceMatch["tickets.price"],
-        $lte: maxPrice 
+        $lte: maxPrice,
       };
     }
 
@@ -628,47 +738,60 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       },
       {
         $match: {
           $or: [
-            { "tickets": { $size: 0 } }, // No tickets (free event)
-            priceMatch
-          ]
-        }
-      }
+            { tickets: { $size: 0 } }, // No tickets (free event)
+            priceMatch,
+          ],
+        },
+      },
     ];
   };
 
   // Enhanced pipeline builder with distance calculation and engagement data
-  const buildEventPipelineWithDistance = (matchQuery: any, userLocation?: any, includeSpotsLeft: boolean = false) => {
+  const buildEventPipelineWithDistance = (
+    matchQuery: any,
+    userLocation?: any,
+    includeSpotsLeft: boolean = false
+  ) => {
     const pipeline: any[] = [];
 
     // Add distance calculation if user has location
-    if (userLocation && userLocation.coordinates && userLocation.coordinates.length === 2) {
+    if (
+      userLocation &&
+      userLocation.coordinates &&
+      userLocation.coordinates.length === 2
+    ) {
       const [userLng, userLat] = userLocation.coordinates;
       // Use $geoNear as first stage (requires 2dsphere index on location field)
-      pipeline.push(
-        {
-          $geoNear: {
-            near: {
-              type: "Point",
-              coordinates: [userLng, userLat]
-            },
-            distanceField: "distance",
-            spherical: true,
-            query: matchQuery
-          }
-        }
-      );
+      pipeline.push({
+        $geoNear: {
+          near: {
+            type: "Point",
+            coordinates: [userLng, userLat],
+          },
+          distanceField: "distance",
+          spherical: true,
+          query: matchQuery,
+        },
+      });
     } else {
       pipeline.push({ $match: matchQuery });
     }
 
     // Add location filter if specified and not using geoNear with user location
-    if ((!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2) && lat && lng && maxDistance) {
+    if (
+      (!userLocation ||
+        !userLocation.coordinates ||
+        userLocation.coordinates.length !== 2) &&
+      lat &&
+      lng &&
+      maxDistance
+    ) {
       const locationPipeline = buildLocationPipeline(lat, lng, maxDistance);
       if (locationPipeline.length) {
         pipeline.splice(-1, 1, ...locationPipeline, { $match: matchQuery });
@@ -689,8 +812,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "creator",
           foreignField: "_id",
           as: "creator",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -698,8 +821,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "invitedGuests",
           foreignField: "_id",
           as: "invitedGuests",
-          pipeline: [{ $project: { userName: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -707,16 +830,16 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "coHosts",
           foreignField: "_id",
           as: "coHosts",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
           from: "professionalProfiles",
           localField: "lineup",
           foreignField: "_id",
-          as: "lineup"
-        }
+          as: "lineup",
+        },
       }
     );
 
@@ -727,8 +850,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       });
     }
 
@@ -739,37 +862,37 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           from: "purchases",
           localField: "_id",
           foreignField: "event",
-          as: "purchases"
-        }
+          as: "purchases",
+        },
       });
     }
 
     // Add engagement data lookups
     pipeline.push(...addEngagementLookups());
 
-    pipeline.push(
-      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } }
-    );
+    pipeline.push({
+      $unwind: { path: "$creator", preserveNullAndEmptyArrays: true },
+    });
 
     // Add calculated fields
     const addFields: any = {
-      ...addEngagementFields()
+      ...addEngagementFields(),
     };
-    
+
     // Add distance calculation
     addFields.distanceKm = {
       $cond: {
         if: { $ifNull: ["$distance", false] },
         then: { $round: [{ $divide: ["$distance", 1000] }, 2] },
-        else: null
-      }
+        else: null,
+      },
     };
 
     // Add spots left calculation if needed
     if (includeSpotsLeft) {
       addFields.totalSold = { $sum: "$purchases.quantity" };
       addFields.spotsLeft = {
-        $subtract: ["$capacity", { $sum: "$purchases.quantity" }]
+        $subtract: ["$capacity", { $sum: "$purchases.quantity" }],
       };
     }
 
@@ -780,8 +903,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       $project: {
         likes: 0,
         comments: 0,
-        userLike: 0
-      }
+        userLike: 0,
+      },
     });
 
     return pipeline;
@@ -809,8 +932,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "creator",
           foreignField: "_id",
           as: "creator",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -818,8 +941,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "invitedGuests",
           foreignField: "_id",
           as: "invitedGuests",
-          pipeline: [{ $project: { userName: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -827,24 +950,24 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "coHosts",
           foreignField: "_id",
           as: "coHosts",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
           from: "professionalProfiles",
           localField: "lineup",
           foreignField: "_id",
-          as: "lineup"
-        }
+          as: "lineup",
+        },
       },
       {
         $lookup: {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       }
     );
 
@@ -855,15 +978,15 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
-          ...addEngagementFields()
-        }
+          ...addEngagementFields(),
+        },
       },
       {
         $project: {
           likes: 0,
           comments: 0,
-          userLike: 0
-        }
+          userLike: 0,
+        },
       },
       { $sort: { date: 1 } }
     );
@@ -876,62 +999,66 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
     const pipeline: any[] = [];
 
     // Add distance calculation if user has saved location
-    if (userLocation && userLocation.coordinates && userLocation.coordinates.length === 2) {
+    if (
+      userLocation &&
+      userLocation.coordinates &&
+      userLocation.coordinates.length === 2
+    ) {
       const [userLng, userLat] = userLocation.coordinates;
       // Use $geoNear as first stage (requires 2dsphere index on location field)
-      pipeline.push(
-        {
-          $geoNear: {
-            near: {
-              type: "Point",
-              coordinates: [userLng, userLat]
-            },
-            distanceField: "distance",
-            spherical: true,
-            query: matchQuery
-          }
-        }
-      );
+      pipeline.push({
+        $geoNear: {
+          near: {
+            type: "Point",
+            coordinates: [userLng, userLat],
+          },
+          distanceField: "distance",
+          spherical: true,
+          query: matchQuery,
+        },
+      });
     } else {
       pipeline.push({ $match: matchQuery });
     }
 
     // Add price filter if specified (only if not using geoNear)
-    if (!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2) {
+    if (
+      !userLocation ||
+      !userLocation.coordinates ||
+      userLocation.coordinates.length !== 2
+    ) {
       const pricePipeline = buildPricePipeline(minPrice, maxPrice);
       pipeline.push(...pricePipeline);
     } else {
       // Handle price filter manually when using geoNear
       if (minPrice !== undefined || maxPrice !== undefined) {
-        pipeline.push(
-          {
-            $lookup: {
-              from: "tickets",
-              localField: "_id",
-              foreignField: "event",
-              as: "tickets"
-            }
-          }
-        );
-        
+        pipeline.push({
+          $lookup: {
+            from: "tickets",
+            localField: "_id",
+            foreignField: "event",
+            as: "tickets",
+          },
+        });
+
         const priceMatch: any = {};
         if (minPrice !== undefined) {
           priceMatch["tickets.price"] = { $gte: minPrice };
         }
         if (maxPrice !== undefined) {
-          priceMatch["tickets.price"] = { 
+          priceMatch["tickets.price"] = {
             ...priceMatch["tickets.price"],
-            $lte: maxPrice 
+            $lte: maxPrice,
           };
         }
 
         pipeline.push({
           $match: {
             $or: [
-              { "tickets": { $size: 0 } }, // No tickets (free event)
-              priceMatch
-            ]
-          }
+              { tickets: { $size: 0 } }, // No tickets (free event)
+              priceMatch,
+            ],
+          },
         });
       }
     }
@@ -944,8 +1071,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "creator",
           foreignField: "_id",
           as: "creator",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -953,8 +1080,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "invitedGuests",
           foreignField: "_id",
           as: "invitedGuests",
-          pipeline: [{ $project: { userName: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1 } }],
+        },
       },
       {
         $lookup: {
@@ -962,41 +1089,44 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "coHosts",
           foreignField: "_id",
           as: "coHosts",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
           from: "professionalProfiles",
           localField: "lineup",
           foreignField: "_id",
-          as: "lineup"
-        }
+          as: "lineup",
+        },
       }
     );
 
     // Add tickets lookup only if not already added for price filtering
-    if (!userLocation || !userLocation.coordinates || userLocation.coordinates.length !== 2 || (minPrice === undefined && maxPrice === undefined)) {
+    if (
+      !userLocation ||
+      !userLocation.coordinates ||
+      userLocation.coordinates.length !== 2 ||
+      (minPrice === undefined && maxPrice === undefined)
+    ) {
       pipeline.push({
         $lookup: {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       });
     }
 
-    pipeline.push(
-      {
-        $lookup: {
-          from: "purchases",
-          localField: "_id",
-          foreignField: "event",
-          as: "purchases"
-        }
-      }
-    );
+    pipeline.push({
+      $lookup: {
+        from: "purchases",
+        localField: "_id",
+        foreignField: "event",
+        as: "purchases",
+      },
+    });
 
     // Add engagement data lookups
     pipeline.push(...addEngagementLookups());
@@ -1006,27 +1136,27 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       {
         $addFields: {
           totalSold: {
-            $sum: "$purchases.quantity"
+            $sum: "$purchases.quantity",
           },
           spotsLeft: {
-            $subtract: ["$capacity", { $sum: "$purchases.quantity" }]
+            $subtract: ["$capacity", { $sum: "$purchases.quantity" }],
           },
           distanceKm: {
             $cond: {
               if: { $ifNull: ["$distance", false] },
               then: { $round: [{ $divide: ["$distance", 1000] }, 2] },
-              else: null
-            }
+              else: null,
+            },
           },
-          ...addEngagementFields()
-        }
+          ...addEngagementFields(),
+        },
       },
       {
         $project: {
           likes: 0,
           comments: 0,
-          userLike: 0
-        }
+          userLike: 0,
+        },
       },
       { $sort: { date: 1 } }
     );
@@ -1042,19 +1172,19 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   if (type === "discover") {
     if (filterApplied) {
       const filterQuery = buildFilterQuery({ date: { $gte: baseDate } });
-      const pipeline : any = buildEventPipeline(filterQuery);
+      const pipeline: any = buildEventPipeline(filterQuery);
       const events = await eventModel.aggregate(pipeline);
 
       return {
         success: true,
         message: "Discover feed fetched successfully",
-        data: events
+        data: events,
       };
     }
 
     // Build personalized queries
     const forYouQuery = buildFilterQuery({ date: { $gte: baseDate } });
-    
+
     // Add user preferences
     if (user.musicStyles?.length) {
       forYouQuery["eventPreferences.musicType"] = { $in: user.musicStyles };
@@ -1068,8 +1198,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
     startToday.setHours(0, 0, 0, 0);
     const endToday = new Date();
     endToday.setHours(23, 59, 59, 999);
-    const todayQuery = buildFilterQuery({ 
-      date: { $gte: startToday, $lte: endToday } 
+    const todayQuery = buildFilterQuery({
+      date: { $gte: startToday, $lte: endToday },
     });
 
     // Trending events with optimized aggregation and engagement data
@@ -1077,8 +1207,8 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       {
         $group: {
           _id: "$event",
-          purchaseCount: { $sum: "$quantity" }
-        }
+          purchaseCount: { $sum: "$quantity" },
+        },
       },
       { $sort: { purchaseCount: -1 } },
       { $limit: 50 }, // Limit trending events
@@ -1087,18 +1217,18 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           from: "events",
           localField: "_id",
           foreignField: "_id",
-          as: "eventDetails"
-        }
+          as: "eventDetails",
+        },
       },
       { $unwind: "$eventDetails" },
       { $replaceRoot: { newRoot: "$eventDetails" } },
-      { $match: buildFilterQuery({ date: { $gte: baseDate } }) }
+      { $match: buildFilterQuery({ date: { $gte: baseDate } }) },
     ];
 
     // Add location and price filters to trending
     const locationPipeline = buildLocationPipeline(lat, lng, maxDistance);
     const pricePipeline = buildPricePipeline(minPrice, maxPrice);
-    
+
     if (locationPipeline.length || pricePipeline.length) {
       trendingPipeline.push(...locationPipeline, ...pricePipeline);
     }
@@ -1111,30 +1241,30 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           localField: "creator",
           foreignField: "_id",
           as: "creator",
-          pipeline: [{ $project: { userName: 1, photos: 1 } }]
-        }
+          pipeline: [{ $project: { userName: 1, photos: 1 } }],
+        },
       },
       {
         $lookup: {
           from: "tickets",
           localField: "_id",
           foreignField: "event",
-          as: "tickets"
-        }
+          as: "tickets",
+        },
       },
       ...addEngagementLookups(),
       { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
-          ...addEngagementFields()
-        }
+          ...addEngagementFields(),
+        },
       },
       {
         $project: {
           likes: 0,
           comments: 0,
-          userLike: 0
-        }
+          userLike: 0,
+        },
       }
     );
 
@@ -1142,7 +1272,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
     const [foryouEvents, todayEvents, trendingEvents] = await Promise.all([
       eventModel.aggregate(buildEventPipeline(forYouQuery)),
       eventModel.aggregate(buildTodayEventPipeline(todayQuery, user.location)),
-      purchaseModel.aggregate(trendingPipeline)
+      purchaseModel.aggregate(trendingPipeline),
     ]);
 
     return {
@@ -1151,73 +1281,87 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
       data: {
         foryouEvents,
         todayEvents,
-        trendingEvents
-      }
+        trendingEvents,
+      },
     };
   }
 
   // Updated queries for other types with distance calculation and engagement
   if (type === "myEvents") {
-    const pipeline = buildEventPipelineWithDistance({ creator: userObjectId }, user.location);
+    const pipeline = buildEventPipelineWithDistance(
+      { creator: userObjectId },
+      user.location
+    );
     pipeline.push({ $sort: { date: 1 } });
     const events = await eventModel.aggregate(pipeline);
-    
+
     return {
       success: true,
       message: "My events fetched successfully",
-      data: { 
+      data: {
         events,
-        totalCount: events.length
-      }
+        totalCount: events.length,
+      },
     };
   }
 
   if (type === "past") {
-    const pipeline = buildEventPipelineWithDistance({ 
-      creator: userObjectId, 
-      date: { $lt: baseDate } 
-    }, user.location);
+    const pipeline = buildEventPipelineWithDistance(
+      {
+        creator: userObjectId,
+        date: { $lt: baseDate },
+      },
+      user.location
+    );
     pipeline.push({ $sort: { date: -1 } }); // Sort descending for past events
-    
+
     const events = await eventModel.aggregate(pipeline);
-    
+
     return {
       success: true,
       message: "Past events fetched successfully",
-      data: { 
+      data: {
         events,
-        totalCount: events.length
-      }
+        totalCount: events.length,
+      },
     };
   }
 
   if (type === "upcoming") {
-    const pipeline = buildEventPipelineWithDistance({ 
-      creator: userObjectId, 
-      date: { $gte: baseDate } 
-    }, user.location, true); // Include spots left for upcoming events
+    const pipeline = buildEventPipelineWithDistance(
+      {
+        creator: userObjectId,
+        date: { $gte: baseDate },
+      },
+      user.location,
+      true
+    ); // Include spots left for upcoming events
     pipeline.push({ $sort: { date: 1 } });
-    
+
     const events = await eventModel.aggregate(pipeline);
-    
+
     return {
       success: true,
       message: "Upcoming events fetched successfully",
       data: {
         events,
-        totalCount: events.length
-      }
+        totalCount: events.length,
+      },
     };
   }
 
   return { success: false, message: "Invalid type parameter" };
 };
 
-export const getEventOfOtherUserService = async(req:any,res:Response)=>{
+export const getEventOfOtherUserService = async (req: any, res: Response) => {
   const { id: userId } = req.params;
 
   if (!isValidObjectId(userId)) {
-    return errorResponseHandler("Invalid user ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid user ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   const events = await eventModel
@@ -1229,7 +1373,11 @@ export const getEventOfOtherUserService = async(req:any,res:Response)=>{
     .sort({ createdAt: -1 });
 
   if (events.length === 0) {
-    return errorResponseHandler("No events found for this user", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "No events found for this user",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   return {
@@ -1237,14 +1385,18 @@ export const getEventOfOtherUserService = async(req:any,res:Response)=>{
     message: "Events retrieved successfully",
     data: events,
   };
-}
+};
 
-export const getUserEventsService = async (req:any,res:Response)=>{
+export const getUserEventsService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
-  const { id: userId } = req.user 
+  const { id: userId } = req.user;
 
   const events = await eventModel
     .find({ creator: userId })
@@ -1255,7 +1407,11 @@ export const getUserEventsService = async (req:any,res:Response)=>{
     .sort({ createdAt: -1 });
 
   if (events.length === 0) {
-    return errorResponseHandler("No events found for this user", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "No events found for this user",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   return {
@@ -1263,40 +1419,51 @@ export const getUserEventsService = async (req:any,res:Response)=>{
     message: "Events retrieved successfully",
     data: events,
   };
-}
+};
 
 export const getEventsByIdService = async (req: any, res: Response) => {
   const eventId = req.params.id;
   const currentUserId = req.user?.id || req.user?._id; // Assuming user is available in req.user
-  
+
   // Get the main event with populated fields
   const event = await eventModel
     .findById(eventId)
     .populate("creator", "userName photos")
     .populate("invitedGuests", "userName")
     .populate("coHosts", "userName photos")
-    .populate("lineup")
+    .populate("lineup");
 
   if (!event) {
-    return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Get tickets for this event
-  const tickets = await ticketModel.find({ event: event._id }).populate("event");
+  const tickets = await ticketModel
+    .find({ event: event._id })
+    .populate("event");
 
   // Get purchase data for this event to calculate tickets sold
   const purchases = await purchaseModel.find({ event: event._id });
-  const totalTicketsSold = purchases.reduce((sum, purchase) => sum + (purchase.quantity || 0), 0);
+  const totalTicketsSold = purchases.reduce(
+    (sum, purchase) => sum + (purchase.quantity || 0),
+    0
+  );
 
   // Get like count, comment count, and user's like status
   const [likeCount, commentCount, userLike] = await Promise.all([
     LikeModel.countDocuments({ targetType: "event", target: eventId }),
     Comment.countDocuments({ event: eventId }),
-    currentUserId ? LikeModel.findOne({ 
-      user: currentUserId, 
-      targetType: "event", 
-      target: eventId 
-    }) : null
+    currentUserId
+      ? LikeModel.findOne({
+          user: currentUserId,
+          targetType: "event",
+          target: eventId,
+        })
+      : null,
   ]);
 
   const isLikedByCurrentUser = !!userLike;
@@ -1313,16 +1480,16 @@ export const getEventsByIdService = async (req: any, res: Response) => {
           from: "purchases",
           localField: "_id",
           foreignField: "event",
-          as: "purchases"
-        }
+          as: "purchases",
+        },
       },
       {
         $group: {
           _id: null,
-          totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } }
-        }
-      }
-    ])
+          totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } },
+        },
+      },
+    ]),
   ]);
 
   const creatorTotalEvents = creatorStats[0];
@@ -1342,26 +1509,26 @@ export const getEventsByIdService = async (req: any, res: Response) => {
               from: "purchases",
               localField: "_id",
               foreignField: "event",
-              as: "purchases"
-            }
+              as: "purchases",
+            },
           },
           {
             $group: {
               _id: null,
-              totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } }
-            }
-          }
-        ])
+              totalTicketsSold: { $sum: { $sum: "$purchases.quantity" } },
+            },
+          },
+        ]),
       ]);
 
       return {
         coHost: {
           _id: coHost._id,
           userName: coHost.userName,
-          photos: coHost.photos
+          photos: coHost.photos,
         },
         totalEventsCreated: totalEvents,
-        totalTicketsSold: ticketsSoldData[0]?.totalTicketsSold || 0
+        totalTicketsSold: ticketsSoldData[0]?.totalTicketsSold || 0,
       };
     })
   );
@@ -1371,18 +1538,23 @@ export const getEventsByIdService = async (req: any, res: Response) => {
     tickets.map(async (ticket) => {
       // Get purchases for this specific ticket
       const ticketPurchases = purchases.filter(
-        purchase => purchase.ticket && purchase.ticket.toString() === ticket._id.toString()
+        (purchase) =>
+          purchase.ticket &&
+          purchase.ticket.toString() === ticket._id.toString()
       );
-      
-      const soldQuantity = ticketPurchases.reduce((sum, purchase) => sum + (purchase.quantity || 0), 0);
+
+      const soldQuantity = ticketPurchases.reduce(
+        (sum, purchase) => sum + (purchase.quantity || 0),
+        0
+      );
       const remainingQuantity = (ticket.quantity || 0) - soldQuantity;
-      
+
       return {
         ...ticket.toObject(),
         soldQuantity,
         remainingQuantity,
         isSoldOut: remainingQuantity <= 0,
-        hasSales: soldQuantity > 0
+        hasSales: soldQuantity > 0,
       };
     })
   );
@@ -1399,41 +1571,51 @@ export const getEventsByIdService = async (req: any, res: Response) => {
         ...event.toObject(),
         totalTicketsSold,
         spotsLeft,
-        capacityUtilization: totalCapacity > 0 ? ((totalTicketsSold / totalCapacity) * 100).toFixed(2) : 0,
+        capacityUtilization:
+          totalCapacity > 0
+            ? ((totalTicketsSold / totalCapacity) * 100).toFixed(2)
+            : 0,
         likeCount,
         commentCount,
-        isLikedByCurrentUser
+        isLikedByCurrentUser,
       },
       tickets: ticketsWithSoldInfo,
       creatorStats: {
         creator: {
           _id: event.creator._id,
           userName: event.creator.userName,
-          photos: event.creator.photos
+          photos: event.creator.photos,
         },
         totalEventsHosted: creatorTotalEvents,
-        totalTicketsSoldAcrossAllEvents: creatorTotalTicketsSold
+        totalTicketsSoldAcrossAllEvents: creatorTotalTicketsSold,
       },
       coHostsStats,
       eventSalesStats: {
         totalTicketsSold,
-        totalRevenue: purchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0),
+        totalRevenue: purchases.reduce(
+          (sum, purchase) => sum + (purchase.totalAmount || 0),
+          0
+        ),
         totalPurchases: purchases.length,
         spotsLeft,
-        isSoldOut: spotsLeft <= 0
+        isSoldOut: spotsLeft <= 0,
       },
       engagement: {
         likeCount,
         commentCount,
-        isLikedByCurrentUser
-      }
+        isLikedByCurrentUser,
+      },
     },
   };
 };
 
 export const updateEventService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
@@ -1449,7 +1631,14 @@ export const updateEventService = async (req: Request, res: Response) => {
 
       busboy.on("field", (fieldname: string, value: string) => {
         if (
-          ["location", "tickets", "lineup", "invitedGuests", "coHosts", "eventPreferences"].includes(fieldname)
+          [
+            "location",
+            "tickets",
+            "lineup",
+            "invitedGuests",
+            "coHosts",
+            "eventPreferences",
+          ].includes(fieldname)
         ) {
           try {
             parsedData[fieldname] = JSON.parse(value);
@@ -1460,10 +1649,10 @@ export const updateEventService = async (req: Request, res: Response) => {
               code: httpStatusCode.BAD_REQUEST,
             });
           }
-        } else if (fieldname === 'existingCoverPhoto') {
+        } else if (fieldname === "existingCoverPhoto") {
           // Handle existing cover photo that user wants to keep
           parsedData[fieldname] = value;
-        } else if (fieldname === 'existingVideos') {
+        } else if (fieldname === "existingVideos") {
           // Handle existing videos that user wants to keep
           try {
             const parsed = JSON.parse(value);
@@ -1471,7 +1660,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           } catch {
             parsedData[fieldname] = value ? [value] : [];
           }
-        } else if (fieldname === 'mediaToDelete') {
+        } else if (fieldname === "mediaToDelete") {
           // Handle media that user wants to delete (can be cover photo or videos)
           try {
             const parsed = JSON.parse(value);
@@ -1479,81 +1668,97 @@ export const updateEventService = async (req: Request, res: Response) => {
           } catch {
             parsedData[fieldname] = value ? [value] : [];
           }
-        } else if (fieldname === 'deleteCoverPhoto') {
+        } else if (fieldname === "deleteCoverPhoto") {
           // Flag to delete current cover photo
-          parsedData[fieldname] = value === 'true';
+          parsedData[fieldname] = value === "true";
         } else {
           parsedData[fieldname] = value;
         }
       });
 
-      busboy.on("file", async (fieldname: string, fileStream: any, fileInfo: any) => {
-        if (!["coverPhoto", "videos"].includes(fieldname)) {
-          fileStream.resume();
-          return;
+      busboy.on(
+        "file",
+        async (fieldname: string, fileStream: any, fileInfo: any) => {
+          if (!["coverPhoto", "videos"].includes(fieldname)) {
+            fileStream.resume();
+            return;
+          }
+
+          const { filename, mimeType } = fileInfo;
+
+          // Validate file type
+          const isCoverPhoto =
+            fieldname === "coverPhoto" && mimeType.startsWith("image/");
+          const isVideoOrImageInVideos =
+            fieldname === "videos" &&
+            (mimeType.startsWith("video/") || mimeType.startsWith("image/"));
+
+          if (!isCoverPhoto && !isVideoOrImageInVideos) {
+            fileStream.resume();
+            return reject({
+              success: false,
+              message:
+                "Only images allowed for coverPhoto and image/video files allowed for videos",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+
+          // Create readable stream
+          const readableStream = new Readable();
+          readableStream._read = () => {};
+
+          fileStream.on("data", (chunk: any) => {
+            readableStream.push(chunk);
+          });
+
+          fileStream.on("end", () => {
+            readableStream.push(null);
+          });
+
+          // Upload to S3
+          const uploadPromise = uploadStreamToS3Service(
+            readableStream,
+            filename,
+            mimeType,
+            parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
+          ).then((url) => ({ url, fieldname })); // Track which field this upload is for
+
+          uploadPromises.push(uploadPromise);
         }
-
-        const { filename, mimeType } = fileInfo;
-
-        // Validate file type
-       const isCoverPhoto = fieldname === "coverPhoto" && mimeType.startsWith("image/");
-const isVideoOrImageInVideos =
-  fieldname === "videos" && (mimeType.startsWith("video/") || mimeType.startsWith("image/"));
-
-if (!isCoverPhoto && !isVideoOrImageInVideos) {
-  fileStream.resume();
-  return reject({
-    success: false,
-    message: "Only images allowed for coverPhoto and image/video files allowed for videos",
-    code: httpStatusCode.BAD_REQUEST,
-  });
-}
-
-
-        // Create readable stream
-        const readableStream = new Readable();
-        readableStream._read = () => {};
-
-        fileStream.on("data", (chunk: any) => {
-          readableStream.push(chunk);
-        });
-
-        fileStream.on("end", () => {
-          readableStream.push(null);
-        });
-
-        // Upload to S3
-        const uploadPromise = uploadStreamToS3Service(
-          readableStream,
-          filename,
-          mimeType,
-          parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-        ).then(url => ({ url, fieldname })); // Track which field this upload is for
-
-        uploadPromises.push(uploadPromise);
-      });
+      );
 
       busboy.on("finish", async () => {
         try {
           // Wait for file uploads
           const uploadedFiles = await Promise.all(uploadPromises);
-          
+
           // Separate uploaded files by type
-          uploadedFiles.forEach(({ url , fieldname }) => {
-            if (fieldname === 'coverPhoto') {
+          uploadedFiles.forEach(({ url, fieldname }) => {
+            if (fieldname === "coverPhoto") {
               newCoverPhoto = url;
-            } else if (fieldname === 'videos') {
+            } else if (fieldname === "videos") {
               newVideos.push(url);
             }
           });
 
           // Proceed with event update
-          resolve(await processEventUpdate(parsedData, userId, req.params.id, newCoverPhoto, newVideos, res));
+          resolve(
+            await processEventUpdate(
+              parsedData,
+              userId,
+              req.params.id,
+              newCoverPhoto,
+              newVideos,
+              res
+            )
+          );
         } catch (error) {
           console.error("Upload error:", error);
           reject({
             success: false,
-            message: (error instanceof Error ? error.message : String(error)) || "Failed to upload files",
+            message:
+              (error instanceof Error ? error.message : String(error)) ||
+              "Failed to upload files",
             code: httpStatusCode.INTERNAL_SERVER_ERROR,
           });
         }
@@ -1602,9 +1807,9 @@ const processEventUpdate = async (
   }
 
   // Check if any tickets have been purchased for this event
-  const existingPurchases = await purchaseModel.findOne({ 
+  const existingPurchases = await purchaseModel.findOne({
     event: eventId,
-    status: { $in: ['active', 'used', 'transferred', 'pending'] }
+    status: { $in: ["active", "used", "transferred", "pending"] },
   });
 
   if (existingPurchases) {
@@ -1617,7 +1822,9 @@ const processEventUpdate = async (
 
   // Validate lineup
   if (data.lineup && Array.isArray(data.lineup)) {
-    const invalidLineupIds = data.lineup.filter((id: string) => !isValidObjectId(id));
+    const invalidLineupIds = data.lineup.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidLineupIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
@@ -1626,10 +1833,17 @@ const processEventUpdate = async (
       );
     }
 
-    const existingProfiles = await ProfessionalProfileModel.find({ _id: { $in: data.lineup } }).select("_id").lean();
+    const existingProfiles = await ProfessionalProfileModel.find({
+      _id: { $in: data.lineup },
+    })
+      .select("_id")
+      .lean();
     if (existingProfiles.length !== data.lineup.length) {
       const missingIds = data.lineup.filter(
-        (id: string) => !existingProfiles.some((profile: any) => profile._id.toString() === id)
+        (id: string) =>
+          !existingProfiles.some(
+            (profile: any) => profile._id.toString() === id
+          )
       );
       return errorResponseHandler(
         `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
@@ -1641,10 +1855,14 @@ const processEventUpdate = async (
 
   // Validate coHosts
   if (data.coHosts && Array.isArray(data.coHosts)) {
-    const invalidCoHostIds = data.coHosts.filter((id: string) => !isValidObjectId(id));
+    const invalidCoHostIds = data.coHosts.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidCoHostIds.length > 0) {
       return errorResponseHandler(
-        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(", ")}`,
+        `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(
+          ", "
+        )}`,
         httpStatusCode.BAD_REQUEST,
         res
       );
@@ -1653,10 +1871,14 @@ const processEventUpdate = async (
 
   // Validate invitedGuests
   if (data.invitedGuests && Array.isArray(data.invitedGuests)) {
-    const invalidGuestIds = data.invitedGuests.filter((id: string) => !isValidObjectId(id));
+    const invalidGuestIds = data.invitedGuests.filter(
+      (id: string) => !isValidObjectId(id)
+    );
     if (invalidGuestIds.length > 0) {
       return errorResponseHandler(
-        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(", ")}`,
+        `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(
+          ", "
+        )}`,
         httpStatusCode.BAD_REQUEST,
         res
       );
@@ -1697,21 +1919,48 @@ const processEventUpdate = async (
     lineup: string[];
     location: any;
     ticketing: any;
+    localDateTime:any;
+    utcDateTime:any;
   }> = {};
+
+  
 
   if (data.title) updateData.title = data.title;
   if (data.aboutEvent) updateData.aboutEvent = data.aboutEvent;
   if (data.date) updateData.date = data.date;
+  if(data.date && data.startTime){
+    const { date, startTime } = data;
+     const localDateTimeString = `${date}T${startTime}`; // e.g. "2025-10-30T18:30"
+  const localDateTime = new Date(localDateTimeString);
+
+  // Validate if date parsing worked
+  if (isNaN(localDateTime.getTime())) {
+    return errorResponseHandler(
+      "Invalid date or startTime format",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Convert to UTC ISO string
+  const utcDateTime = new Date(
+    localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
+  );
+
+  updateData.utcDateTime = utcDateTime
+  updateData.localDateTime = localDateTime
+  }
   if (data.startTime) updateData.startTime = data.startTime;
   if (data.endTime) updateData.endTime = data.endTime;
   if (data.venue) updateData.venue = data.venue;
   if (data.capacity) updateData.capacity = data.capacity;
-  if (data.eventPreferences) updateData.eventPreferences = data.eventPreferences;
+  if (data.eventPreferences)
+    updateData.eventPreferences = data.eventPreferences;
   if (data.eventVisibility) updateData.eventVisibility = data.eventVisibility;
   if (data.invitedGuests) updateData.invitedGuests = data.invitedGuests;
   if (data.coHosts) updateData.coHosts = data.coHosts;
   if (data.lineup) updateData.lineup = data.lineup;
- 
+
   if (data.location) {
     updateData.location = {
       type: "Point",
@@ -1723,29 +1972,34 @@ const processEventUpdate = async (
   // Enhanced media management logic
   let finalCoverPhoto: string | null = null;
   let finalVideos: string[] = [];
-  
+
   // Get current media from database
   const currentCoverPhoto = event.media?.coverPhoto || null;
   const currentVideos = event.media?.videos || [];
-  
+
   // Handle media to delete (can include cover photo URL or video URLs)
-  const mediaToDelete = Array.isArray(data.mediaToDelete) 
-    ? data.mediaToDelete 
-    : (data.mediaToDelete && data.mediaToDelete.length > 0 ? [data.mediaToDelete] : []);
-  
+  const mediaToDelete = Array.isArray(data.mediaToDelete)
+    ? data.mediaToDelete
+    : data.mediaToDelete && data.mediaToDelete.length > 0
+    ? [data.mediaToDelete]
+    : [];
+
   // Log for debugging
-  console.log('Current cover photo:', currentCoverPhoto);
-  console.log('Current videos:', currentVideos);
-  console.log('Media to delete:', mediaToDelete);
-  console.log('Delete cover photo flag:', data.deleteCoverPhoto);
-  console.log('Existing cover photo to keep:', data.existingCoverPhoto);
-  console.log('Existing videos to keep:', data.existingVideos);
-  
+  console.log("Current cover photo:", currentCoverPhoto);
+  console.log("Current videos:", currentVideos);
+  console.log("Media to delete:", mediaToDelete);
+  console.log("Delete cover photo flag:", data.deleteCoverPhoto);
+  console.log("Existing cover photo to keep:", data.existingCoverPhoto);
+  console.log("Existing videos to keep:", data.existingVideos);
+
   // Handle cover photo
   if (newCoverPhoto) {
     // New cover photo uploaded
     finalCoverPhoto = newCoverPhoto;
-  } else if (data.deleteCoverPhoto || (mediaToDelete.includes(currentCoverPhoto))) {
+  } else if (
+    data.deleteCoverPhoto ||
+    mediaToDelete.includes(currentCoverPhoto)
+  ) {
     // User wants to delete current cover photo
     finalCoverPhoto = null;
   } else if (data.existingCoverPhoto !== undefined) {
@@ -1755,38 +2009,41 @@ const processEventUpdate = async (
     // Keep current cover photo
     finalCoverPhoto = currentCoverPhoto;
   }
-  
+
   // Handle videos
-  const existingVideosToKeep = Array.isArray(data.existingVideos) 
-    ? data.existingVideos 
-    : (data.existingVideos && data.existingVideos.length > 0 ? [data.existingVideos] : []);
-  
+  const existingVideosToKeep = Array.isArray(data.existingVideos)
+    ? data.existingVideos
+    : data.existingVideos && data.existingVideos.length > 0
+    ? [data.existingVideos]
+    : [];
+
   if (data.existingVideos !== undefined) {
     // User explicitly specified which videos to keep (filtered to remove deleted ones)
-    finalVideos = existingVideosToKeep.filter((videoUrl: string) => 
-      !mediaToDelete.includes(videoUrl) && currentVideos.includes(videoUrl)
+    finalVideos = existingVideosToKeep.filter(
+      (videoUrl: string) =>
+        !mediaToDelete.includes(videoUrl) && currentVideos.includes(videoUrl)
     );
   } else {
     // If no explicit existing videos list, keep all current videos except those to delete
-    finalVideos = currentVideos.filter((videoUrl: string) => 
-      !mediaToDelete.includes(videoUrl)
+    finalVideos = currentVideos.filter(
+      (videoUrl: string) => !mediaToDelete.includes(videoUrl)
     );
   }
-  
+
   // Add newly uploaded videos
   finalVideos = [...finalVideos, ...newVideos];
-  
+
   // Remove duplicates
   finalVideos = [...new Set(finalVideos)];
-  
+
   // Update media in updateData
   updateData.media = {
     coverPhoto: finalCoverPhoto,
     videos: finalVideos,
   };
-  
-  console.log('Final cover photo:', finalCoverPhoto);
-  console.log('Final videos:', finalVideos);
+
+  console.log("Final cover photo:", finalCoverPhoto);
+  console.log("Final videos:", finalVideos);
 
   // Optional: Delete removed media from S3 storage
   const mediaItemsToDelete = [];
@@ -1794,20 +2051,24 @@ const processEventUpdate = async (
     mediaItemsToDelete.push(currentCoverPhoto);
   }
   mediaItemsToDelete.push(...mediaToDelete);
-  
+
   if (mediaItemsToDelete.length > 0) {
     try {
       // You can implement this function to delete from S3
       // await deleteMediaFromS3Service(mediaItemsToDelete);
-      console.log('Media marked for S3 deletion:', mediaItemsToDelete);
+      console.log("Media marked for S3 deletion:", mediaItemsToDelete);
     } catch (error) {
-      console.error('Error deleting media from S3:', error);
+      console.error("Error deleting media from S3:", error);
       // Don't fail the entire operation if S3 deletion fails
     }
   }
 
   const updatedEvent = await eventModel
-    .findByIdAndUpdate(eventId, { $set: updateData }, { new: true, runValidators: true })
+    .findByIdAndUpdate(
+      eventId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    )
     .populate("creator", "userName")
     .populate("invitedGuests", "userName")
     .populate("coHosts", "userName")
@@ -1822,18 +2083,30 @@ const processEventUpdate = async (
 
 export const deleteEventService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
   const event = await eventModel.findById(req.params.id);
 
   if (!event) {
-    return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Event not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   if (event.creator.toString() !== userId) {
-    return errorResponseHandler("Not authorized to delete this event", httpStatusCode.FORBIDDEN, res);
+    return errorResponseHandler(
+      "Not authorized to delete this event",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
   }
 
   await eventModel.findByIdAndDelete(req.params.id);

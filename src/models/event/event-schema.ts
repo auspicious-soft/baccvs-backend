@@ -97,7 +97,19 @@ const eventSchema = new Schema({
         type: String,
         default: null
       },
-  }
+  },
+      utcDateTime:{
+      type:Date,
+      required:true,
+    },
+    localDateTime:{
+      type:Date,
+      required:true
+    },
+    timezone:{
+      type:String,
+      required:true
+    }
 }, {
   timestamps: true
 });
