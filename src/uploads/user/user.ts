@@ -49,39 +49,18 @@ import { LikeModel } from "src/models/like/like-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
 import { eventModel } from "src/models/event/event-schema";
 import { UserMatch } from "src/models/usermatch/usermatch-schema";
+import { Comment } from "src/models/comment/comment-schema";
 import { Readable } from "stream";
 import Busboy from "busboy";
 import { uploadStreamToS3Service } from "src/configF/s3";
 import { blockModel } from "src/models/block/block-schema";
-import { Comment } from "src/models/comment/comment-schema";
 configDotenv();
-
-const EARTH_RADIUS_MILES = 3963.2;
 
 const sanitizeUser = (user: any) => {
   const sanitized = user.toObject();
   delete sanitized.password;
   return sanitized;
 };
-// Helper function
-function calculateDistanceInMiles(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const toRadians = (deg: number) => deg * (Math.PI / 180);
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) ** 2;
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return EARTH_RADIUS_MILES * c;
-}
 
 export const signUpService = async (
   req: any,
@@ -97,7 +76,6 @@ export const signUpService = async (
     };
   }
 
-  // Log incoming data for debugging
   console.log("signUpService - userData:", userData);
   console.log("signUpService - authType:", authType);
 
@@ -107,14 +85,12 @@ export const signUpService = async (
     return new Promise((resolve, reject) => {
       const busboy = Busboy({ headers: req.headers });
       const uploadPromises: Promise<string>[] = [];
-      const parsedData: any = { ...userData }; // Copy userData to avoid overwriting
+      const parsedData: any = { ...userData };
 
       busboy.on("field", (fieldname: string, value: string) => {
-        // Handle location field specifically
         if (fieldname === "location") {
           try {
             const parsedLocation = JSON.parse(value);
-            // Validate GeoJSON format
             if (
               parsedLocation &&
               parsedLocation.type === "Point" &&
@@ -124,13 +100,13 @@ export const signUpService = async (
               typeof parsedLocation.coordinates[1] === "number"
             ) {
               parsedData[fieldname] = parsedLocation;
-              console.log(`Busboy - Parsed location:`, parsedLocation); // Debug log
+              console.log(`Busboy - Parsed location:`, parsedLocation);
             } else {
               console.log(`Busboy - Invalid location format:`, value);
               return reject({
                 success: false,
                 message:
-                  "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude] and optional address",
+                  "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
                 code: httpStatusCode.BAD_REQUEST,
               });
             }
@@ -146,66 +122,116 @@ export const signUpService = async (
             });
           }
         } else {
-          // Store other fields as strings
           parsedData[fieldname] = value;
         }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`); // Debug log
+        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
       });
 
-      busboy.on(
-        "file",
-        async (fieldname: string, fileStream: any, fileInfo: any) => {
-          if (!["photos", "videos"].includes(fieldname)) {
-            fileStream.resume(); // Skip non-photo/video files
-            return;
-          }
+      busboy.on("file", (fieldname: string, fileStream: any, fileInfo: any) => {
+        console.log(
+          `Busboy - File detected: fieldname=${fieldname}, filename=${fileInfo.filename}, mimeType=${fileInfo.mimeType}`
+        );
 
-          const { filename, mimeType } = fileInfo;
+        // Accept 'photos', 'videos', or any field that looks like a file
+        const { filename, mimeType } = fileInfo;
 
-          // Validate file type
-          const isImage = mimeType.startsWith("image/");
-          const isVideo = mimeType.startsWith("video/");
-          if (!isImage && !isVideo) {
-            fileStream.resume();
-            return reject({
-              success: false,
-              message: "Only image or video files are allowed",
-              code: httpStatusCode.BAD_REQUEST,
+        // Validate file type
+        const isImage = mimeType.startsWith("image/");
+        const isVideo = mimeType.startsWith("video/");
+
+        if (!isImage && !isVideo) {
+          console.log(`Busboy - Skipping non-media file: ${filename}`);
+          fileStream.resume();
+          return;
+        }
+
+        console.log(
+          `Busboy - Processing ${isImage ? "image" : "video"}: ${filename}`
+        );
+
+        // Collect file chunks
+        const chunks: Buffer[] = [];
+
+        fileStream.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+
+        fileStream.on("end", () => {
+          console.log(
+            `Busboy - File stream ended for: ${filename}, total chunks: ${chunks.length}`
+          );
+        });
+
+        fileStream.on("error", (error: any) => {
+          console.error(`Busboy - File stream error for ${filename}:`, error);
+        });
+
+        // Create upload promise
+        const uploadPromise = new Promise<string>(
+          (resolveUpload, rejectUpload) => {
+            const chunks: Buffer[] = [];
+
+            fileStream.on("data", (chunk: Buffer) => {
+              chunks.push(chunk);
+            });
+
+            fileStream.on("end", async () => {
+              try {
+                // Combine chunks into single buffer
+                const fileBuffer = Buffer.concat(chunks);
+                console.log(
+                  `Busboy - Uploading file: ${filename}, size: ${fileBuffer.length} bytes`
+                );
+
+                // Create readable stream from buffer
+                const readableStream = new Readable();
+                readableStream.push(fileBuffer);
+                readableStream.push(null);
+
+                // Upload to S3
+                const s3Key = await uploadStreamToS3Service(
+                  readableStream,
+                  filename,
+                  mimeType,
+                  parsedData.email ||
+                    `user_${customAlphabet("0123456789", 5)()}`
+                );
+
+                console.log(`Busboy - Upload successful: ${s3Key}`);
+                resolveUpload(s3Key);
+              } catch (error) {
+                console.error(`Busboy - Upload failed for ${filename}:`, error);
+                rejectUpload(error);
+              }
+            });
+
+            fileStream.on("error", (error: any) => {
+              console.error(`Busboy - File stream error:`, error);
+              rejectUpload(error);
             });
           }
+        );
 
-          // Create a readable stream from the file stream
-          const readableStream = new Readable();
-          readableStream._read = () => {}; // Required implementation
-
-          fileStream.on("data", (chunk: any) => {
-            readableStream.push(chunk);
-          });
-
-          fileStream.on("end", () => {
-            readableStream.push(null); // End of stream
-          });
-
-          // Add upload promise to array
-          const uploadPromise = uploadStreamToS3Service(
-            readableStream,
-            filename,
-            mimeType,
-            parsedData.email || `user_${customAlphabet("0123456789", 5)()}`
-          );
-          uploadPromises.push(uploadPromise);
-        }
-      );
+        uploadPromises.push(uploadPromise);
+      });
 
       busboy.on("finish", async () => {
         try {
-          // Wait for all file uploads to complete
-          photos = await Promise.all(uploadPromises);
+          console.log(
+            `Busboy - Finish event triggered, waiting for ${uploadPromises.length} uploads`
+          );
 
-          // Use parsedData instead of userData
+          // Wait for all file uploads to complete
+          if (uploadPromises.length > 0) {
+            photos = await Promise.all(uploadPromises);
+            console.log(`Busboy - All uploads completed:`, photos);
+          } else {
+            console.log("Busboy - No files were uploaded");
+          }
+
           // Extract authType from parsedData if not provided
           authType = authType || parsedData.authType;
-          console.log("Busboy - Final authType:", authType); // Debug log
+          console.log("Busboy - Final authType:", authType);
 
           // Validate auth type
           if (!authType) {
@@ -249,13 +275,13 @@ export const signUpService = async (
         });
       });
 
+      // Important: pipe the request to busboy
       req.pipe(busboy);
     });
   } else {
     // If no multipart/form-data, process userData without file uploads
-    // Use authType from userData if not provided
     authType = authType || userData.authType;
-    console.log("Non-multipart - Final authType:", authType); // Debug log
+    console.log("Non-multipart - Final authType:", authType);
 
     // Validate auth type
     if (!authType) {
@@ -294,6 +320,7 @@ const processUserData = async (
     ? handleExistingUser(existingUser as any, authType, res)
     : null;
   if (existingUserResponse) return existingUserResponse;
+
   const existingNumber = await usersModel.findOne({
     phoneNumber: userData.phoneNumber,
   });
@@ -304,6 +331,7 @@ const processUserData = async (
       code: httpStatusCode.BAD_REQUEST,
     };
   }
+
   const existingUserName = await usersModel.findOne({
     userName: userData.userName,
   });
@@ -315,6 +343,8 @@ const processUserData = async (
     };
   }
 
+  const userCount = await usersModel.countDocuments();
+
   // Prepare new user data
   const newUserData = {
     ...userData,
@@ -324,18 +354,21 @@ const processUserData = async (
     photos, // Store S3 keys
   };
 
+  console.log("processUserData - Photos to save:", photos);
+
   // Hash password if email auth
   newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
 
   // Get referral code if provided
-  if (!userData.referralCode) {
-    return {
-      success: false,
-      message: "Referral code is required",
-      code: httpStatusCode.BAD_REQUEST,
-    };
-  }
-  if (userData.referralCode) {
+  if (userCount > 0) {
+    if (!userData.referralCode) {
+      return {
+        success: false,
+        message: "Referral code is required",
+        code: httpStatusCode.BAD_REQUEST,
+      };
+    }
+
     newUserData.referredBy = await getReferralCodeCreator(userData, res);
     if (!newUserData.referredBy) {
       return {
@@ -352,8 +385,8 @@ const processUserData = async (
   // Create user
   let user = await usersModel.create(newUserData);
 
-  // Handle referral code updates
-  if (user._id && newUserData.referredBy) {
+  // Handle referral updates only if not first user and referral exists
+  if (userCount > 0 && user._id && newUserData.referredBy) {
     await Promise.all([
       ReferralCodeModel.findByIdAndUpdate(
         newUserData.referredBy,
@@ -367,6 +400,9 @@ const processUserData = async (
       ),
       createReferralCodeService(user._id, res),
     ]);
+  } else if (userCount === 0) {
+    // If this is the first user, just create their referral code
+    await createReferralCodeService(user._id, res);
   }
 
   // Generate token for non-email auth
@@ -387,7 +423,7 @@ const processUserData = async (
   await user.save();
 
   // Log saved user
-  console.log("processUserData - Saved user:", user);
+  console.log("processUserData - Saved user with photos:", user.photos);
 
   return {
     success: true,
@@ -448,31 +484,12 @@ export const loginUserService = async (
   }
 
   user.token = generateUserToken(user as any);
-  await user.save();
-  const followerCount = await followModel.countDocuments({
-    following_id: user._id,
-    relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true,
-  });
 
-  // Get following count
-  const followingCount = await followModel.countDocuments({
-    follower_id: user._id,
-    relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true,
-  });
-  const eventCount = await eventModel.countDocuments({
-    creator: user._id,
-  });
+  await user.save();
   return {
     success: true,
     message: "Logged in successfully",
-    data: {
-      user: sanitizeUser(user),
-      followerCount,
-      followingCount,
-      eventCount,
-    },
+    data: sanitizeUser(user),
   };
 };
 
@@ -748,16 +765,20 @@ export const getUserInfoService = async (req: any, res: Response) => {
   const targetUserId = req.params.id;
 
   // Check if either user has blocked the other
-  const isBlockedByCurrentUser = await blockModel.findOne({
-    $or: [{ blockedBy: currentUserId, blockedUser: targetUserId }],
-  });
-  const isBlockedByTargetUser = await blockModel.findOne({
-    $or: [{ blockedBy: targetUserId, blockedUser: currentUserId }],
+  const isBlocked = await blockModel.findOne({
+    $or: [
+      { blockedBy: currentUserId, blockedUser: targetUserId },
+      { blockedBy: targetUserId, blockedUser: currentUserId },
+    ],
   });
 
-  // if (isBlocked) {
-  //   return errorResponseHandler("Access to user data restricted", httpStatusCode.FORBIDDEN, res);
-  // }
+  if (isBlocked) {
+    return errorResponseHandler(
+      "Access to user data restricted",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
   // Fetch target user data
   const user = await usersModel
@@ -812,8 +833,6 @@ export const getUserInfoService = async (req: any, res: Response) => {
       eventCount,
       isFollowedByCurrentUser: !!isFollowedByCurrentUser,
       isFollowingCurrentUser: !!isFollowingCurrentUser,
-      isBlockedByCurrentUser: isBlockedByCurrentUser === null ? false : true,
-      isBlockedByTargetUser: isBlockedByTargetUser === null ? false : true,
     },
   };
 };
@@ -838,14 +857,23 @@ export const getUserInfoByEmailService = async (
 
 export const editUserInfoService = async (req: any, res: Response) => {
   const { id: userId, email: userEmail } = req.user;
-  
+
   // Check if user exists and authorization
   const user = await usersModel.findById(userId);
-  if (!user) throw new Error("User not found");
-  
+  if (!user)
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+
   // Check content type - expect multipart/form-data for file uploads
-  if (!req.headers['content-type']?.includes('multipart/form-data')) {
-    throw new Error('Content-Type must be multipart/form-data');
+  if (!req.headers["content-type"]?.includes("multipart/form-data")) {
+    return errorResponseHandler(
+      "Content-Type must be multipart/form-data",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -853,86 +881,78 @@ export const editUserInfoService = async (req: any, res: Response) => {
     const uploadPromises: Promise<string>[] = [];
     const formData: any = {};
 
-    busboy.on('field', (fieldname: string, value: string) => {
+    busboy.on("field", (fieldname: string, value: string) => {
       // Handle form fields - parse arrays for certain fields
-      if (['interestCategories', 'musicStyles', 'atmosphereVibes', 'eventTypes'].includes(fieldname)) {
+      if (
+        [
+          "interestCategories",
+          "musicStyles",
+          "atmosphereVibes",
+          "eventTypes",
+        ].includes(fieldname)
+      ) {
         try {
           formData[fieldname] = JSON.parse(value);
         } catch {
           formData[fieldname] = value;
         }
-      } else if (fieldname === 'location') {
+      } else if (fieldname === "location") {
         try {
           formData[fieldname] = JSON.parse(value);
         } catch {
           formData[fieldname] = value;
-        }
-      } else if (fieldname === 'language') {
-        try {
-          formData[fieldname] = JSON.parse(value);
-        } catch {
-          formData[fieldname] = value;
-        }
-      } else if (fieldname === 'existingPhotos') {
-        // Handle existing photos that user wants to keep
-        try {
-          const parsed = JSON.parse(value);
-          formData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          // If it's not JSON, treat as single value or empty
-          formData[fieldname] = value ? [value] : [];
-        }
-      } else if (fieldname === 'photosToDelete') {
-        // Handle photos that user wants to delete
-        try {
-          const parsed = JSON.parse(value);
-          formData[fieldname] = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          // If it's not JSON, treat as single value or empty
-          formData[fieldname] = value ? [value] : [];
         }
       } else {
         formData[fieldname] = value;
       }
     });
 
-    busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
-      if (fieldname !== 'photos') {
-        fileStream.resume(); // Skip non-photo files
-        return;
+    busboy.on(
+      "file",
+      async (fieldname: string, fileStream: any, fileInfo: any) => {
+        if (fieldname !== "photos") {
+          fileStream.resume(); // Skip non-photo files
+          return;
+        }
+
+        const { filename, mimeType } = fileInfo;
+
+        // Validate file type
+        if (!mimeType.startsWith("image/")) {
+          fileStream.resume();
+          return reject(
+            errorResponseHandler(
+              "Only image files are allowed",
+              httpStatusCode.BAD_REQUEST,
+              res
+            )
+          );
+        }
+
+        // Create a readable stream from the file stream
+        const readableStream = new Readable();
+        readableStream._read = () => {}; // Required implementation
+
+        fileStream.on("data", (chunk: any) => {
+          readableStream.push(chunk);
+        });
+
+        fileStream.on("end", () => {
+          readableStream.push(null); // End of stream
+        });
+
+        // Add upload promise to array
+        const uploadPromise = uploadStreamToS3Service(
+          readableStream,
+          filename,
+          mimeType,
+          userEmail
+        );
+        uploadPromises.push(uploadPromise);
       }
+    );
 
-      const { filename, mimeType } = fileInfo;
-      
-      // Validate file type
-      if (!mimeType.startsWith('image/')) {
-        fileStream.resume();
-        return reject(new Error('Only image files are allowed'));
-      }
-
-      // Create a readable stream from the file stream
-      const readableStream = new Readable();
-      readableStream._read = () => {}; // Required implementation
-
-      fileStream.on('data', (chunk: any) => {
-        readableStream.push(chunk);
-      });
-
-      fileStream.on('end', () => {
-        readableStream.push(null); // End of stream
-      });
-
-      // Add upload promise to array
-      const uploadPromise = uploadStreamToS3Service(
-        readableStream,
-        filename,
-        mimeType,
-        userEmail
-      );
-      uploadPromises.push(uploadPromise);
-    });
-
-    busboy.on('finish', async () => {
+    busboy.on("finish", async () => {
       try {
         // Wait for all file uploads to complete (if any)
         let uploadedPhotoKeys: string[] = [];
@@ -942,219 +962,198 @@ export const editUserInfoService = async (req: any, res: Response) => {
 
         // Create an object with only the allowed fields
         const allowedFields = [
-          'userName', 
-          'about', 
-          'drinking', 
-          'smoke', 
-          'marijuana', 
-          'drugs',
-          'work',
-          'interestCategories', 
-          'musicStyles', 
-          'atmosphereVibes', 
-          'eventTypes', 
-          'height',
-          'location',
-          'language',
-          "zodiacSign",
-          "gender"
+          "userName",
+          "about",
+          "drinking",
+          "smoke",
+          "marijuana",
+          "drugs",
+          "interestCategories",
+          "musicStyles",
+          "atmosphereVibes",
+          "eventTypes",
+          "height",
+          "location",
         ];
-        
+
         const updateData: any = {};
-        
+
         // Only copy allowed fields from formData
-        allowedFields.forEach(field => {
+        allowedFields.forEach((field) => {
           if (formData[field] !== undefined) {
             updateData[field] = formData[field];
           }
         });
 
-        // Enhanced photo management logic
-        let finalPhotos: string[] = [];
-        
-        // Get current photos from database (S3 keys like "users/email/image/webp/timestamp-filename")
-        const currentPhotos = user.photos || [];
-        
-        // Handle photos to delete (if any) - these will be S3 keys
-        const photosToDelete = Array.isArray(formData.photosToDelete) 
-          ? formData.photosToDelete 
-          : (formData.photosToDelete && formData.photosToDelete.length > 0 ? [formData.photosToDelete] : []);
-        
-        // Handle existing photos that user wants to keep - these will be S3 keys
-        const existingPhotosToKeep = Array.isArray(formData.existingPhotos) 
-          ? formData.existingPhotos 
-          : (formData.existingPhotos && formData.existingPhotos.length > 0 ? [formData.existingPhotos] : []);
-        
-        // Log for debugging
-        console.log('Current photos in DB:', currentPhotos);
-        console.log('Photos to delete:', photosToDelete);
-        console.log('Existing photos to keep:', existingPhotosToKeep);
-        
-        // If existingPhotos is explicitly sent, use only those (filtered)
-        if (formData.existingPhotos !== undefined) {
-          // Keep only existing photos that are not in the delete list and exist in current photos
-          finalPhotos = existingPhotosToKeep.filter((photoKey: string) => 
-            !photosToDelete.includes(photoKey) && currentPhotos.includes(photoKey)
-          );
-        } else {
-          // If no explicit existing photos list, keep all current photos except those to delete
-          finalPhotos = currentPhotos.filter((photoKey: string) => 
-            !photosToDelete.includes(photoKey)
-          );
+        // Handle photos - either use uploaded photos or existing photos from form
+        if (uploadedPhotoKeys.length > 0) {
+          // If new photos were uploaded, use them
+          updateData.photos = uploadedPhotoKeys;
+        } else if (formData.photos !== undefined) {
+          // If no new photos but photos field exists in form, use existing photos
+          updateData.photos = Array.isArray(formData.photos)
+            ? formData.photos
+            : [];
         }
-        
-        // Add newly uploaded photos (uploadedPhotoKeys will be S3 keys from uploadStreamToS3Service)
-        finalPhotos = [...finalPhotos, ...uploadedPhotoKeys];
-        
-        // Remove duplicates (just in case)
-        finalPhotos = [...new Set(finalPhotos)];
-        
-        // Update photos in updateData
-        updateData.photos = finalPhotos;
-        
-        console.log('Final photos array:', finalPhotos);
 
-        // Optional: Delete removed photos from S3 storage
-        if (photosToDelete.length > 0) {
-          try {
-            // You can implement this function to delete from S3
-            // await deletePhotosFromS3Service(photosToDelete);
-            console.log('Photos marked for S3 deletion:', photosToDelete);
-          } catch (error) {
-            console.error('Error deleting photos from S3:', error);
-            // Don't fail the entire operation if S3 deletion fails
-          }
-        }
-        
         // Validate enum fields
-        if (updateData.drinking && !["Yes", "No", "prefer not to say"].includes(updateData.drinking)) {
-          return reject(new Error("Invalid drinking value"));
+        if (
+          updateData.drinking &&
+          !["Yes", "No", "prefer not to say"].includes(updateData.drinking)
+        ) {
+          return reject(
+            errorResponseHandler(
+              "Invalid drinking value",
+              httpStatusCode.BAD_REQUEST,
+              res
+            )
+          );
         }
-        
-        if (updateData.smoke && !["Yes", "No", "prefer not to say"].includes(updateData.smoke)) {
-          return reject(new Error("Invalid smoke value"));
+
+        if (
+          updateData.smoke &&
+          !["Yes", "No", "prefer not to say"].includes(updateData.smoke)
+        ) {
+          return reject(
+            errorResponseHandler(
+              "Invalid smoke value",
+              httpStatusCode.BAD_REQUEST,
+              res
+            )
+          );
         }
-        
-        if (updateData.marijuana && !["Yes", "No", "prefer not to say"].includes(updateData.marijuana)) {
-          return reject(new Error("Invalid marijuana value"));
+
+        if (
+          updateData.marijuana &&
+          !["Yes", "No", "prefer not to say"].includes(updateData.marijuana)
+        ) {
+          return reject(
+            errorResponseHandler(
+              "Invalid marijuana value",
+              httpStatusCode.BAD_REQUEST,
+              res
+            )
+          );
         }
-        
-        if (updateData.drugs && !["Yes", "No", "prefer not to say"].includes(updateData.drugs)) {
-          return reject(new Error("Invalid drugs value"));
+
+        if (
+          updateData.drugs &&
+          !["Yes", "No", "prefer not to say"].includes(updateData.drugs)
+        ) {
+          return reject(
+            errorResponseHandler(
+              "Invalid drugs value",
+              httpStatusCode.BAD_REQUEST,
+              res
+            )
+          );
         }
-        
+
         // Validate interestCategories
-        if (updateData.interestCategories && Array.isArray(updateData.interestCategories)) {
+        if (
+          updateData.interestCategories &&
+          Array.isArray(updateData.interestCategories)
+        ) {
           for (const category of updateData.interestCategories) {
             if (!Object.values(InterestCategory).includes(category)) {
-              return reject(new Error(`Invalid interest category: ${category}`));
+              return reject(
+                errorResponseHandler(
+                  `Invalid interest category: ${category}`,
+                  httpStatusCode.BAD_REQUEST,
+                  res
+                )
+              );
             }
           }
         }
-        
+
         // Validate musicStyles
         if (updateData.musicStyles && Array.isArray(updateData.musicStyles)) {
           for (const style of updateData.musicStyles) {
             if (!Object.values(MusicStyle).includes(style)) {
-              return reject(new Error(`Invalid music style: ${style}`));
+              return reject(
+                errorResponseHandler(
+                  `Invalid music style: ${style}`,
+                  httpStatusCode.BAD_REQUEST,
+                  res
+                )
+              );
             }
           }
         }
-        
+
         // Validate atmosphereVibes
-        if (updateData.atmosphereVibes && Array.isArray(updateData.atmosphereVibes)) {
+        if (
+          updateData.atmosphereVibes &&
+          Array.isArray(updateData.atmosphereVibes)
+        ) {
           for (const vibe of updateData.atmosphereVibes) {
             if (!Object.values(AtmosphereVibe).includes(vibe)) {
-              return reject(new Error(`Invalid atmosphere vibe: ${vibe}`));
+              return reject(
+                errorResponseHandler(
+                  `Invalid atmosphere vibe: ${vibe}`,
+                  httpStatusCode.BAD_REQUEST,
+                  res
+                )
+              );
             }
           }
         }
-        
+
         // Validate eventTypes
         if (updateData.eventTypes && Array.isArray(updateData.eventTypes)) {
           for (const type of updateData.eventTypes) {
             if (!Object.values(EventType).includes(type)) {
-              return reject(new Error(`Invalid event type: ${type}`));
+              return reject(
+                errorResponseHandler(
+                  `Invalid event type: ${type}`,
+                  httpStatusCode.BAD_REQUEST,
+                  res
+                )
+              );
             }
           }
         }
-        
+
         // Handle location update if provided
         if (formData.location) {
           if (!updateData.location) {
             updateData.location = {
-              type: 'Point',
+              type: "Point",
               coordinates: [0, 0],
-              address: ''
+              address: "",
             };
           }
-          
+
           if (formData.location.coordinates) {
             updateData.location.coordinates = formData.location.coordinates;
           }
-          
+
           if (formData.location.address) {
             updateData.location.address = formData.location.address;
           }
         }
-        
-        if (formData.work) {
-          updateData.work = formData.work;
-        }
-        if (formData.zodiacSign) {
-          updateData.zodiacSign = formData.zodiacSign;
-        }
-        if (formData.gender) {
-          updateData.gender = formData.gender;
-        }
-        
-        if (Array.isArray(formData.language) && formData.language.length > 0) {
-          updateData.language = formData.language;
-        }
-        
+
         const updatedUser = await usersModel.findByIdAndUpdate(
           userId,
           { $set: updateData },
           { new: true }
         );
 
-        const followerCount = await followModel.countDocuments({
-          following_id: userId,
-          relationship_status: FollowRelationshipStatus.FOLLOWING,
-          is_approved: true,
-        });
-
-        // Get following count
-        const followingCount = await followModel.countDocuments({
-          follower_id: userId,
-          relationship_status: FollowRelationshipStatus.FOLLOWING,
-          is_approved: true,
-        });
-        
-        const eventCount = await eventModel.countDocuments({
-          creator: userId,
-        });
-
         resolve({
           success: true,
           message: "User updated successfully",
-          data: {
-            user: updatedUser,
-            followerCount,
-            followingCount,
-            eventCount
-          },
+          data: updatedUser,
         });
-
       } catch (error) {
-        console.error('Upload or user update error:', error);
-        reject(error);
+        console.error("Upload or user update error:", error);
+        reject(formatErrorResponse(res, error));
       }
     });
 
-    busboy.on('error', (error: any) => {
-      console.error('Busboy error:', error);
-      reject(error);
+    busboy.on("error", (error: any) => {
+      console.error("Busboy error:", error);
+      reject(formatErrorResponse(res, error));
     });
 
     req.pipe(busboy);
@@ -2233,11 +2232,10 @@ export const getUserPrivacyPreferenceService = async (
 
 export const getUserPostsService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
+  // get user posts and reposts
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
-
-  // Get user posts
   const posts = await postModels
     .find({ user: userId })
     .sort({ createdAt: -1 })
@@ -2248,34 +2246,6 @@ export const getUserPostsService = async (req: any, res: Response) => {
       path: "taggedUsers",
       select: "userName photos",
     });
-
-  // Attach likeCount, repostCount, commentCount, isLiked
-  const postWithCounts = await Promise.all(
-    posts.map(async (post: any) => {
-      const [repostCount, likeCount, commentCount, isLiked] = await Promise.all(
-        [
-          RepostModel.countDocuments({ originalPost: post._id }),
-          LikeModel.countDocuments({ targetType: "posts", target: post._id }),
-          Comment.countDocuments({ post: post._id, isDeleted: false }),
-          LikeModel.exists({
-            user: userId,
-            targetType: "posts",
-            target: post._id,
-          }),
-        ]
-      );
-
-      return {
-        ...post.toObject(),
-        repostCount,
-        likeCount,
-        commentCount,
-        isLikedByUser: Boolean(isLiked),
-      };
-    })
-  );
-
-  // Get user reposts
   const reposts = await RepostModel.find({ user: userId })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -2283,40 +2253,13 @@ export const getUserPostsService = async (req: any, res: Response) => {
     .populate("user", "userName photos")
     .populate({
       path: "originalPost",
-      populate: {
-        path: "user",
-        select: "userName photos",
-      },
     });
-
-  // Attach likeCount, commentCount, isLiked
-  const repostsWithCounts = await Promise.all(
-    reposts.map(async (repost: any) => {
-      const [likeCount, commentCount, isLiked] = await Promise.all([
-        LikeModel.countDocuments({ targetType: "reposts", target: repost._id }),
-        Comment.countDocuments({ repost: repost._id, isDeleted: false }),
-        LikeModel.exists({
-          user: userId,
-          targetType: "reposts",
-          target: repost._id,
-        }),
-      ]);
-
-      return {
-        ...repost.toObject(),
-        likeCount,
-        commentCount,
-        isLikedByUser: Boolean(isLiked),
-      };
-    })
-  );
-
   return {
     success: true,
     message: "User posts retrieved successfully",
     data: {
-      posts: postWithCounts,
-      reposts: repostsWithCounts,
+      posts,
+      reposts,
     },
   };
 };
@@ -2343,126 +2286,32 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
     );
   }
 
-  const followerCount = await followModel.countDocuments({
-    following_id: userId,
-    relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true,
-  });
+  const [followerCount, followingCount, eventCount] = await Promise.all([
+    followModel.countDocuments({
+      following_id: userId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+      is_approved: true,
+    }),
+    followModel.countDocuments({
+      follower_id: userId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+      is_approved: true,
+    }),
+    eventModel.countDocuments({
+      creator: userId,
+    }),
+  ]);
 
-  // Get following count
-  const followingCount = await followModel.countDocuments({
-    follower_id: userId,
-    relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true,
-  });
-  const eventCount = await eventModel.countDocuments({
-    creator: userId,
-  });
+  const newObject = {
+    ...user.toObject(),
+    followerCount,
+    followingCount,
+    eventCount,
+  };
 
   return {
     success: true,
     message: "User information retrieved successfully",
-    data: {
-      user,
-      followerCount,
-      followingCount,
-      eventCount,
-    },
-  };
-};
-
-export const getFollowListService = async (req: any, res: Response) => {
-  const currentUserId = req.user.id;
-  const type = req.query.type as "followers" | "following";
-  const userId = (req.query.userId as string) || currentUserId;
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const skip = (page - 1) * limit;
-  const searchQuery = req.query.search as string;
-
-  const currentUser = await usersModel.findById(currentUserId);
-  if (
-    !currentUser ||
-    !(
-      currentUser.location &&
-      typeof currentUser.location === "object" &&
-      Array.isArray((currentUser.location as any).coordinates)
-    )
-  ) {
-    return errorResponseHandler(
-      "Current user not found or location not set",
-      httpStatusCode.NOT_FOUND,
-      res
-    );
-  }
-
-  // Construct query with search
-  const query =
-    type === "followers" ? { following_id: userId } : { follower_id: userId };
-
-  // If search query exists, filter by username
-  const userFilter = searchQuery
-    ? { userName: { $regex: searchQuery, $options: "i" } } // case-insensitive search
-    : {};
-
-  const followDocs = await followModel.find(query).skip(skip).limit(limit);
-
-  const userIds = followDocs.map((doc) =>
-    type === "followers" ? doc.follower_id : doc.following_id
-  );
-
-  // Fetch users matching the userIds and search query
-  const users = await usersModel
-    .find({
-      _id: { $in: userIds },
-      ...userFilter, // Apply the search filter here
-    })
-    .select("userName photos location");
-
-  const enrichedUsers = await Promise.all(
-    users.map(async (user) => {
-      // Check mutual follow flags
-      const [isFollowingThem, isFollowedByThem] = await Promise.all([
-        followModel.exists({
-          follower_id: currentUserId,
-          following_id: user._id,
-        }),
-        followModel.exists({
-          follower_id: user._id,
-          following_id: currentUserId,
-        }),
-      ]);
-
-      // Distance Calculation (Haversine formula via MongoDB $geoNear or manually)
-      let distanceInMiles = null;
-      if (
-        user.location &&
-        typeof user.location === "object" &&
-        Array.isArray((user.location as any).coordinates)
-      ) {
-        const [lng1, lat1] = (
-          currentUser.location as { coordinates: [number, number] }
-        ).coordinates;
-        const [lng2, lat2] = (user.location as any).coordinates;
-        distanceInMiles = calculateDistanceInMiles(lat1, lng1, lat2, lng2);
-      }
-
-      return {
-        _id: user._id,
-        userName: user.userName,
-        photos: user.photos,
-        isFollowingThem: !!isFollowingThem,
-        isFollowedByThem: !!isFollowedByThem,
-        distanceInMiles: distanceInMiles
-          ? Number(distanceInMiles.toFixed(2))
-          : null,
-      };
-    })
-  );
-
-  return {
-    success: true,
-    message: `User ${type} list fetched successfully`,
-    data: enrichedUsers,
+    data: newObject,
   };
 };

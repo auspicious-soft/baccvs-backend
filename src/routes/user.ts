@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {   getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowList } from "../controllers/user/user";
+import { getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowList } from "../controllers/user/user";
 import { createProfessionalProfile, deleteProfessionalProfile, getAllProfessionalProfiles, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
 import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
 import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
@@ -128,6 +128,5 @@ router.get("/community/:communityId/messages", getCommunityMessages);
 router.post("/community/send-message", sendCommunityMessage);
 router.post("/community-conversations/:communityConversationId/pin",togglePinCommunityConversation);
 router.post("/community-conversations/:communityConversationId/background",updateCommunityConversationBackground);
-
 
 export { router }
