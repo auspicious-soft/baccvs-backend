@@ -1,60 +1,159 @@
 import { Router } from "express";
-import { getDashboardStats, getUserInfo, editUserInfo, verifyCurrentPassword, submitNewEmail, submitNewPhone, verifyAndCompleteEmailChange, verifyAndCompletePhoneChange, forgotPassword, resetPasswordWithToken, notificationSetting, toggleTwoFactorAuthentication, getReferalCode, changePassword, getAllFollowedUsers, togglePrivacyPreference, getUserNotificationPreferences, getUserPrivacyPreference, getUserPosts, getUserInfoByToken, getFollowList } from "../controllers/user/user";
-import { createProfessionalProfile, deleteProfessionalProfile, getAllProfessionalProfiles, getProfessionalProfileById, getUserAllprofessionalProfiles, updateProfessionalProfile } from "src/controllers/professional/professional-controller";
-import { createPromotion, getAllPromotions, getPromotionById, getUserPromotions, togglePromotionStatus } from "src/controllers/promotion/promotion-controller";
-import { getUserFeedController, getUserMatchesController, getUserMatchStatsController, userDislikeController, userLikeController } from "src/controllers/userMatch/userMatch-controller";
-import { addMember, changeMemberRole, createSquad, deleteSquad, getSquadById, getSquads, getUserSquads, joinSquad, leaveSquad, removeMember, transferOwnership, updateSquad } from "src/controllers/squad/squad-controller";
-import { userDislikeSquadController, userLikeSquadController } from "src/controllers/squadMatch/squadMatch-controller";
-import { getConversationMessages, getUserConversations, markMessagesAsRead, sendMessage } from "src/controllers/chat/chat-controller";
-import { getSquadMessagesController, sendSquadMessageController, getUserSquadConversationsController, markSquadMessagesAsReadController } from "src/controllers/chat/squad-chat-controller";
-import { createCommunity, getCommunities, getUserCommunities, getCommunityById, joinCommunity, leaveCommunity, addcommunityMember, removeCommunityMember, changeCommunityMemberRole } from "src/controllers/community/community-controller";
-import { getUserCommunityConversations, getCommunityMessages, sendCommunityMessage } from "src/controllers/chat/community-chat-controller";
-import { togglePinCommunityConversation, togglePinDirectConversation, togglePinSquadConversation, updateCommunityConversationBackground, updateDirectConversationBackground, updateSquadConversationBackground } from "src/controllers/chat/chat-settings-controller";
-import { getUserNotification, markNotificationAsRead } from "src/controllers/user-notification-controller.ts/user-notification-controller";
-import { deleteTicketController, getTicketByIdController, getTicketsByEventController, updateTicketController } from "src/controllers/ticket/ticket-controller";
+import {
+  getDashboardStats,
+  getUserInfo,
+  editUserInfo,
+  verifyCurrentPassword,
+  submitNewEmail,
+  submitNewPhone,
+  verifyAndCompleteEmailChange,
+  verifyAndCompletePhoneChange,
+  forgotPassword,
+  resetPasswordWithToken,
+  notificationSetting,
+  toggleTwoFactorAuthentication,
+  getReferalCode,
+  changePassword,
+  getAllFollowedUsers,
+  togglePrivacyPreference,
+  getUserNotificationPreferences,
+  getUserPrivacyPreference,
+  getUserPosts,
+  getUserInfoByToken,
+  getFollowList,
+  getConversationsByType,
+  getUserAllData,
+} from "../controllers/user/user";
+import {
+  createProfessionalProfile,
+  deleteProfessionalProfile,
+  getAllProfessionalProfiles,
+  getProfessionalProfileById,
+  getUserAllprofessionalProfiles,
+  updateProfessionalProfile,
+} from "src/controllers/professional/professional-controller";
+import {
+  createPromotion,
+  getAllPromotions,
+  getPromotionById,
+  getUserPromotions,
+  togglePromotionStatus,
+} from "src/controllers/promotion/promotion-controller";
+import {
+  getUserFeedController,
+  getUserMatchesController,
+  getUserMatchStatsController,
+  userDislikeController,
+  userLikeController,
+} from "src/controllers/userMatch/userMatch-controller";
+import {
+  addMember,
+  changeMemberRole,
+  createSquad,
+  deleteSquad,
+  getSquadById,
+  getSquads,
+  getUserSquads,
+  joinSquad,
+  leaveSquad,
+  removeMember,
+  transferOwnership,
+  updateSquad,
+} from "src/controllers/squad/squad-controller";
+import {
+  userDislikeSquadController,
+  userLikeSquadController,
+} from "src/controllers/squadMatch/squadMatch-controller";
+import {
+  getConversationMessages,
+  getUserConversations,
+  markMessagesAsRead,
+  sendMessage,
+} from "src/controllers/chat/chat-controller";
+import {
+  getSquadMessagesController,
+  sendSquadMessageController,
+  getUserSquadConversationsController,
+  markSquadMessagesAsReadController,
+} from "src/controllers/chat/squad-chat-controller";
+import {
+  createCommunity,
+  getCommunities,
+  getUserCommunities,
+  getCommunityById,
+  joinCommunity,
+  leaveCommunity,
+  addcommunityMember,
+  removeCommunityMember,
+  changeCommunityMemberRole,
+} from "src/controllers/community/community-controller";
+import {
+  getUserCommunityConversations,
+  getCommunityMessages,
+  sendCommunityMessage,
+} from "src/controllers/chat/community-chat-controller";
+import {
+  togglePinCommunityConversation,
+  togglePinDirectConversation,
+  togglePinSquadConversation,
+  updateCommunityConversationBackground,
+  updateDirectConversationBackground,
+  updateSquadConversationBackground,
+} from "src/controllers/chat/chat-settings-controller";
+import {
+  getUserNotification,
+  markNotificationAsRead,
+} from "src/controllers/user-notification-controller.ts/user-notification-controller";
+import {
+  deleteTicketController,
+  getTicketByIdController,
+  getTicketsByEventController,
+  updateTicketController,
+} from "src/controllers/ticket/ticket-controller";
 
 const router = Router();
 
-router.post("/verify-password",  verifyCurrentPassword);
-router.post("/change-email/submit",submitNewEmail);
-router.post("/change-phone/submit",submitNewPhone);
-router.post("/change-email/verify",verifyAndCompleteEmailChange);
-router.post("/change-phone/verify",verifyAndCompletePhoneChange);
-router.post("/forgot-password", forgotPassword)
+router.post("/verify-password", verifyCurrentPassword);
+router.post("/change-email/submit", submitNewEmail);
+router.post("/change-phone/submit", submitNewPhone);
+router.post("/change-email/verify", verifyAndCompleteEmailChange);
+router.post("/change-phone/verify", verifyAndCompletePhoneChange);
+router.post("/forgot-password", forgotPassword);
 // router.post("/reset-password", resetPasswordWithToken)
-router.post("/create/professionalId",createProfessionalProfile)
-router.post("/create/promotion",createPromotion)
-router.post("/change-password", changePassword)
-router.route("/:id").get( getUserInfo)
-router.get("/dashboard/data",  getDashboardStats)
-router.get("/get/current/user",getUserInfoByToken)
-router.get("/all/professional/profile",getUserAllprofessionalProfiles )
-router.get("/all/professional",getAllProfessionalProfiles )
-router.get("/professional/profile/:id",getProfessionalProfileById)
-router.get("/get/all/promotion",getAllPromotions)
-router.get("/get/promotion/:id",getPromotionById)
-router.get("/get/promotion/user/:id",getUserPromotions)
-router.get("/get/referal/code",getReferalCode)
-router.get("/get/user/notification/preference",getUserNotificationPreferences)
-router.get("/get/user/privacy/preference",getUserPrivacyPreference)
-router.get("/get/current/user/post",getUserPosts)
-router.put("/update/professional/profile/:id",updateProfessionalProfile)
-router.get("/get/user/dating/notification",getUserNotification)
-router.patch("/mark/notification/read/:notificationId",markNotificationAsRead);
+router.post("/create/professionalId", createProfessionalProfile);
+router.post("/create/promotion", createPromotion);
+router.post("/change-password", changePassword);
+router.route("/:id").get(getUserInfo);
+router.get("/dashboard/data", getDashboardStats);
+router.get("/get/current/user", getUserInfoByToken);
+router.get("/all/professional/profile", getUserAllprofessionalProfiles);
+router.get("/all/professional", getAllProfessionalProfiles);
+router.get("/professional/profile/:id", getProfessionalProfileById);
+router.get("/get/all/promotion", getAllPromotions);
+router.get("/get/promotion/:id", getPromotionById);
+router.get("/get/promotion/user/:id", getUserPromotions);
+router.get("/get/referal/code", getReferalCode);
+router.get("/get/user/notification/preference", getUserNotificationPreferences);
+router.get("/get/user/privacy/preference", getUserPrivacyPreference);
+router.get("/get/current/user/post", getUserPosts);
+router.put("/update/professional/profile/:id", updateProfessionalProfile);
+router.get("/get/user/dating/notification", getUserNotification);
+router.patch("/mark/notification/read/:notificationId", markNotificationAsRead);
 router.get("/event/tickets/:eventId", getTicketsByEventController);
-router.patch("/edit/ticket/:id",updateTicketController)
-router.get("/get/ticket/:id",getTicketByIdController)
-router.patch("/update/user/info", editUserInfo)
-router.patch("/toggle/notification",notificationSetting)
-router.patch("/toggle/promotion/:id",togglePromotionStatus)
-router.patch("/toggle/twofactor",toggleTwoFactorAuthentication)
-router.patch("/toggle/privacy",togglePrivacyPreference)
-router.delete("/delete/professional/profile/:id",deleteProfessionalProfile)
-router.delete("/delete/ticket/:id",deleteTicketController)
+router.patch("/edit/ticket/:id", updateTicketController);
+router.get("/get/ticket/:id", getTicketByIdController);
+router.patch("/update/user/info", editUserInfo);
+router.patch("/toggle/notification", notificationSetting);
+router.patch("/toggle/promotion/:id", togglePromotionStatus);
+router.patch("/toggle/twofactor", toggleTwoFactorAuthentication);
+router.patch("/toggle/privacy", togglePrivacyPreference);
+router.delete("/delete/professional/profile/:id", deleteProfessionalProfile);
+router.delete("/delete/ticket/:id", deleteTicketController);
 
-// create api to get all user 
-router.get("/get/all/followedUser", getAllFollowedUsers)
-router.get("/get/follow/list",getFollowList)
+// create api to get all user
+router.get("/get/all/followedUser", getAllFollowedUsers);
+router.get("/get/follow/list", getFollowList);
+router.get("/get/all-data", getUserAllData);
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
@@ -66,6 +165,8 @@ router.get("/match-stats", getUserMatchStatsController);
 // Squad Match api
 router.post("/like-squad/:id", userLikeSquadController);
 router.post("/dislike-squad/:id", userDislikeSquadController);
+
+router.get("/conversations/message", getConversationsByType);
 
 // Squad api
 router.post("/create/squad", createSquad);
@@ -91,8 +192,11 @@ router.post("/conversation/send", sendMessage);
 // Mark messages as read
 router.post("/conversations/:conversationId/read", markMessagesAsRead);
 // Direct conversation routes
-router.post("/conversations/:conversationId/pin",  togglePinDirectConversation);
-router.post("/conversations/:conversationId/background",  updateDirectConversationBackground);
+router.post("/conversations/:conversationId/pin", togglePinDirectConversation);
+router.post(
+  "/conversations/:conversationId/background",
+  updateDirectConversationBackground
+);
 
 // Squad chat routes
 // Get all squad conversations for the current user
@@ -104,8 +208,14 @@ router.post("/squad/send-message", sendSquadMessageController);
 // Mark squad messages as read
 router.post("/squad/:squadId/read", markSquadMessagesAsReadController);
 // Squad conversation routes
-router.post("/squad-conversations/:squadConversationId/pin", togglePinSquadConversation);
-router.post("/squad-conversations/:squadConversationId/background",updateSquadConversationBackground);
+router.post(
+  "/squad-conversations/:squadConversationId/pin",
+  togglePinSquadConversation
+);
+router.post(
+  "/squad-conversations/:squadConversationId/background",
+  updateSquadConversationBackground
+);
 
 // Community routes
 // Community management
@@ -117,7 +227,10 @@ router.patch("/join/community/:id", joinCommunity);
 router.patch("/leave/community/:id", leaveCommunity);
 router.patch("/add/community/member/:id", addcommunityMember);
 router.patch("/remove/community/member/:id", removeCommunityMember);
-router.patch("/change/community/:communityId/members/:memberId/role", changeCommunityMemberRole);
+router.patch(
+  "/change/community/:communityId/members/:memberId/role",
+  changeCommunityMemberRole
+);
 
 // Community chat routes
 // Get all community conversations for the current user
@@ -126,7 +239,13 @@ router.get("/community/conversations", getUserCommunityConversations);
 router.get("/community/:communityId/messages", getCommunityMessages);
 // Send a message to a community
 router.post("/community/send-message", sendCommunityMessage);
-router.post("/community-conversations/:communityConversationId/pin",togglePinCommunityConversation);
-router.post("/community-conversations/:communityConversationId/background",updateCommunityConversationBackground);
+router.post(
+  "/community-conversations/:communityConversationId/pin",
+  togglePinCommunityConversation
+);
+router.post(
+  "/community-conversations/:communityConversationId/background",
+  updateCommunityConversationBackground
+);
 
-export { router }
+export { router };

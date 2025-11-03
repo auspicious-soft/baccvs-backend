@@ -18,25 +18,27 @@ import { Comment } from "src/models/comment/comment-schema";
 function getTimezoneOffset(timezone: string, date: Date): number {
   try {
     // Create a formatter for the specific timezone
-    const formatter = new Intl.DateTimeFormat('en-US', {
+    const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
       hour12: false,
     });
 
     // Get the date parts in the target timezone
     const parts = formatter.formatToParts(date);
-    const getPart = (type: string) => 
-      parts.find(part => part.type === type)?.value || '0';
+    const getPart = (type: string) =>
+      parts.find((part) => part.type === type)?.value || "0";
 
     // Reconstruct the date in the target timezone
     const tzDate = new Date(
-      `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`
+      `${getPart("year")}-${getPart("month")}-${getPart("day")}T${getPart(
+        "hour"
+      )}:${getPart("minute")}:${getPart("second")}`
     );
 
     // Calculate offset in minutes
@@ -242,7 +244,7 @@ const processEventCreation = async (
     enableReselling,
     location,
     tickets,
-    timezone
+    timezone,
   } = data;
 
   // Validate required fields
@@ -1919,36 +1921,34 @@ const processEventUpdate = async (
     lineup: string[];
     location: any;
     ticketing: any;
-    localDateTime:any;
-    utcDateTime:any;
+    localDateTime: any;
+    utcDateTime: any;
   }> = {};
-
-  
 
   if (data.title) updateData.title = data.title;
   if (data.aboutEvent) updateData.aboutEvent = data.aboutEvent;
   if (data.date) updateData.date = data.date;
-  if(data.date && data.startTime){
+  if (data.date && data.startTime) {
     const { date, startTime } = data;
-     const localDateTimeString = `${date}T${startTime}`; // e.g. "2025-10-30T18:30"
-  const localDateTime = new Date(localDateTimeString);
+    const localDateTimeString = `${date}T${startTime}`; // e.g. "2025-10-30T18:30"
+    const localDateTime = new Date(localDateTimeString);
 
-  // Validate if date parsing worked
-  if (isNaN(localDateTime.getTime())) {
-    return errorResponseHandler(
-      "Invalid date or startTime format",
-      httpStatusCode.BAD_REQUEST,
-      res
+    // Validate if date parsing worked
+    if (isNaN(localDateTime.getTime())) {
+      return errorResponseHandler(
+        "Invalid date or startTime format",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    // Convert to UTC ISO string
+    const utcDateTime = new Date(
+      localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
     );
-  }
 
-  // Convert to UTC ISO string
-  const utcDateTime = new Date(
-    localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
-  );
-
-  updateData.utcDateTime = utcDateTime
-  updateData.localDateTime = localDateTime
+    updateData.utcDateTime = utcDateTime;
+    updateData.localDateTime = localDateTime;
   }
   if (data.startTime) updateData.startTime = data.startTime;
   if (data.endTime) updateData.endTime = data.endTime;
@@ -1983,14 +1983,6 @@ const processEventUpdate = async (
     : data.mediaToDelete && data.mediaToDelete.length > 0
     ? [data.mediaToDelete]
     : [];
-
-  // Log for debugging
-  console.log("Current cover photo:", currentCoverPhoto);
-  console.log("Current videos:", currentVideos);
-  console.log("Media to delete:", mediaToDelete);
-  console.log("Delete cover photo flag:", data.deleteCoverPhoto);
-  console.log("Existing cover photo to keep:", data.existingCoverPhoto);
-  console.log("Existing videos to keep:", data.existingVideos);
 
   // Handle cover photo
   if (newCoverPhoto) {
@@ -2042,9 +2034,6 @@ const processEventUpdate = async (
     videos: finalVideos,
   };
 
-  console.log("Final cover photo:", finalCoverPhoto);
-  console.log("Final videos:", finalVideos);
-
   // Optional: Delete removed media from S3 storage
   const mediaItemsToDelete = [];
   if (data.deleteCoverPhoto && currentCoverPhoto) {
@@ -2056,7 +2045,6 @@ const processEventUpdate = async (
     try {
       // You can implement this function to delete from S3
       // await deleteMediaFromS3Service(mediaItemsToDelete);
-      console.log("Media marked for S3 deletion:", mediaItemsToDelete);
     } catch (error) {
       console.error("Error deleting media from S3:", error);
       // Don't fail the entire operation if S3 deletion fails

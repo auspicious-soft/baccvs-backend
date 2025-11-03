@@ -54,6 +54,12 @@ import { Readable } from "stream";
 import Busboy from "busboy";
 import { uploadStreamToS3Service } from "src/configF/s3";
 import { blockModel } from "src/models/block/block-schema";
+import { SquadConversation } from "src/models/chat/squad-conversation-schema";
+import { Squad } from "src/models/squad/squad-schema";
+import { Message } from "src/models/chat/message-schema";
+import { Conversation } from "src/models/chat/conversation-schema";
+import { CommunityConversation } from "src/models/chat/community-conversation-schema";
+import { Community } from "src/models/community/community-schema";
 configDotenv();
 
 const sanitizeUser = (user: any) => {
@@ -169,9 +175,9 @@ export const signUpService = async (
         // Create upload promise
         const uploadPromise = new Promise<string>(
           (resolveUpload, rejectUpload) => {
-            const chunks: Buffer[] = [];
+            const chunks: any = [];
 
-            fileStream.on("data", (chunk: Buffer) => {
+            fileStream.on("data", (chunk: any) => {
               chunks.push(chunk);
             });
 
@@ -2103,30 +2109,30 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
       is_approved: true,
     })
     .select("following_id");
-  if (!following) {
-    return errorResponseHandler(
-      "Users not found",
-      httpStatusCode.NOT_FOUND,
-      res
-    );
-  }
-  const followingIds = following.map((f) => f.following_id);
-  const users = await usersModel
-    .find({
-      _id: { $in: followingIds },
-    })
-    .select("-password");
-  if (!users) {
-    return errorResponseHandler(
-      "Users not found",
-      httpStatusCode.NOT_FOUND,
-      res
-    );
-  }
+  // if (!following) {
+  //   return errorResponseHandler(
+  //     "Users not found",
+  //     httpStatusCode.NOT_FOUND,
+  //     res
+  //   );
+  // }
+  // const followingIds = following.map((f) => f.following_id);
+  // const users = await usersModel
+  //   .find({
+  //     _id: { $in: followingIds },
+  //   })
+  //   .select("-password");
+  // if (!users) {
+  //   return errorResponseHandler(
+  //     "Users not found",
+  //     httpStatusCode.NOT_FOUND,
+  //     res
+  //   );
+  // }
   return {
     success: true,
-    message: "Users retrieved successfully",
-    data: users,
+    message: "Following user retrieved successfully",
+    data: following,
   };
 };
 
@@ -2268,7 +2274,7 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
   if (!userId) {
     return errorResponseHandler(
-      "User not found",
+      "User id is required",
       httpStatusCode.NOT_FOUND,
       res
     );
@@ -2315,3 +2321,230 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
     data: newObject,
   };
 };
+
+export const getConversationsByTypeService = async (
+  req: any,
+  res: Response
+) => {
+  const userId = req.user.id;
+  const { type = "all" } = req.query; // Type can be: 'all', 'individual', 'squad', 'community'
+  let individualConversations: any[] = [];
+  let squadConversations: any[] = [];
+  let communityConversations: any[] = [];
+
+  // Fetch individual conversations
+  if (type === "all" || type === "individual") {
+    const conversations = await Conversation.find({
+      participants: userId,
+      isActive: true,
+    })
+      .populate({
+        path: "participants",
+        select: "userName photos",
+      })
+      .populate({
+        path: "lastMessage",
+        select: "text messageType createdAt sender readBy",
+      })
+      .sort({ updatedAt: -1 });
+
+    individualConversations = await Promise.all(
+      conversations.map(async (conversation) => {
+        const conversationObj = conversation.toObject() as any;
+
+        // Filter out the current user from participants array
+        conversationObj.participants = conversationObj.participants.filter(
+          (participant: any) => participant._id.toString() !== userId.toString()
+        );
+
+        // Add user-specific pin status
+        conversationObj.isPinned = conversation.isPinned?.get(userId) || false;
+
+        // Add user-specific background settings
+        conversationObj.backgroundSettings =
+          conversation.backgroundSettings?.get(userId) || {
+            backgroundImage: null,
+            backgroundColor: null,
+          };
+
+        // Count unread messages for current user in this conversation
+        const unreadCount = await Message.countDocuments({
+          conversation: conversation._id,
+          sender: { $ne: userId },
+          isDeleted: false,
+          "readBy.user": { $ne: userId },
+        });
+
+        conversationObj.unreadCount = unreadCount;
+        conversationObj.conversationType = "individual";
+
+        return conversationObj;
+      })
+    );
+  }
+
+  // Fetch squad conversations
+  if (type === "all" || type === "squad") {
+    // Find all squads the user is a member of
+    const userSquads = await Squad.find({
+      "members.user": userId,
+    }).select("_id conversation title media members");
+
+    // Get the conversation IDs
+    const squadConversationIds = userSquads
+      .filter((squad) => squad.conversation)
+      .map((squad) => squad.conversation);
+
+    // Get the conversations with their last messages
+    const squads = await SquadConversation.find({
+      _id: { $in: squadConversationIds },
+    })
+      .populate({
+        path: "lastMessage",
+        populate: {
+          path: "sender",
+          select: "userName photos",
+        },
+      })
+      .populate({
+        path: "squad",
+        select: "title media members",
+        populate: {
+          path: "members.user",
+          select: "userName photos",
+        },
+      })
+      .sort({ updatedAt: -1 });
+
+    squadConversations = (squads as any).map((conversation) => {
+      const conversationObj: any = conversation.toObject();
+      conversationObj.isPinned = conversation.isPinned.get(userId) || false;
+      conversationObj.backgroundSettings = conversation.backgroundSettings.get(
+        userId
+      ) || {
+        backgroundImage: null,
+        backgroundColor: null,
+      };
+      conversationObj.conversationType = "squad";
+      return conversationObj;
+    });
+  }
+
+  // Fetch community conversations
+  if (type === "all" || type === "community") {
+    // Find all communities the user is a member of
+    const userCommunities = await Community.find({
+      "members.user": userId,
+    }).select("_id conversation name media members");
+
+    // Get the conversation IDs
+    const communityConversationIds = userCommunities
+      .filter((community) => community.conversation)
+      .map((community) => community.conversation);
+
+    // Get the conversations with their last messages
+    const communities = await CommunityConversation.find({
+      _id: { $in: communityConversationIds },
+    })
+      .populate({
+        path: "lastMessage",
+        populate: {
+          path: "sender",
+          select: "userName photos",
+        },
+      })
+      .populate({
+        path: "community",
+        select: "name media members",
+        populate: {
+          path: "members.user",
+          select: "userName photos",
+        },
+      })
+      .sort({ updatedAt: -1 });
+
+    communityConversations = communities.map((conversation) => {
+      const conversationObj: any = conversation.toObject();
+      conversationObj.isPinned = conversation.isPinned?.get?.(userId) || false;
+      conversationObj.backgroundSettings =
+        conversation.backgroundSettings?.get?.(userId) || {
+          backgroundImage: null,
+          backgroundColor: null,
+        };
+      conversationObj.conversationType = "community";
+      return conversationObj;
+    });
+  }
+
+  // Combine all conversations if type is 'all'
+  let allConversations: any[] = [];
+  if (type === "all") {
+    allConversations = [
+      ...individualConversations,
+      ...squadConversations,
+      ...communityConversations,
+    ];
+
+    // Sort by updatedAt to show most recent conversations first
+    allConversations.sort((a, b) => {
+      const dateA = new Date(a.updatedAt || 0).getTime();
+      const dateB = new Date(b.updatedAt || 0).getTime();
+      return dateB - dateA;
+    });
+  }
+
+  // Prepare response based on type
+  const responseData =
+    type === "all"
+      ? {
+          all: allConversations,
+          individual: individualConversations,
+          squad: squadConversations,
+          community: communityConversations,
+          counts: {
+            total: allConversations.length,
+            individual: individualConversations.length,
+            squad: squadConversations.length,
+            community: communityConversations.length,
+          },
+        }
+      : type === "individual"
+      ? individualConversations
+      : type === "squad"
+      ? squadConversations
+      : communityConversations;
+
+  return {
+    success: true,
+    message: `${
+      type.charAt(0).toUpperCase() + type.slice(1)
+    } conversations retrieved successfully`,
+    data: responseData,
+  };
+};
+
+export const getUserAllDataService = async(userId:any,res:Response)=>{
+
+  const [event,post,like]= await Promise.all([
+    eventModel.find({
+      creator: userId,
+    }),
+    postModels.find({
+      user:userId,
+    }),
+    LikeModel.find({
+      user:userId,
+      targetType:"post"
+    })
+  ])
+
+  return{
+    success:true,
+    message:"User All Data retrived",
+    data:{
+      event,
+      post,
+      like
+    }
+  }
+}

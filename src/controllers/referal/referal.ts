@@ -40,6 +40,14 @@ export const createReferralCode = async (req: Request, res: Response) => {
 
 export const validateReferralCodeService = async (req: any, res: Response) => {
     const { referralCode } = req.body;
+    
+    const userCount = await usersModel.countDocuments();
+
+  // 🚀 If no users exist, skip referral validation and allow signup
+  if (userCount === 0) {
+    return { success: true, message: "First user — referral code not required" };
+  }
+
 
     if (!referralCode) {
       return errorResponseHandler("Referral code is required", httpStatusCode.FORBIDDEN, res)          

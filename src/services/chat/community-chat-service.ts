@@ -69,6 +69,7 @@ export const getUserCommunityConversationsService = async (req: any, res: Respon
 
     return {
       success: true,
+      message:"User Community Conversation",
       communityConversations
     };
 };

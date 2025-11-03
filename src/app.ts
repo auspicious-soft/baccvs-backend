@@ -10,7 +10,7 @@ import http from "http"
 import { setupSocketServer } from "./socket/socket-handler"
 import { checkValidAdminRole } from "./utils"
 import bodyParser from 'body-parser'
-import {  verifyOtpPasswordReset, newPassswordAfterOTPVerified, login, signup, verifyEmail, verifyingEmailOtp, forgotPassword, resetPasswordWithToken, uploadUserPhotos } from "./controllers/user/user";
+import {  verifyOtpPasswordReset, newPassswordAfterOTPVerified, login, signup, verifyEmail, verifyingEmailOtp, forgotPassword, resetPasswordWithToken, uploadUserPhotos, socialSignUp } from "./controllers/user/user";
 import { configDotenv } from 'dotenv';
 import { checkAuth } from "./middleware/check-auth"
 import { socketAuthMiddleware } from "./middleware/socket-auth";
@@ -41,7 +41,6 @@ io.use(socketAuthMiddleware);
 // Setup Socket.IO
 setupSocketServer(io);
 
-
 app.use(bodyParser.json({
     verify: (req: any, res, buf) => {
       req.rawBody = buf.toString();
@@ -51,7 +50,6 @@ app.use(bodyParser.json({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
 app.use(
     cors({
         origin: "*",
@@ -59,7 +57,6 @@ app.use(
         credentials: true,
     })
 );
-
 
 var dir = path.join(__dirname, 'static')
 app.use(express.static(dir))
@@ -87,8 +84,9 @@ app.get("/", (_, res: any) => {
 });
 app.post("/api/user/reset/password", resetPasswordWithToken);
 app.use("/api/referal",referal);
-app.use("/api/login", login);
-app.use("/api/signup", signup);
+app.post("/api/login", login);
+app.post("/api/signup", signup);
+app.post("/api/social/signup",socialSignUp);
 app.use("/api/user",checkAuth, user);
 app.use("/api/follow",checkAuth, follow);
 app.use("/api/post",checkAuth,post);
@@ -99,8 +97,8 @@ app.use("/api/report",checkAuth,report)
 app.use("/api/repost",checkAuth,repost);
 app.use('/api/location',checkAuth, locationRoutes);
 app.use("/api/story",checkAuth, story);
+app.use("/api/resell",checkAuth, resell);
 app.use("/api/purchase",checkAuth,purchase);
-app.use("/api/resell",checkAuth, resell); // Add the resell routes with checkAuth
 app.use("/api/chat", checkAuth, chatRoutes);
 app.use("/api/block", checkAuth, blockRoutes);
 app.use("/api/feedback",checkAuth, feedbackRoutes);
@@ -111,5 +109,5 @@ app.post("/api/verify-email", verifyingEmailOtp);
 app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // First screen - verify password
- 
+
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

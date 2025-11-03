@@ -41,7 +41,6 @@ export const getConversationMessages = async (req: Request, res: Response) => {
 export const sendMessage = async (req: Request, res: Response) => {
   try {
     const result = await sendMessageService(req, res);
-    if (!result.success) return; // Error already handled by service
     return res.status(httpStatusCode.CREATED).json(result);
   } catch (error) {
     console.error("Error in sendMessage controller:", error);
