@@ -2108,7 +2108,7 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
       relationship_status: FollowRelationshipStatus.FOLLOWING,
       is_approved: true,
     })
-    .select("following_id");
+    .populate("following_id","userName photos dob");
   // if (!following) {
   //   return errorResponseHandler(
   //     "Users not found",
@@ -2152,7 +2152,7 @@ export const getAllFollowingUsersService = async (req: any, res: Response) => {
       relationship_status: FollowRelationshipStatus.FOLLOWING,
       is_approved: true,
     })
-    .select("following_id");
+    .populate("follower_id","userName photos dob");
   // if (!following) {
   //   return errorResponseHandler(
   //     "Users not found",
