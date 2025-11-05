@@ -5,7 +5,9 @@ import {
   getSquadMessagesService,
   sendSquadMessageService,
   getUserSquadConversationsService,
-  markSquadMessagesAsReadService
+  markSquadMessagesAsReadService,
+  toggleMuteSquadConversationService,
+  updateSquadPermissionsService
 } from "../../services/chat/squad-chat-service";
 
 /**
@@ -65,6 +67,32 @@ export const getUserSquadConversationsController = async (req: Request, res: Res
 export const markSquadMessagesAsReadController = async (req: Request, res: Response) => {
   try {
     const response = await markSquadMessagesAsReadService(req, res);
+    if (response) {
+      return res.status(httpStatusCode.OK).json(response);
+    }
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+export const toggleMuteSquadConversation = async (req: Request, res: Response) => {
+  try {
+    const response = await toggleMuteSquadConversationService(req, res);
+    if (response) {
+      return res.status(httpStatusCode.OK).json(response);
+    }
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+export const updateSquadPermissions = async (req: Request, res: Response) => {
+  try {
+    const response = await updateSquadPermissionsService(req, res);
     if (response) {
       return res.status(httpStatusCode.OK).json(response);
     }

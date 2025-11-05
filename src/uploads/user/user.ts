@@ -2135,48 +2135,46 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
     data: following,
   };
 };
-export const getAllFollowingUsersService = async (req: any, res: Response) => {
+export const getAllFollowersService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
-  if (!userId) {
-    return errorResponseHandler(
-      "User not found",
-      httpStatusCode.NOT_FOUND,
-      res
-    );
-  }
-  // check for both user follow each other
 
-  const following = await followModel
+  if (!userId) {
+    return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+  }
+
+  // Get all followers of the current user
+  const followers = await followModel
     .find({
       following_id: userId,
       relationship_status: FollowRelationshipStatus.FOLLOWING,
       is_approved: true,
     })
-    .populate("follower_id","userName photos dob");
-  // if (!following) {
-  //   return errorResponseHandler(
-  //     "Users not found",
-  //     httpStatusCode.NOT_FOUND,
-  //     res
-  //   );
-  // }
-  // const followingIds = following.map((f) => f.following_id);
-  // const users = await usersModel
-  //   .find({
-  //     _id: { $in: followingIds },
-  //   })
-  //   .select("-password");
-  // if (!users) {
-  //   return errorResponseHandler(
-  //     "Users not found",
-  //     httpStatusCode.NOT_FOUND,
-  //     res
-  //   );
-  // }
+    .populate("follower_id", "userName photos dob");
+
+  // Extract follower user IDs
+  const followerUserIds = followers.map((f) => f.follower_id._id);
+
+  // Find mutual follows (where current user also follows them)
+  const mutuals = await followModel.find({
+    follower_id: userId,
+    following_id: { $in: followerUserIds },
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
+    is_approved: true,
+  });
+
+  // Extract IDs of users that are mutually followed
+  const mutualUserIds = mutuals.map((m) => m.following_id.toString());
+
+  // Attach flag for mutual follows
+  const result = followers.map((f: any) => ({
+    ...f.toObject(),
+    userAlsoFollow: mutualUserIds.includes(f.follower_id._id.toString()),
+  }));
+
   return {
     success: true,
     message: "Followers retrieved successfully",
-    data: following,
+    data: result,
   };
 };
 

@@ -34,7 +34,8 @@ import {
   getUserInfoByTokenService,
   getConversationsByTypeService,
   getUserAllDataService,
-  getAllFollowingUsersService
+  getAllFollowersService,
+  
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
 import {
@@ -452,7 +453,7 @@ export const getAllFollowedUsers = async (req: Request, res: Response) => {
 };
 export const getAllFollowingUsers = async (req: Request, res: Response) => {
   try {
-    const response = await getAllFollowingUsersService(req, res);
+    const response = await getAllFollowersService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error: any) {
     const { code, message } = errorParser(error);

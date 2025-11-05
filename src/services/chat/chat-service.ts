@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Message, MessageType } from "../../models/chat/message-schema";
+import { ConversationType, Message, MessageType } from "../../models/chat/message-schema";
 import { Conversation } from "../../models/chat/conversation-schema";
 import { usersModel } from "../../models/user/user-schema";
 import { FollowRelationshipStatus, httpStatusCode } from "../../lib/constant";
@@ -109,7 +109,7 @@ export const getConversationMessagesService = async (
   const skip = (page - 1) * limit;
   const messages = await Message.find({
     conversation: conversationId,
-    isDeleted: false,
+    deletedFor: { $ne: userId }
   })
     .populate("sender", "userName photos")
     .sort({ createdAt: -1 })
@@ -260,10 +260,12 @@ export const sendMessageService = async (req: any, res: Response) => {
   const message = new Message({
     sender: senderId,
     conversation: conversation._id,
+    conversationType: ConversationType.DIRECT,
     messageType,
     text: messageType === MessageType.TEXT ? text : undefined,
     mediaUrl: messageType !== MessageType.TEXT ? mediaUrl : undefined,
     readBy: [{ user: senderId, readAt: new Date() }],
+    deletedFor: [],
   });
 
   await message.save();
@@ -350,4 +352,76 @@ export const markMessagesAsReadService = async (req: any, res: Response) => {
       res
     );
   }
+};
+export const deleteChatService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const { recipientId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(recipientId)) {
+    return errorResponseHandler("Invalid recipient ID", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  // 🟩 1. Find the direct conversation between the two users
+  const conversation = await Conversation.findOne({
+    participants: { $all: [userId, recipientId] },
+    isActive: true,
+  });
+
+  if (!conversation) {
+    return errorResponseHandler("Conversation not found", httpStatusCode.NOT_FOUND, res);
+  }
+
+  // 🟩 2. Mark all messages in this conversation as deleted for the current user
+  await Message.updateMany(
+    {
+      conversation: conversation._id,
+      conversationType: ConversationType.DIRECT,
+      deletedFor: { $ne: userId }, // avoid re-adding
+    },
+    { $addToSet: { deletedFor: userId } } // add userId if not already in array
+  );
+
+   // 🟩 3. Find and hard-delete messages where both users have deleted
+  const participants = conversation.participants.map((id) => id.toString());
+
+  await Message.deleteMany({
+    conversation: conversation._id,
+    conversationType: ConversationType.DIRECT,
+    deletedFor: { $all: participants }, // both users deleted it
+  });
+
+  return {
+    success: true,
+    message: "Chat deleted successfully for you.",
+  };
+};
+export const deleteMessageService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const { messageId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(messageId)) {
+    return errorResponseHandler("Invalid message ID", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  const message = await Message.findById(messageId);
+
+  if (!message) {
+    return errorResponseHandler("Message not found", httpStatusCode.NOT_FOUND, res);
+  }
+
+  // Only for direct chats
+  if (message.conversationType !== ConversationType.DIRECT) {
+    return errorResponseHandler("Delete-for-me is only allowed in direct messages", httpStatusCode.BAD_REQUEST, res);
+  }
+
+  // Add user to deletedFor if not already there
+  if (!message?.deletedFor?.includes(userId)) {
+    message?.deletedFor?.push(userId);
+    await message.save();
+  }
+
+  return {
+    success: true,
+    message: "Message deleted for you successfully",
+  };
 };

@@ -32,7 +32,6 @@ export const unblockUser = async (req: Request, res: Response) => {
     });
   }
 };
-
 export const getBlockedUsers = async (req: Request, res: Response) => {
   try {
     const response = await getBlockedUsersService(req, res);

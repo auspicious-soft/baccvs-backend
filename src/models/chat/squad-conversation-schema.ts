@@ -1,10 +1,25 @@
 import mongoose, { Schema, Document } from "mongoose";
 
+export interface IMuteData {
+  muted: boolean;
+  muteExpiresAt?: Date | null;
+  muteType?: "temporary" | "permanent" | null;
+}
+
+export interface IPermissions {
+  onlyAdminsCanPost: boolean;
+  allowMessageEditing: boolean;
+  allowMediaSharing: boolean;
+}
+
 export interface ISquadConversation extends Document {
   squad: mongoose.Types.ObjectId;
-  messages: mongoose.Types.ObjectId[];
-  lastMessage: mongoose.Types.ObjectId;
+  lastMessage?: mongoose.Types.ObjectId;
   isActive: boolean;
+  isPinned: Map<string, boolean>;
+  backgroundSettings: Map<string, { backgroundImage?: string; backgroundColor?: string }>;
+  isMuted: Map<string, IMuteData>;
+  permissions: IPermissions;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,26 +43,43 @@ const SquadConversationSchema = new Schema(
     isPinned: {
       type: Map,
       of: Boolean,
-      default: {} // Map of userId -> isPinned
+      default: {}
+    },
+    isMuted: {
+      type: Map,
+      of: new Schema(
+        {
+          muted: { type: Boolean, default: false },
+          muteExpiresAt: { type: Date, default: null },
+          muteType: { type: String, enum: ["temporary", "permanent", null], default: null }
+        },
+        { _id: false }
+      ),
+      default: {}
     },
     backgroundSettings: {
       type: Map,
-      of: new Schema({
-        backgroundImage: String,
-        backgroundColor: String
-      }, { _id: false }),
-      default: {} // Map of userId -> background settings
+      of: new Schema(
+        {
+          backgroundImage: String,
+          backgroundColor: String
+        },
+        { _id: false }
+      ),
+      default: {}
+    },
+    permissions: {
+      onlyAdminsCanPost: { type: Boolean, default: false },
+      allowMessageEditing: { type: Boolean, default: true },
+      allowMediaSharing: { type: Boolean, default: true }
     }
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
 
-// Create an index on squad ID for efficient lookups
 SquadConversationSchema.index({ squad: 1 });
 
 export const SquadConversation = mongoose.model<ISquadConversation>(
-  "SquadConversation", 
+  "SquadConversation",
   SquadConversationSchema
 );

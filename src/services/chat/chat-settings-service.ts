@@ -746,15 +746,23 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
     }; 
 };
 export const toggleMuteDirectConversationService = async (req: any, res: Response) => {
-  const userId = req.user.id;
-  if(!userId){
-     return errorResponseHandler(
+  const userId = req.user?.id;
+  if (!userId) {
+    return errorResponseHandler(
       "userId is required",
       httpStatusCode.NOT_FOUND,
       res
     );
   }
+
   const { conversationId } = req.params;
+  const { muteType } = req.body; // e.g. "24h" | "1w" | "1m" | "forever"
+
+  // Validate muteType if provided
+  const validTypes = ["24h", "1w", "1m", "forever"];
+  if (muteType && !validTypes.includes(muteType)) {
+    return errorResponseHandler("Invalid mute type", httpStatusCode.BAD_REQUEST, res);
+  }
 
   // Check if conversation exists and user is a participant
   const conversation = await Conversation.findOne({
@@ -771,14 +779,29 @@ export const toggleMuteDirectConversationService = async (req: any, res: Respons
     );
   }
 
-  // Toggle mute status for this user
-  const isMuted = conversation.isMuted.get(userId) || false;
-  conversation.isMuted.set(userId, !isMuted);
+  const currentMuteData = conversation.isMuted.get(userId) || { muted: false, muteExpiresAt: null, muteType: null };
+
+  // Calculate new mute expiration
+  let muteExpiresAt: Date | null = null;
+  if (muteType === "24h") muteExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  else if (muteType === "1w") muteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  else if (muteType === "1m") muteExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  else if (muteType === "forever") muteExpiresAt = null;
+
+  // Toggle mute
+  const newMutedState = !currentMuteData.muted;
+  const newMuteData = newMutedState
+    ? { muted: true, muteExpiresAt, muteType }
+    : { muted: false, muteExpiresAt: null, muteType: null };
+
+  conversation.isMuted.set(userId, newMuteData);
   await conversation.save();
 
   return {
     success: true,
-    message: `Chat has been ${!isMuted ? "muted" : "unmuted"} successfully`,
-    isMuted: !isMuted
+    message: newMutedState
+      ? `Chat muted for ${muteType === "forever" ? "forever" : muteType}`
+      : "Chat unmuted successfully",
+    muteInfo: conversation.isMuted.get(userId)
   };
 };

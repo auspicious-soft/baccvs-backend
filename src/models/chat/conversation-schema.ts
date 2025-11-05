@@ -7,7 +7,11 @@ export interface IConversation extends Document {
   createdAt: Date;
   updatedAt: Date;
   isPinned: Map<string, boolean>; 
-  isMuted: Map<string, boolean>;
+  isMuted: Map<string, {
+    muted: boolean;
+    muteExpiresAt: Date | null;
+    muteType: "24h" | "1w" | "1m" | "forever" | null;
+  }>;
   backgroundSettings: Map<string, { 
     backgroundImage: string | null; 
     backgroundColor: string | null; 
@@ -38,7 +42,15 @@ const ConversationSchema = new Schema(
     },
     isMuted: {
       type: Map,
-      of: Boolean,
+      of: new Schema({
+        muted: { type: Boolean, default: false },
+        muteExpiresAt: { type: Date, default: null },
+        muteType: { 
+          type: String, 
+          enum: ["24h", "1w", "1m", "forever", null],
+          default: null
+        }
+      }, { _id: false }),
       default: {}
     },
     backgroundSettings: {

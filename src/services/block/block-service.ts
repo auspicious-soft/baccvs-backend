@@ -103,17 +103,33 @@ export const unblockUserService = async (req: any, res: Response) => {
 
 export const getBlockedUsersService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: currentUserId } = req.user;
+  const { search } = req.query; // e.g. /blocked-users?search=john
 
-  const blockedUsers = await blockModel.find({ blockedBy: currentUserId })
-    .populate('blockedUser', 'username email profilePicture')
+  // Fetch all blocked users by current user
+  let blockedUsers = await blockModel
+    .find({ blockedBy: currentUserId })
+    .populate("blockedUser", "username email profilePicture")
     .sort({ createdAt: -1 });
+
+  // Optional: filter by username if search query provided
+  if (search) {
+    const searchRegex = new RegExp(search, "i"); // case-insensitive
+    blockedUsers = blockedUsers.filter(
+      (item: any) => item.blockedUser && searchRegex.test(item.blockedUser.username)
+    );
+  }
 
   return {
     success: true,
+    message:"Blocked user fetched successfully",
     data: blockedUsers
   };
 };

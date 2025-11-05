@@ -66,6 +66,7 @@ import {
   userLikeSquadController,
 } from "src/controllers/squadMatch/squadMatch-controller";
 import {
+  deleteChat,
   getConversationMessages,
   getUserConversations,
   markMessagesAsRead,
@@ -76,6 +77,8 @@ import {
   sendSquadMessageController,
   getUserSquadConversationsController,
   markSquadMessagesAsReadController,
+  toggleMuteSquadConversation,
+  updateSquadPermissions,
 } from "src/controllers/chat/squad-chat-controller";
 import {
   createCommunity,
@@ -112,6 +115,7 @@ import {
   getTicketsByEventController,
   updateTicketController,
 } from "src/controllers/ticket/ticket-controller";
+import { deleteChatService } from "src/services/chat/chat-service";
 
 const router = Router();
 
@@ -200,7 +204,11 @@ router.post(
   "/conversations/:conversationId/background",
   updateDirectConversationBackground
 );
-router.post("/conversations/togglemute/:conversationId",toggleMuteDirectConversation);
+router.post(
+  "/conversations/togglemute/:conversationId",
+  toggleMuteDirectConversation
+);
+router.post("/conversation/delete/chat/:recipientId", deleteChat);
 
 // Squad chat routes
 // Get all squad conversations for the current user
@@ -219,6 +227,14 @@ router.post(
 router.post(
   "/squad-conversations/:squadConversationId/background",
   updateSquadConversationBackground
+);
+router.post(
+  "/squad-conversation/toggle/mute/:squadConversationId",
+  toggleMuteSquadConversation
+);
+router.post(
+  "/squad-conversation/update/permissions/:squadConversationId",
+  updateSquadPermissions
 );
 
 // Community routes

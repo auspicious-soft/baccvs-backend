@@ -321,4 +321,87 @@ export const markSquadMessagesAsReadService = async (req: any, res: Response) =>
     );
   }
 };
+export const toggleMuteSquadConversationService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  
+  if (!userId) {
+    return errorResponseHandler("User ID is required", httpStatusCode.NOT_FOUND, res);
+  }
 
+  const { squadConversationId } = req.params;
+
+  // Find squad conversation where user is a participant
+  const conversation = await SquadConversation.findById(squadConversationId);
+
+  if (!conversation) {
+    return errorResponseHandler(
+      "Squad conversation not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Get current mute status for user
+  const userMuteData = conversation.isMuted.get(userId) || { muted: false };
+  const isMuted = userMuteData.muted;
+
+  // Toggle mute status
+  conversation.isMuted.set(userId, {
+    muted: !isMuted,
+    muteExpiresAt: null,
+    muteType: !isMuted ? "permanent" : null
+  });
+
+  await conversation.save();
+
+  return res.status(200).json({
+    success: true,
+    message: `Squad chat has been ${!isMuted ? "muted" : "unmuted"} successfully`,
+    isMuted: !isMuted
+  });
+};
+export const updateSquadPermissionsService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const { squadConversationId } = req.params;
+  const { onlyAdminsCanPost, allowMessageEditing, allowMediaSharing } = req.body;
+
+  const conversation : any = await SquadConversation.findById(squadConversationId);
+
+  if (!conversation) {
+    return errorResponseHandler("Squad conversation not found", httpStatusCode.NOT_FOUND, res);
+  }
+    const squad = await Squad.findById(conversation.squadId);
+
+  if (!squad) {
+    return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+  }
+
+  const isAdmin = squad.members.some(
+    (member: any) => member.userId.toString() === userId && member.role === "admin"
+  );
+
+  if (!isAdmin) {
+    return errorResponseHandler(
+      "Only admins can update squad permissions",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  if (onlyAdminsCanPost !== undefined)
+    conversation.permissions.onlyAdminsCanPost = onlyAdminsCanPost;
+
+  if (allowMessageEditing !== undefined)
+    conversation.permissions.allowMessageEditing = allowMessageEditing;
+
+  if (allowMediaSharing !== undefined)
+    conversation.permissions.allowMediaSharing = allowMediaSharing;
+
+  await conversation.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Permissions updated successfully",
+    data: conversation.permissions
+  });
+};
