@@ -23,6 +23,7 @@ import {
   getFollowList,
   getConversationsByType,
   getUserAllData,
+  getAllFollowingUsers,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -153,6 +154,7 @@ router.delete("/delete/ticket/:id", deleteTicketController);
 
 // create api to get all user
 router.get("/get/all/followedUser", getAllFollowedUsers);
+router.get("/get/all/followers", getAllFollowingUsers);
 router.get("/get/follow/list", getFollowList);
 router.get("/get/all-data", getUserAllData);
 

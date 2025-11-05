@@ -2135,6 +2135,50 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
     data: following,
   };
 };
+export const getAllFollowingUsersService = async (req: any, res: Response) => {
+  const { id: userId } = req.user;
+  if (!userId) {
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+  // check for both user follow each other
+
+  const following = await followModel
+    .find({
+      following_id: userId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+      is_approved: true,
+    })
+    .select("following_id");
+  // if (!following) {
+  //   return errorResponseHandler(
+  //     "Users not found",
+  //     httpStatusCode.NOT_FOUND,
+  //     res
+  //   );
+  // }
+  // const followingIds = following.map((f) => f.following_id);
+  // const users = await usersModel
+  //   .find({
+  //     _id: { $in: followingIds },
+  //   })
+  //   .select("-password");
+  // if (!users) {
+  //   return errorResponseHandler(
+  //     "Users not found",
+  //     httpStatusCode.NOT_FOUND,
+  //     res
+  //   );
+  // }
+  return {
+    success: true,
+    message: "Followers retrieved successfully",
+    data: following,
+  };
+};
 
 export const togglePrivacyPreferenceService = async (
   req: any,

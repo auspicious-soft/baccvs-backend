@@ -33,7 +33,8 @@ import {
   getUserPostsService,
   getUserInfoByTokenService,
   getConversationsByTypeService,
-  getUserAllDataService
+  getUserAllDataService,
+  getAllFollowingUsersService
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
 import {
@@ -440,6 +441,18 @@ export const getSignedUrlsForSignup = async (req: Request, res: Response) => {
 export const getAllFollowedUsers = async (req: Request, res: Response) => {
   try {
     const response = await getAllFollowedUsersService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error: any) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "An error occurred fetching users",
+    });
+  }
+};
+export const getAllFollowingUsers = async (req: Request, res: Response) => {
+  try {
+    const response = await getAllFollowingUsersService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error: any) {
     const { code, message } = errorParser(error);
