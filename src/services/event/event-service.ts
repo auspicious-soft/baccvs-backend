@@ -1718,7 +1718,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           });
 
           // Upload to S3
-          const uploadPromise = uploadStreamToS3Service(
+          const uploadPromise : any = uploadStreamToS3Service(
             readableStream,
             filename,
             mimeType,
@@ -1735,7 +1735,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           const uploadedFiles = await Promise.all(uploadPromises);
 
           // Separate uploaded files by type
-          uploadedFiles.forEach(({ url, fieldname }) => {
+          uploadedFiles.forEach(({ url , fieldname }) => {
             if (fieldname === "coverPhoto") {
               newCoverPhoto = url;
             } else if (fieldname === "videos") {

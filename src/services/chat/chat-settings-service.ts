@@ -393,7 +393,6 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
         message: "Background color updated successfully",
         data: newSettings
       };
-
   }
 };
 
@@ -744,6 +743,42 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
       success: true,
       message: "Background updated successfully",
       backgroundSettings: communityConversation.backgroundSettings.get(userId)
-    };
- 
+    }; 
+};
+export const toggleMuteDirectConversationService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  if(!userId){
+     return errorResponseHandler(
+      "userId is required",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+  const { conversationId } = req.params;
+
+  // Check if conversation exists and user is a participant
+  const conversation = await Conversation.findOne({
+    _id: conversationId,
+    participants: userId,
+    isActive: true
+  });
+
+  if (!conversation) {
+    return errorResponseHandler(
+      "Conversation not found or you're not a participant",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Toggle mute status for this user
+  const isMuted = conversation.isMuted.get(userId) || false;
+  conversation.isMuted.set(userId, !isMuted);
+  await conversation.save();
+
+  return {
+    success: true,
+    message: `Chat has been ${!isMuted ? "muted" : "unmuted"} successfully`,
+    isMuted: !isMuted
+  };
 };

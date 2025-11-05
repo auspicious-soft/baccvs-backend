@@ -7,7 +7,8 @@ import {
   togglePinCommunityConversationService,
   updateDirectConversationBackgroundService,
   updateSquadConversationBackgroundService,
-  updateCommunityConversationBackgroundService
+  updateCommunityConversationBackgroundService,
+  toggleMuteDirectConversationService
 } from "../../services/chat/chat-settings-service";
 
 // Pin/Unpin direct conversation
@@ -77,6 +78,16 @@ export const updateSquadConversationBackground = async (req: Request, res: Respo
 export const updateCommunityConversationBackground = async (req: Request, res: Response) => {
   try {
     const response = await updateCommunityConversationBackgroundService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+export const toggleMuteDirectConversation = async (req: Request, res: Response) => {
+  try {
+    const response = await toggleMuteDirectConversationService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);

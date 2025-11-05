@@ -93,6 +93,7 @@ import {
   sendCommunityMessage,
 } from "src/controllers/chat/community-chat-controller";
 import {
+  toggleMuteDirectConversation,
   togglePinCommunityConversation,
   togglePinDirectConversation,
   togglePinSquadConversation,
@@ -197,6 +198,7 @@ router.post(
   "/conversations/:conversationId/background",
   updateDirectConversationBackground
 );
+router.post("/conversations/togglemute/:conversationId",toggleMuteDirectConversation);
 
 // Squad chat routes
 // Get all squad conversations for the current user

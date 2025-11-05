@@ -6,6 +6,7 @@ import { FollowRelationshipStatus, httpStatusCode } from "../../lib/constant";
 import { errorResponseHandler } from "../../lib/errors/error-response-handler";
 import mongoose from "mongoose";
 import { followModel } from "src/models/follow/follow-schema";
+import { blockModel } from "src/models/block/block-schema";
 
 // Get all conversations for the current user
 export const getUserConversationsService = async (req: any, res: Response) => {
@@ -195,6 +196,22 @@ export const sendMessageService = async (req: any, res: Response) => {
       res
     );
   }
+
+  const isBlocked = await blockModel.findOne({
+    $or: [
+      { blockedBy: senderId, blockedUser: recipientId }, // sender blocked recipient
+      { blockedBy: recipientId, blockedUser: senderId }, // recipient blocked sender
+    ],
+  });
+
+  if (isBlocked) {
+    return errorResponseHandler(
+      "Message cannot be sent — one of the users has blocked the other.",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
   // const [senderFollowsRecipient, recipientFollowsSender] = await Promise.all([
   //   followModel.findOne({
   //     follower_id: senderId,

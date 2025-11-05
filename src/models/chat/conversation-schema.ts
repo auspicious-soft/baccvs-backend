@@ -6,7 +6,8 @@ export interface IConversation extends Document {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
-  isPinned: Map<string, boolean>; // Changed to Map for per-user settings
+  isPinned: Map<string, boolean>; 
+  isMuted: Map<string, boolean>;
   backgroundSettings: Map<string, { 
     backgroundImage: string | null; 
     backgroundColor: string | null; 
@@ -33,7 +34,12 @@ const ConversationSchema = new Schema(
     isPinned: {
       type: Map,
       of: Boolean,
-      default: {} // Map of userId -> isPinned
+      default: {} 
+    },
+    isMuted: {
+      type: Map,
+      of: Boolean,
+      default: {}
     },
     backgroundSettings: {
       type: Map,
