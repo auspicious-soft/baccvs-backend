@@ -7,7 +7,10 @@ export interface ICommunityConversation extends Document {
   createdAt: Date;
   updatedAt: Date;
   isPinned: Map<string, boolean>;
-  backgroundSettings: Map<string, { backgroundImage: string; backgroundColor: string }>;
+  backgroundSettings: Map<
+    string,
+    { backgroundImage: string; backgroundColor: string }
+  >;
 }
 
 const CommunityConversationSchema = new Schema(
@@ -16,32 +19,56 @@ const CommunityConversationSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Community",
       required: true,
-      unique: true
+      unique: true,
     },
     lastMessage: {
       type: Schema.Types.ObjectId,
-      ref: "Message"
+      ref: "Message",
     },
     isActive: {
       type: Boolean,
-      default: true
+      default: true,
     },
     isPinned: {
       type: Map,
       of: Boolean,
-      default: {} // Map of userId -> isPinned
+      default: {}, // Map of userId -> isPinned
     },
     backgroundSettings: {
       type: Map,
-      of: new Schema({
-        backgroundImage: String,
-        backgroundColor: String
-      }, { _id: false }),
-      default: {} // Map of userId -> background settings
-    }
+      of: new Schema(
+        {
+          backgroundImage: String,
+          backgroundColor: String,
+        },
+        { _id: false }
+      ),
+      default: {}, // Map of userId -> background settings
+    },
+    isMuted: {
+      type: Map,
+      of: new Schema(
+        {
+          muted: { type: Boolean, default: false },
+          muteExpiresAt: { type: Date, default: null },
+          muteType: {
+            type: String,
+            enum: ["temporary", "permanent", null],
+            default: null,
+          },
+        },
+        { _id: false }
+      ),
+      default: {},
+    },
+    permissions: {
+      onlyAdminsCanPost: { type: Boolean, default: false },
+      allowMessageEditing: { type: Boolean, default: true },
+      allowMediaSharing: { type: Boolean, default: true },
+    },
   },
   {
-    timestamps: true
+    timestamps: true,
   }
 );
 
@@ -49,7 +76,6 @@ const CommunityConversationSchema = new Schema(
 CommunityConversationSchema.index({ community: 1 });
 
 export const CommunityConversation = mongoose.model<ICommunityConversation>(
-  "CommunityConversation", 
+  "CommunityConversation",
   CommunityConversationSchema
 );
-

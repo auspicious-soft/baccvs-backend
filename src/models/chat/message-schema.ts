@@ -29,6 +29,7 @@ export interface IMessage extends Document {
   mediaUrl?: string;
   readBy: ReadReceipt[];
   isDeleted: boolean;
+  editedAt?:Date;
   deletedFor?: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
@@ -93,6 +94,10 @@ const MessageSchema = new Schema(
     isDeleted: {
       type: Boolean,
       default: false,
+    },
+    editedAt:{
+      type:Date,
+      default:null
     },
     // 🆕 Added for “Delete from me”
     deletedFor: [

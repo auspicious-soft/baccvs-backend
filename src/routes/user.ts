@@ -24,6 +24,7 @@ import {
   getConversationsByType,
   getUserAllData,
   getAllFollowingUsers,
+  editMessage,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -95,6 +96,8 @@ import {
   getUserCommunityConversations,
   getCommunityMessages,
   sendCommunityMessage,
+  toggleMuteCommunityConversation,
+  updateCommunityConversationSettings,
 } from "src/controllers/chat/community-chat-controller";
 import {
   toggleMuteDirectConversation,
@@ -267,5 +270,9 @@ router.post(
   "/community-conversations/:communityConversationId/background",
   updateCommunityConversationBackground
 );
+router.post("/community-conversation/toggle/mute/:communityConversationId",toggleMuteCommunityConversation)
+router.post("/community-conversation/update/setting/:communityConversationId",updateCommunityConversationSettings)
+
+router.post("/message/edit/:id",editMessage)
 
 export { router };

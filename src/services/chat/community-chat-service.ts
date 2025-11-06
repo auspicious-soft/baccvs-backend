@@ -2,12 +2,18 @@ import { Response } from "express";
 import mongoose from "mongoose";
 import { Community } from "../../models/community/community-schema";
 import { CommunityConversation } from "../../models/chat/community-conversation-schema";
-import { Message, ConversationType, MessageType } from "../../models/chat/message-schema";
+import {
+  Message,
+  ConversationType,
+  MessageType,
+} from "../../models/chat/message-schema";
 import { httpStatusCode } from "../../lib/constant";
 import { errorResponseHandler } from "../../lib/errors/error-response-handler";
 
 // Create a community conversation when a community is created
-export const createCommunityConversationService = async (communityId: string) => {
+export const createCommunityConversationService = async (
+  communityId: string
+) => {
   try {
     const community = await Community.findById(communityId);
     if (!community) {
@@ -16,13 +22,14 @@ export const createCommunityConversationService = async (communityId: string) =>
 
     // Create a new community conversation
     const communityConversation = new CommunityConversation({
-      community: communityId
+      community: communityId,
     });
 
     await communityConversation.save();
 
     // Update the community with the conversation reference
-    community.conversation = communityConversation._id as mongoose.Types.ObjectId;
+    community.conversation =
+      communityConversation._id as mongoose.Types.ObjectId;
     await community.save();
 
     return communityConversation;
@@ -33,45 +40,48 @@ export const createCommunityConversationService = async (communityId: string) =>
 };
 
 // Get all community conversations for the current user
-export const getUserCommunityConversationsService = async (req: any, res: Response) => {
+export const getUserCommunityConversationsService = async (
+  req: any,
+  res: Response
+) => {
   const userId = req.user.id;
 
-    // Find all communities the user is a member of
-    const userCommunities = await Community.find({
-      "members.user": userId
-    }).select("_id conversation name media members");
+  // Find all communities the user is a member of
+  const userCommunities = await Community.find({
+    "members.user": userId,
+  }).select("_id conversation name media members");
 
-    // Get the conversation IDs
-    const communityConversationIds = userCommunities
-      .filter(community => community.conversation)
-      .map(community => community.conversation);
+  // Get the conversation IDs
+  const communityConversationIds = userCommunities
+    .filter((community) => community.conversation)
+    .map((community) => community.conversation);
 
-    // Get the conversations with their last messages
-    const communityConversations = await CommunityConversation.find({
-      _id: { $in: communityConversationIds }
+  // Get the conversations with their last messages
+  const communityConversations = await CommunityConversation.find({
+    _id: { $in: communityConversationIds },
+  })
+    .populate({
+      path: "lastMessage",
+      populate: {
+        path: "sender",
+        select: "userName photos",
+      },
     })
-      .populate({
-        path: "lastMessage",
-        populate: {
-          path: "sender",
-          select: "userName photos"
-        }
-      })
-      .populate({
-        path: "community",
-        select: "name members",
-        populate: {
-          path: "members.user",
-          select: "userName photos"
-        }
-      })
-      .sort({ updatedAt: -1 });
+    .populate({
+      path: "community",
+      select: "name members",
+      populate: {
+        path: "members.user",
+        select: "userName photos",
+      },
+    })
+    .sort({ updatedAt: -1 });
 
-    return {
-      success: true,
-      message:"User Community Conversation",
-      communityConversations
-    };
+  return {
+    success: true,
+    message: "User Community Conversation",
+    data: communityConversations,
+  };
 };
 
 // Get messages for a specific community
@@ -80,82 +90,89 @@ export const getCommunityMessagesService = async (req: any, res: Response) => {
   const { communityId } = req.params;
   const { page = 1, limit = 20 } = req.query;
 
-    // Check if user is a member of the community
-    const community = await Community.findOne({
-      _id: communityId,
-      "members.user": userId
-    });
+  // Check if user is a member of the community
+  const community = await Community.findOne({
+    _id: communityId,
+    "members.user": userId,
+  });
 
-    if (!community) {
-      return errorResponseHandler(
-        "You are not a member of this community",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Get community conversation
-    const communityConversation = await CommunityConversation.findOne({
-      community: communityId
-    });
-
-    if (!communityConversation) {
-      return errorResponseHandler(
-        "Community conversation not found",
-        httpStatusCode.NOT_FOUND,
-        res
-      );
-    }
-
-    // Calculate pagination
-    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-    // Get messages
-    const messages = await Message.find({
-      communityConversation: communityConversation._id,
-      conversationType: ConversationType.COMMUNITY
-    })
-      .populate("sender", "userName photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit as string));
-
-    // Mark messages as read by this user
-    await Message.updateMany(
-      {
-        communityConversation: communityConversation._id,
-        sender: { $ne: userId },
-        "readBy.user": { $ne: userId }
-      },
-      {
-        $push: { readBy: { user: userId, readAt: new Date() } }
-      }
+  if (!community) {
+    return errorResponseHandler(
+      "You are not a member of this community",
+      httpStatusCode.FORBIDDEN,
+      res
     );
+  }
 
-    // Get total count for pagination
-    const totalMessages = await Message.countDocuments({
+  // Get community conversation
+  const communityConversation = await CommunityConversation.findOne({
+    community: communityId,
+  });
+
+  if (!communityConversation) {
+    return errorResponseHandler(
+      "Community conversation not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Calculate pagination
+  const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+  // Get messages
+  const messages = await Message.find({
+    communityConversation: communityConversation._id,
+    conversationType: ConversationType.COMMUNITY,
+  })
+    .populate("sender", "userName photos")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit as string));
+
+  // Mark messages as read by this user
+  await Message.updateMany(
+    {
       communityConversation: communityConversation._id,
-      conversationType: ConversationType.COMMUNITY
-    });
+      sender: { $ne: userId },
+      "readBy.user": { $ne: userId },
+    },
+    {
+      $push: { readBy: { user: userId, readAt: new Date() } },
+    }
+  );
 
-    return {
-      success: true,
-      messages: messages.reverse(), // Reverse to get oldest first
+  // Get total count for pagination
+  const totalMessages = await Message.countDocuments({
+    communityConversation: communityConversation._id,
+    conversationType: ConversationType.COMMUNITY,
+  });
+
+  return {
+    success: true,
+    message: "Community fetched successfully",
+    data: {
+      message: messages.reverse(), // Reverse to get oldest first
       pagination: {
         total: totalMessages,
         page: parseInt(page as string),
         limit: parseInt(limit as string),
-        pages: Math.ceil(totalMessages / parseInt(limit as string))
+        pages: Math.ceil(totalMessages / parseInt(limit as string)),
       },
-      communityConversation: communityConversation._id
-    };
-
+      communityConversation: communityConversation._id,
+    },
+  };
 };
 
 // Send a message to a community
 export const sendCommunityMessageService = async (req: any, res: Response) => {
   const senderId = req.user.id;
-  const { communityId, text, messageType = MessageType.TEXT, mediaUrl } = req.body;
+  const {
+    communityId,
+    text,
+    messageType = MessageType.TEXT,
+    mediaUrl,
+  } = req.body;
 
   // Validate required fields
   if (!communityId) {
@@ -182,59 +199,190 @@ export const sendCommunityMessageService = async (req: any, res: Response) => {
     );
   }
 
- 
-    // Check if user is a member of the community
-    const community = await Community.findOne({
-      _id: communityId,
-      "members.user": senderId
-    });
+  // Check if user is a member of the community
+  const community = await Community.findOne({
+    _id: communityId,
+    "members.user": senderId,
+  });
 
-    if (!community) {
-      return errorResponseHandler(
-        "You are not a member of this community",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  if (!community) {
+    return errorResponseHandler(
+      "You are not a member of this community",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    // Get community conversation
-    const communityConversation = await CommunityConversation.findOne({
-      community: communityId
-    });
+  // Get community conversation
+  const communityConversation = await CommunityConversation.findOne({
+    community: communityId,
+  });
 
-    if (!communityConversation) {
-      return errorResponseHandler(
-        "Community conversation not found",
-        httpStatusCode.NOT_FOUND,
-        res
-      );
-    }
+  if (!communityConversation) {
+    return errorResponseHandler(
+      "Community conversation not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-    // Create message
-    const message = new Message({
-      sender: senderId,
+  // Create message
+  const message = new Message({
+    sender: senderId,
+    communityConversation: communityConversation._id,
+    conversationType: ConversationType.COMMUNITY,
+    messageType,
+    text: messageType === MessageType.TEXT ? text : undefined,
+    mediaUrl: messageType !== MessageType.TEXT ? mediaUrl : undefined,
+    readBy: [{ user: senderId, readAt: new Date() }],
+  });
+
+  await message.save();
+
+  // Update conversation with last message
+  communityConversation.lastMessage = message._id as mongoose.Types.ObjectId;
+  await communityConversation.save();
+
+  // Populate message for response
+  const populatedMessage = await Message.findById(message._id).populate(
+    "sender",
+    "userName photos"
+  );
+
+  return {
+    success: true,
+    data: {
+      populatedMessage,
       communityConversation: communityConversation._id,
-      conversationType: ConversationType.COMMUNITY,
-      messageType,
-      text: messageType === MessageType.TEXT ? text : undefined,
-      mediaUrl: messageType !== MessageType.TEXT ? mediaUrl : undefined,
-      readBy: [{ user: senderId, readAt: new Date() }]
-    });
+    },
+  };
+};
+export const toggleMuteCommunityConversationService = async (
+  req: any,
+  res: Response
+) => {
+  const userId = req.user.id;
+  const { communityConversationId } = req.params;
 
-    await message.save();
+  if (!userId) {
+    return errorResponseHandler(
+      "User ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-    // Update conversation with last message
-    communityConversation.lastMessage = message._id as mongoose.Types.ObjectId;
-    await communityConversation.save();
+  // Find the conversation
+  const conversation: any = await CommunityConversation.findById(
+    communityConversationId
+  );
+  if (!conversation) {
+    return errorResponseHandler(
+      "Community conversation not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-    // Populate message for response
-    const populatedMessage = await Message.findById(message._id)
-      .populate("sender", "userName photos");
+  // Find the related community
+  const community = await Community.findById(conversation.community);
+  if (!community) {
+    return errorResponseHandler(
+      "Community not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-    return {
-      success: true,
-      message: populatedMessage,
-      communityConversation: communityConversation._id
-    };
+  // Check if user is a member
+  const isMember = community.members.some((m) => m.user.toString() === userId);
+  if (!isMember) {
+    return errorResponseHandler(
+      "User not part of this community",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
+  // Handle mute status map (we’ll store in a new field `isMuted` dynamically if not exists)
+  if (!conversation.isMuted) conversation.isMuted = new Map();
+
+  const currentMute = conversation.isMuted.get(userId) || { muted: false };
+  const newMuteStatus = !currentMute.muted;
+
+  conversation.isMuted.set(userId, {
+    muted: newMuteStatus,
+    muteExpiresAt: null,
+    muteType: newMuteStatus ? "permanent" : null,
+  });
+
+  await conversation.save();
+
+  return res.status(200).json({
+    success: true,
+    message: `Community chat has been ${
+      newMuteStatus ? "muted" : "unmuted"
+    } successfully`,
+    data: { isMuted: newMuteStatus },
+  });
+};
+export const updateCommunityConversationSettingsService = async (
+  req: any,
+  res: Response
+) => {
+  const userId = req.user.id;
+  const { communityConversationId } = req.params;
+  const { onlyAdminsCanPost, allowMessageEditing, allowMediaSharing } =
+    req.body;
+
+  const conversation: any = await CommunityConversation.findById(
+    communityConversationId
+  );
+  if (!conversation) {
+    return errorResponseHandler(
+      "Community conversation not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  const community = await Community.findById(conversation.community);
+  if (!community) {
+    return errorResponseHandler(
+      "Community not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Check if user is an admin
+  const isAdmin = community.members.some(
+    (member: any) =>
+      member.user.toString() === userId && member.role === "admin"
+  );
+
+  if (!isAdmin) {
+    return errorResponseHandler(
+      "Only admins can update community settings",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  if (onlyAdminsCanPost !== undefined)
+    conversation.permissions.onlyAdminsCanPost = onlyAdminsCanPost;
+
+  if (allowMessageEditing !== undefined)
+    conversation.permissions.allowMessageEditing = allowMessageEditing;
+
+  if (allowMediaSharing !== undefined)
+    conversation.permissions.allowMediaSharing = allowMediaSharing;
+
+  await conversation.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Community conversation settings updated successfully",
+    data: conversation.permissions,
+  });
 };

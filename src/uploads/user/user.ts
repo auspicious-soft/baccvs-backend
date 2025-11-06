@@ -2108,7 +2108,7 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
       relationship_status: FollowRelationshipStatus.FOLLOWING,
       is_approved: true,
     })
-    .populate("following_id","userName photos dob");
+    .populate("following_id", "userName photos dob");
   // if (!following) {
   //   return errorResponseHandler(
   //     "Users not found",
@@ -2139,7 +2139,11 @@ export const getAllFollowersService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
 
   if (!userId) {
-    return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Get all followers of the current user
@@ -2240,7 +2244,11 @@ export const getUserNotificationPreferencesService = async (
     );
 
   if (!user) {
-    errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Return notification preferences
@@ -2265,7 +2273,11 @@ export const getUserPrivacyPreferenceService = async (
   const user = await usersModel.findById(userId).select("accountType");
 
   if (!user) {
-    errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Return privacy preferences
@@ -2565,28 +2577,77 @@ export const getConversationsByTypeService = async (
   };
 };
 
-export const getUserAllDataService = async(userId:any,res:Response)=>{
-
-  const [event,post,like]= await Promise.all([
+export const getUserAllDataService = async (userId: any, res: Response) => {
+  const [event, post, like] = await Promise.all([
     eventModel.find({
       creator: userId,
     }),
     postModels.find({
-      user:userId,
+      user: userId,
     }),
     LikeModel.find({
-      user:userId,
-      targetType:"post"
-    })
-  ])
+      user: userId,
+      targetType: "post",
+    }),
+  ]);
 
-  return{
-    success:true,
-    message:"User All Data retrived",
-    data:{
+  return {
+    success: true,
+    message: "User All Data retrived",
+    data: {
       event,
       post,
-      like
-    }
+      like,
+    },
+  };
+};
+export const editMessageService = async (req: any, res: Response) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const { text } = req.body;
+  if (!id) {
+    errorResponseHandler(
+      "Message ID is required",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
-}
+  if (!text || text.trim() === "") {
+    return errorResponseHandler(
+      "Message text cannot be empty",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const message: any = await Message.findById(id);
+  if (!message) {
+    errorResponseHandler("Message not Found", httpStatusCode.NOT_FOUND, res);
+  }
+
+  if (message.messageType !== "text") {
+    return errorResponseHandler(
+      "Only text message is editable",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+  if (message?.sender.toString() !== userId) {
+    errorResponseHandler(
+      "You are unauthorized to edit message",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
+  }
+  // Update message text and editedAt timestamp
+  message.text = text.trim();
+  message.editedAt = new Date();
+
+  await message.save();
+
+  return {
+    success: true,
+    message: "message updated successfully",
+    data: message,
+  };
+};

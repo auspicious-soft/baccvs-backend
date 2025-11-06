@@ -35,6 +35,7 @@ import {
   getConversationsByTypeService,
   getUserAllDataService,
   getAllFollowersService,
+  editMessageService,
   
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
@@ -547,10 +548,10 @@ export const getConversationsByType = async (req: Request, res: Response) => {
     if (!result.success) return; // Error already handled by service
     return res.status(httpStatusCode.OK).json(result);
   } catch (error) {
-    console.error("Error in getConversationsByType controller:", error);
-    return res.status(httpStatusCode.INTERNAL_SERVER_ERROR).json({
+   const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
       success: false,
-      message: "An unexpected error occurred"
+      message: message || "An error occurred fetching follow list",
     });
   }
 };
@@ -567,10 +568,30 @@ export const getUserAllData = async (req: Request, res: Response) => {
     const result = await getUserAllDataService(userId, res);
     return res.status(httpStatusCode.OK).json(result);
   } catch (error) {
-    console.error("Error in getConversationsByType controller:", error);
-    return res.status(httpStatusCode.INTERNAL_SERVER_ERROR).json({
+   const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
       success: false,
-      message: "An unexpected error occurred"
+      message: message || "An error occurred fetching follow list",
     });
   }
 };
+export const editMessage = async(req:Request,res:Response)=>{
+  try {
+    const { id: userId } = req.user as any;
+        if (!userId) {
+          return errorResponseHandler(
+            "User id is required",
+            httpStatusCode.NOT_FOUND,
+            res
+          );
+        }
+      const result = await editMessageService(req, res);
+      return res.status(httpStatusCode.OK).json(result);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "An error occurred fetching follow list",
+    });
+  }
+}
