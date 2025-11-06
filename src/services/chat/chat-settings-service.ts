@@ -1023,7 +1023,7 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
     }
     throw error;
   }
-};
+}; 
 export const toggleMuteDirectConversationService = async (req: any, res: Response) => {
   const userId = req.user?.id;
   if (!userId) {
