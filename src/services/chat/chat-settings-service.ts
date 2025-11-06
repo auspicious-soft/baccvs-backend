@@ -124,7 +124,6 @@ export const togglePinCommunityConversationService = async (req: any, res: Respo
 
 };
 
-// Update background for direct conversation
 export const updateDirectConversationBackgroundService = async (req: any, res: Response) => {
   const userId = req.user.id;
   const email = req.user.email;
@@ -159,7 +158,8 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
       });
 
       let parsedData: any = {
-        backgroundColor: null
+        backgroundColor: null,
+        staticBackgroundImage: null
       };
       let backgroundImageUrl: string | null = null;
       let fileUploaded = false;
@@ -183,6 +183,9 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
               return handleError("Invalid background color format. Use hex format (#RRGGBB or #RGB)", httpStatusCode.BAD_REQUEST);
             }
             parsedData.backgroundColor = value || null;
+          } else if (fieldname === "staticBackgroundImage") {
+            // Store the static background image key
+            parsedData.staticBackgroundImage = value || null;
           } else {
             return handleError(`Invalid field: ${fieldname}`, httpStatusCode.BAD_REQUEST);
           }
@@ -317,7 +320,8 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
           // Update background settings for this user
           const newSettings = {
             backgroundImage: backgroundImageUrl || currentSettings.backgroundImage || null,
-            backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null
+            backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null,
+            staticBackgroundImage: parsedData.staticBackgroundImage !== undefined ? parsedData.staticBackgroundImage : currentSettings.staticBackgroundImage || null
           };
 
           conversation.backgroundSettings.set(userId, newSettings);
@@ -364,12 +368,12 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
       req.pipe(busboyParser);
     });
   } else {
-    // JSON request handling (for backgroundColor only)
+    // JSON request handling (for backgroundColor and staticBackgroundImage)
       if (!req.body || typeof req.body !== "object") {
         return errorResponseHandler("Invalid request body", httpStatusCode.BAD_REQUEST, res);
       }
 
-      const { backgroundColor } = req.body;
+      const { backgroundColor, staticBackgroundImage } = req.body;
 
       // Validate backgroundColor if provided
       if (backgroundColor && !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(backgroundColor)) {
@@ -382,7 +386,8 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
       // Update background settings for this user
       const newSettings = {
         backgroundImage: currentSettings.backgroundImage || null,
-        backgroundColor: backgroundColor || null
+        backgroundColor: backgroundColor !== undefined ? backgroundColor : currentSettings.backgroundColor || null,
+        staticBackgroundImage: staticBackgroundImage !== undefined ? staticBackgroundImage : currentSettings.staticBackgroundImage || null
       };
 
       conversation.backgroundSettings.set(userId, newSettings);
@@ -390,7 +395,7 @@ export const updateDirectConversationBackgroundService = async (req: any, res: R
 
       return{
         success: true,
-        message: "Background color updated successfully",
+        message: "Background updated successfully",
         data: newSettings
       };
   }
@@ -438,7 +443,8 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
         });
 
         let parsedData: any = {
-          backgroundColor: null
+          backgroundColor: null,
+          staticBackgroundImage: null
         };
         let backgroundImageUrl: string | null = null;
         let fileUploaded = false;
@@ -464,6 +470,9 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
                 return;
               }
               parsedData.backgroundColor = value || null;
+            } else if (fieldname === "staticBackgroundImage") {
+              // Store the static background image key
+              parsedData.staticBackgroundImage = value || null;
             } else {
               handleError(`Invalid field: ${fieldname}`, httpStatusCode.BAD_REQUEST);
               return;
@@ -604,7 +613,8 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
             // Update background settings for this user
             const newSettings = {
               backgroundImage: backgroundImageUrl || currentSettings.backgroundImage || null,
-              backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null
+              backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null,
+              staticBackgroundImage: parsedData.staticBackgroundImage !== undefined ? parsedData.staticBackgroundImage : currentSettings.staticBackgroundImage || null
             };
 
             (squadConversation as any).backgroundSettings.set(userId, newSettings);
@@ -650,7 +660,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
         req.pipe(busboyParser);
       });
     } else {
-      // JSON request handling (for backgroundColor only)
+      // JSON request handling (for backgroundColor and staticBackgroundImage)
       try {
         if (!req.body || typeof req.body !== "object") {
           const error = new Error("Invalid request body") as any;
@@ -658,7 +668,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
           throw error;
         }
 
-        const { backgroundColor } = req.body;
+        const { backgroundColor, staticBackgroundImage } = req.body;
 
         // Validate backgroundColor if provided
         if (backgroundColor && !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(backgroundColor)) {
@@ -673,7 +683,8 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
         // Update background settings for this user
         const newSettings = {
           backgroundImage: currentSettings.backgroundImage || null,
-          backgroundColor: backgroundColor || null
+          backgroundColor: backgroundColor !== undefined ? backgroundColor : currentSettings.backgroundColor || null,
+          staticBackgroundImage: staticBackgroundImage !== undefined ? staticBackgroundImage : currentSettings.staticBackgroundImage || null
         };
 
         (squadConversation as any).backgroundSettings.set(userId, newSettings);
@@ -681,7 +692,7 @@ export const updateSquadConversationBackgroundService = async (req: any, res: Re
 
         return {
           success: true,
-          message: "Squad background color updated successfully",
+          message: "Squad background updated successfully",
           backgroundSettings: newSettings
         };
       } catch (error: any) {
@@ -744,7 +755,8 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
         });
 
         let parsedData: any = {
-          backgroundColor: null
+          backgroundColor: null,
+          staticBackgroundImage: null
         };
         let backgroundImageUrl: string | null = null;
         let fileUploaded = false;
@@ -770,6 +782,9 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
                 return;
               }
               parsedData.backgroundColor = value || null;
+            } else if (fieldname === "staticBackgroundImage") {
+              // Store the static background image key
+              parsedData.staticBackgroundImage = value || null;
             } else {
               handleError(`Invalid field: ${fieldname}`, httpStatusCode.BAD_REQUEST);
               return;
@@ -910,7 +925,8 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
             // Update background settings for this user
             const newSettings = {
               backgroundImage: backgroundImageUrl || currentSettings.backgroundImage || null,
-              backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null
+              backgroundColor: parsedData.backgroundColor !== undefined ? parsedData.backgroundColor : currentSettings.backgroundColor || null,
+              staticBackgroundImage: parsedData.staticBackgroundImage !== undefined ? parsedData.staticBackgroundImage : currentSettings.staticBackgroundImage || null
             };
 
             (communityConversation as any).backgroundSettings.set(userId, newSettings);
@@ -956,7 +972,7 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
         req.pipe(busboyParser);
       });
     } else {
-      // JSON request handling (for backgroundColor only)
+      // JSON request handling (for backgroundColor and staticBackgroundImage)
       try {
         if (!req.body || typeof req.body !== "object") {
           const error = new Error("Invalid request body") as any;
@@ -964,7 +980,7 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
           throw error;
         }
 
-        const { backgroundColor } = req.body;
+        const { backgroundColor, staticBackgroundImage } = req.body;
 
         // Validate backgroundColor if provided
         if (backgroundColor && !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(backgroundColor)) {
@@ -979,7 +995,8 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
         // Update background settings for this user
         const newSettings = {
           backgroundImage: currentSettings.backgroundImage || null,
-          backgroundColor: backgroundColor || null
+          backgroundColor: backgroundColor !== undefined ? backgroundColor : currentSettings.backgroundColor || null,
+          staticBackgroundImage: staticBackgroundImage !== undefined ? staticBackgroundImage : currentSettings.staticBackgroundImage || null
         };
 
         (communityConversation as any).backgroundSettings.set(userId, newSettings);
@@ -987,7 +1004,7 @@ export const updateCommunityConversationBackgroundService = async (req: any, res
 
         return {
           success: true,
-          message: "Community background color updated successfully",
+          message: "Community background updated successfully",
           backgroundSettings: newSettings
         };
       } catch (error: any) {

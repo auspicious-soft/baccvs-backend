@@ -15,6 +15,7 @@ export interface IConversation extends Document {
   backgroundSettings: Map<string, { 
     backgroundImage: string | null; 
     backgroundColor: string | null; 
+    staticBackgroundImage:string | null;
   }>; // Changed to Map for per-user settings
 }
 
@@ -57,7 +58,8 @@ const ConversationSchema = new Schema(
       type: Map,
       of: new Schema({
         backgroundImage: String,
-        backgroundColor: String
+        backgroundColor: String,
+        staticBackgroundImage:String
       }, { _id: false }),
       default: {} // Map of userId -> background settings
     }

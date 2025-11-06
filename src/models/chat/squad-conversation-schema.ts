@@ -17,7 +17,7 @@ export interface ISquadConversation extends Document {
   lastMessage?: mongoose.Types.ObjectId;
   isActive: boolean;
   isPinned: Map<string, boolean>;
-  backgroundSettings: Map<string, { backgroundImage?: string; backgroundColor?: string }>;
+  backgroundSettings: Map<string, { backgroundImage?: string | null; backgroundColor?: string | null;staticBackgroundImage?:string |null}>;
   isMuted: Map<string, IMuteData>;
   permissions: IPermissions;
   createdAt: Date;
@@ -62,7 +62,8 @@ const SquadConversationSchema = new Schema(
       of: new Schema(
         {
           backgroundImage: String,
-          backgroundColor: String
+          backgroundColor: String,
+          staticBackgroundImage:String
         },
         { _id: false }
       ),

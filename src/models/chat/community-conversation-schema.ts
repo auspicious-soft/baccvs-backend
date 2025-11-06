@@ -9,7 +9,7 @@ export interface ICommunityConversation extends Document {
   isPinned: Map<string, boolean>;
   backgroundSettings: Map<
     string,
-    { backgroundImage: string; backgroundColor: string }
+    { backgroundImage: string | null; backgroundColor: string |null;staticBackgroundImage:string | null}
   >;
 }
 
@@ -40,6 +40,7 @@ const CommunityConversationSchema = new Schema(
         {
           backgroundImage: String,
           backgroundColor: String,
+          staticBackgroundImage:String
         },
         { _id: false }
       ),
