@@ -8,7 +8,8 @@ import {
   leaveCommunityService,
   addMemberService,
   removeMemberService,
-  changeMemberRoleService
+  changeMemberRoleService,
+  updateCommunityService
 } from "../../services/community/community-service";
 import { errorParser } from "src/lib/errors/error-response-handler";
 import { httpStatusCode } from "src/lib/constant";
@@ -28,6 +29,15 @@ export const createCommunity = async (req: any, res: Response) => {
 export const getCommunities = async (req: Request, res: Response) => {
   try {
     const response = await getCommunitiesService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({ success: false, message: message || "An error occurred" });
+  }
+};
+export const updateCommunity = async (req: Request, res: Response) => {
+  try {
+    const response = await updateCommunityService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);

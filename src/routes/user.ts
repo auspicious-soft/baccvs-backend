@@ -91,6 +91,7 @@ import {
   addcommunityMember,
   removeCommunityMember,
   changeCommunityMemberRole,
+  updateCommunity,
 } from "src/controllers/community/community-controller";
 import {
   getUserCommunityConversations,
@@ -246,6 +247,7 @@ router.post("/create/community", createCommunity);
 router.get("/get/communities", getCommunities);
 router.get("/get/user/communities", getUserCommunities);
 router.get("/get/community/:id", getCommunityById);
+router.patch("/update/community/:communityId", updateCommunity);
 router.patch("/join/community/:id", joinCommunity);
 router.patch("/leave/community/:id", leaveCommunity);
 router.patch("/add/community/member/:id", addcommunityMember);
@@ -270,9 +272,15 @@ router.post(
   "/community-conversations/:communityConversationId/background",
   updateCommunityConversationBackground
 );
-router.post("/community-conversation/toggle/mute/:communityConversationId",toggleMuteCommunityConversation)
-router.post("/community-conversation/update/setting/:communityConversationId",updateCommunityConversationSettings)
+router.post(
+  "/community-conversation/toggle/mute/:communityConversationId",
+  toggleMuteCommunityConversation
+);
+router.post(
+  "/community-conversation/update/setting/:communityConversationId",
+  updateCommunityConversationSettings
+);
 
-router.post("/message/edit/:id",editMessage)
+router.post("/message/edit/:id", editMessage);
 
 export { router };
