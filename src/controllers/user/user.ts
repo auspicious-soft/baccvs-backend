@@ -36,6 +36,7 @@ import {
   getUserAllDataService,
   getAllFollowersService,
   editMessageService,
+  getUnchattedFollowingsService,
   
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
@@ -545,6 +546,19 @@ export const getFollowList = async (req: Request, res: Response) => {
 export const getConversationsByType = async (req: Request, res: Response) => {
   try {
     const result = await getConversationsByTypeService(req, res);
+    if (!result.success) return; // Error already handled by service
+    return res.status(httpStatusCode.OK).json(result);
+  } catch (error) {
+   const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "An error occurred fetching follow list",
+    });
+  }
+};
+export const getUnchattedFollowings = async (req: Request, res: Response) => {
+  try {
+    const result = await getUnchattedFollowingsService(req, res);
     if (!result.success) return; // Error already handled by service
     return res.status(httpStatusCode.OK).json(result);
   } catch (error) {

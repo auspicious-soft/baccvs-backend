@@ -25,6 +25,7 @@ import {
   getUserAllData,
   getAllFollowingUsers,
   editMessage,
+  getUnchattedFollowings,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -178,6 +179,7 @@ router.post("/like-squad/:id", userLikeSquadController);
 router.post("/dislike-squad/:id", userDislikeSquadController);
 
 router.get("/conversations/message", getConversationsByType);
+router.get("/new/chat/users",getUnchattedFollowings)
 
 // Squad api
 router.post("/create/squad", createSquad);

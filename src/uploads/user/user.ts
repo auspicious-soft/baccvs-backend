@@ -2398,7 +2398,7 @@ export const getConversationsByTypeService = async (
       })
       .populate({
         path: "lastMessage",
-        select: "text messageType createdAt sender readBy",
+        select: "text messageType createdAt sender readBy deletedFor",
       })
       .sort({ updatedAt: -1 });
 
@@ -2419,7 +2419,18 @@ export const getConversationsByTypeService = async (
           conversation.backgroundSettings?.get(userId) || {
             backgroundImage: null,
             backgroundColor: null,
+            staticBackgroundImage:null
           };
+
+          if (
+        conversationObj.lastMessage &&
+        Array.isArray(conversationObj.lastMessage.deletedFor) &&
+        conversationObj.lastMessage.deletedFor.some(
+          (id: any) => id.toString() === userId.toString()
+        )
+      ) {
+        conversationObj.lastMessage = null; // Hide last message
+      }
 
         // Count unread messages for current user in this conversation
         const unreadCount = await Message.countDocuments({
@@ -2575,6 +2586,79 @@ export const getConversationsByTypeService = async (
     } conversations retrieved successfully`,
     data: responseData,
   };
+};
+
+export const getUnchattedFollowingsService = async (req: any, res: Response) => {
+    const userId = req.user.id;
+
+    // 🟩 Step 1: Get all users that current user follows (and follow is approved + active)
+    const followingUsers = await followModel.find({
+      follower_id: userId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+    }).select("following_id");
+
+    if (!followingUsers.length) {
+      return {
+        success:true,
+        message:"No following users found.",
+        data:[]
+      };
+    }
+
+    const followingIds = followingUsers.map(f => f.following_id);
+
+    // 🟩 Step 2: Get users involved in an existing conversation
+    const existingConversations = await Conversation.find({
+      participants: userId,
+      isActive: true,
+    }).select("participants");
+
+    const chattedUserIds = new Set<string>();
+    existingConversations.forEach(conv => {
+      conv.participants.forEach(p => {
+        if (p.toString() !== userId.toString()) {
+          chattedUserIds.add(p.toString());
+        }
+      });
+    });
+
+    // 🟩 Step 3: Get all blocked relationships (either direction)
+    const blockedDocs = await blockModel.find({
+      $or: [
+        { blockedBy: userId },
+        { blockedUser: userId }
+      ]
+    }).select("blockedBy blockedUser");
+
+    const blockedUserIds = new Set<string>();
+    blockedDocs.forEach(block => {
+      blockedUserIds.add(block.blockedBy.toString());
+      blockedUserIds.add(block.blockedUser.toString());
+    });
+
+    // 🟩 Step 4: Filter users - remove those who are chatted or blocked
+    const filteredIds = followingIds.filter(id => 
+      !chattedUserIds.has(id.toString()) && 
+      !blockedUserIds.has(id.toString())
+    );
+
+    if (!filteredIds.length) {
+      return {
+        success:true,
+        message:"No available users to start chat with.",
+        data:[]
+      }
+    }
+
+    // 🟩 Step 5: Return user details (you can modify fields as needed)
+    const users = await usersModel.find({ _id: { $in: filteredIds } })
+      .select("_id userName photos");
+
+    return {
+      success:true,
+      message:"Users available to start chat with.",
+      data:users
+    };
 };
 
 export const getUserAllDataService = async (userId: any, res: Response) => {
