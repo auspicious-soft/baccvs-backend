@@ -17,14 +17,22 @@ import { uploadStreamToS3Service } from "src/configF/s3";
 
 export const createPostService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    throw new Error(JSON.stringify({
+      success: false,
+      message: "Authentication failed",
+      code: httpStatusCode.UNAUTHORIZED
+    }));
   }
 
   const { id: userId, email: userEmail } = req.user;
 
-  // Check content type - always expect multipart/form-data since files are always included
+  // Check content type
   if (!req.headers['content-type']?.includes('multipart/form-data')) {
-    return errorResponseHandler('Content-Type must be multipart/form-data', httpStatusCode.BAD_REQUEST, res);
+    throw new Error(JSON.stringify({
+      success: false,
+      message: 'Content-Type must be multipart/form-data',
+      code: httpStatusCode.BAD_REQUEST
+    }));
   }
 
   return new Promise((resolve, reject) => {
@@ -33,7 +41,6 @@ export const createPostService = async (req: any, res: Response) => {
     const formData: any = {};
 
     busboy.on('field', (fieldname: string, value: string) => {
-      // Handle form fields
       if (fieldname === 'taggedUsers') {
         try {
           formData[fieldname] = JSON.parse(value);
@@ -47,31 +54,32 @@ export const createPostService = async (req: any, res: Response) => {
 
     busboy.on('file', async (fieldname: string, fileStream: any, fileInfo: any) => {
       if (fieldname !== 'photos') {
-        fileStream.resume(); // Skip non-photo files
+        fileStream.resume();
         return;
       }
 
       const { filename, mimeType } = fileInfo;
       
-      // Validate file type (optional - add your validation rules)
       if (!mimeType.startsWith('image/')) {
         fileStream.resume();
-        return reject(errorResponseHandler('Only image files are allowed', httpStatusCode.BAD_REQUEST, res));
+        return reject(new Error(JSON.stringify({
+          success: false,
+          message: 'Only image files are allowed',
+          code: httpStatusCode.BAD_REQUEST
+        })));
       }
 
-      // Create a readable stream from the file stream
       const readableStream = new Readable();
-      readableStream._read = () => {}; // Required implementation
+      readableStream._read = () => {};
 
       fileStream.on('data', (chunk: any) => {
         readableStream.push(chunk);
       });
 
       fileStream.on('end', () => {
-        readableStream.push(null); // End of stream
+        readableStream.push(null);
       });
 
-      // Add upload promise to array
       const uploadPromise = uploadStreamToS3Service(
         readableStream,
         filename,
@@ -82,25 +90,33 @@ export const createPostService = async (req: any, res: Response) => {
     });
 
     busboy.on('finish', async () => {
-      // Check if any files were uploaded
       if (uploadPromises.length === 0) {
-        return reject(errorResponseHandler('At least one photo is required', httpStatusCode.BAD_REQUEST, res));
+        return reject(new Error(JSON.stringify({
+          success: false,
+          message: 'At least one photo is required',
+          code: httpStatusCode.BAD_REQUEST
+        })));
       }
 
       try {
-        // Wait for all file uploads to complete
         const uploadedPhotoKeys = await Promise.all(uploadPromises);
         
-        // Validate required fields
         const { content, visibility } = formData;
         
         if (!content || !visibility) {
-          return reject(errorResponseHandler("Content and visibility are required", httpStatusCode.BAD_REQUEST, res));
+          return reject(new Error(JSON.stringify({
+            success: false,
+            message: "Content and visibility are required",
+            code: httpStatusCode.BAD_REQUEST
+          })));
         }
 
-        // Validate visibility
         if (!Object.values(PostVisibility).includes(visibility)) {
-          return reject(errorResponseHandler("Invalid visibility value", httpStatusCode.BAD_REQUEST, res));
+          return reject(new Error(JSON.stringify({
+            success: false,
+            message: "Invalid visibility value",
+            code: httpStatusCode.BAD_REQUEST
+          })));
         }
 
         // Validate taggedUsers array if provided
@@ -111,39 +127,56 @@ export const createPostService = async (req: any, res: Response) => {
             : formData.taggedUsers;
             
           if (!Array.isArray(parsedTaggedUsers)) {
-            return reject(errorResponseHandler("Tagged users must be an array", httpStatusCode.BAD_REQUEST, res));
+            return reject(new Error(JSON.stringify({
+              success: false,
+              message: "Tagged users must be an array",
+              code: httpStatusCode.BAD_REQUEST
+            })));
           }
 
           // Validate and filter tagged user IDs
           for (const id of parsedTaggedUsers) {
+            // Trim whitespace and validate format
+            const trimmedId = String(id).trim();
+            
+            // Check if it's a valid 24-character hex string
+            if (!/^[0-9a-fA-F]{24}$/.test(trimmedId)) {
+              return reject(new Error(JSON.stringify({
+                success: false,
+                message: `Invalid user ID format: ${trimmedId}`,
+                code: httpStatusCode.BAD_REQUEST
+              })));
+            }
+
             try {
-              const objectId = new mongoose.Types.ObjectId(id);
-              // Check if the user exists in the database
+              const objectId = new mongoose.Types.ObjectId(trimmedId);
               const userExists = await usersModel.findById(objectId).select('_id').lean();
+              
               if (userExists) {
                 validatedTaggedUsers.push(objectId);
               } else {
-                return reject(errorResponseHandler(
-                  `User with ID ${id} does not exist`,
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                ));
+                return reject(new Error(JSON.stringify({
+                  success: false,
+                  message: `User with ID ${trimmedId} does not exist`,
+                  code: httpStatusCode.BAD_REQUEST
+                })));
               }
             } catch (error) {
-              return reject(errorResponseHandler(
-                `Invalid user ID format: ${id}`,
-                httpStatusCode.BAD_REQUEST,
-                res
-              ));
+              console.error(`Error validating user ID ${trimmedId}:`, error);
+              return reject(new Error(JSON.stringify({
+                success: false,
+                message: `Invalid user ID: ${trimmedId}`,
+                code: httpStatusCode.BAD_REQUEST
+              })));
             }
           }
         }
 
-        // Create new post with uploaded photo keys
+        // Create new post
         const newPost = new postModels({
           user: userId,
           content,
-          photos: uploadedPhotoKeys, // Store the S3 keys in database
+          photos: uploadedPhotoKeys,
           taggedUsers: validatedTaggedUsers,
           visibility: visibility || PostVisibility.PUBLIC,
         });
@@ -162,13 +195,13 @@ export const createPostService = async (req: any, res: Response) => {
 
       } catch (error) {
         console.error('Upload or post creation error:', error);
-        reject(formatErrorResponse(res, error));
+        reject(error);
       }
     });
 
     busboy.on('error', (error: any) => {
       console.error('Busboy error:', error);
-      reject(formatErrorResponse(res, error));
+      reject(error);
     });
 
     req.pipe(busboy);
