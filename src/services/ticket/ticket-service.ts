@@ -352,14 +352,14 @@ export const deleteTicket = async (req: any, res: Response) => {
     const ticketId = req.params.id;
 
     // Find the ticket and populate the event
-    const ticketToDelete = await ticketModel.findById(ticketId).populate('event');
+    const ticketToDelete : any = await ticketModel.findById(ticketId).populate('event');
     
     if (!ticketToDelete) {
       return errorResponseHandler("Ticket not found", httpStatusCode.NOT_FOUND, res);
     }
 
     // Check if user is authorized (must be event creator)
-    if (ticketToDelete.event.creator.toString() !== userId) {
+    if (ticketToDelete?.event?.creator.toString() !== userId) {
       return errorResponseHandler("You are not authorized to delete this ticket", httpStatusCode.FORBIDDEN, res);
     }
 

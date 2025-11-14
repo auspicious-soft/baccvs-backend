@@ -209,7 +209,7 @@
   
   <script>
     // Replace with your actual Stripe publishable key from .env
-    const stripe = Stripe('pk_test_51RRoptPG3cVXH4KNsvKR75u8rSitan0AskseBC2iyUXUeMKr8cBGqBjLLhfut7Kbv2TUt1NSmUy6sy0IouL9k2VG00cGeUL0Es');
+    const stripe = Stripe('pk_test_51SOBQSK5obxLtxPFldnknRr2XbKwpXAk4Ly9CxPKq74JhZUC7JNjPXEMfQlORsx3BEOuQ8I8xCKXPM1jnkBmUNhb00HxysAAi1');
     let elements;
     let cardElement;
     let paymentIntentId;
@@ -363,7 +363,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3Yzk2YzZlNDFjYmEwZGMwMjFiOGYzZSIsImVtYWlsIjoibmV3dXNlcjQyMzcyQGV4YW1wbGUuY29tIiwicGhvbmVOdW1iZXIiOiI5ODc2NzQzODExIiwiaWF0IjoxNzQ5NTI4NDczfQ.H32GGpgCKiOdfGPGeQAWNiGjr521Gh1uT6_T-230WfY' // Replace with valid JWT token
+            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MDQ1NmZjNzEyMGViM2Y1MjE2ZThhZiIsImVtYWlsIjoicHJpa3NoaXQyQHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiIxMjM0NTY3MTExIiwiaWF0IjoxNzYyNDI2MjQ1fQ.1Ic2Bfk-YsjtKBrBnmkjwFE5nMDLBR8KW3MtgGdGlQA' // Replace with valid JWT token
           },
           body: JSON.stringify(data),
         });

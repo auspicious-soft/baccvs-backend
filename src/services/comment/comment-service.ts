@@ -5,6 +5,7 @@ import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { Comment } from "src/models/comment/comment-schema";
 import { eventModel } from "src/models/event/event-schema";
+import { LikeModel } from "src/models/like/like-schema";
 import { postModels } from "src/models/post/post-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
 
@@ -153,6 +154,7 @@ export const createCommentService = async (req: Request, res: Response) => {
 // Get All Comments for a Post, Repost, or Event (only top-level comments)
 export const getCommentsService = async (req: Request, res: Response) => {
   const { targetType, targetId } = req.params;
+ const { id: userId } = req.user as JwtPayload;
 
   // Validate target type
   if (!["post", "repost", "event"].includes(targetType)) {
@@ -210,19 +212,173 @@ export const getCommentsService = async (req: Request, res: Response) => {
       const replies = await Comment.find({
         parentComment: comment._id,
         isDeleted: false,
-      })
-        .sort({ createdAt: 1 })
-        .limit(3)
+      }).sort({ createdAt: 1 })
         .populate("user", "userName photos");
+
+        const likesCount = await LikeModel.countDocuments({
+          targetType:"comments",
+          target:comment._id
+        })
+
+        const isLikedByUser = await LikeModel.exists({
+        user: userId,
+        targetType: "comments",
+        target: comment._id
+      });
 
       const commentObj = comment.toObject();
       return {
         ...commentObj,
         replyCount,
         replies,
+        likesCount,
+        isLikedByUser:!!isLikedByUser
       };
     })
   );
+
+  return {
+    success: true,
+    message: "Comments retrieved successfully",
+    data: {
+      comments: commentsWithReplies,
+      pagination: {
+        totalComments,
+        totalPages: Math.ceil(totalComments / limit),
+        currentPage: page,
+        hasNextPage: page * limit < totalComments,
+        hasPrevPage: page > 1,
+      },
+    },
+  };
+};
+
+export const getCommentsServiceOptimized = async (req: Request, res: Response) => {
+  const { targetType, targetId } = req.params;
+  const { id: userId } = req.user as JwtPayload;
+
+  // Validate target type
+  if (!["post", "repost", "event"].includes(targetType)) {
+    return errorResponseHandler(
+      "Invalid target type. Must be 'post', 'repost', or 'event'",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Validate target ID
+  if (!mongoose.Types.ObjectId.isValid(targetId)) {
+    return errorResponseHandler(`Invalid ${targetType} ID`, httpStatusCode.BAD_REQUEST, res);
+  }
+
+  // Optional pagination parameters
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
+
+  // Build query based on target type
+  const query: any = {
+    parentComment: null,
+    isDeleted: false,
+  };
+
+  if (targetType === "post") {
+    query.post = targetId;
+  } else if (targetType === "repost") {
+    query.repost = targetId;
+  } else {
+    query.event = targetId;
+  }
+
+  // Find top-level comments
+  const comments = await Comment.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate("user", "userName photos")
+    .lean(); // Use lean() for better performance
+
+  // Get total count
+  const totalComments = await Comment.countDocuments(query);
+
+  // Collect all comment IDs (including replies)
+  const commentIds = comments.map(c => c._id);
+  
+  // Get all replies for all comments in one query
+  const allReplies = await Comment.find({
+    parentComment: { $in: commentIds },
+    isDeleted: false,
+  })
+    .sort({ createdAt: 1 })
+    .populate("user", "userName photos")
+    .lean();
+
+  // Get reply IDs
+  const replyIds = allReplies.map(r => r._id);
+  const allIds = [...commentIds, ...replyIds];
+
+  // Batch query for all likes counts
+  const likesAggregation = await LikeModel.aggregate([
+    {
+      $match: {
+        targetType: "comments",
+        target: { $in: allIds }
+      }
+    },
+    {
+      $group: {
+        _id: "$target",
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  // Create a map of likes counts
+  const likesCountMap = new Map(
+    likesAggregation.map(item => [item._id.toString(), item.count])
+  );
+
+  // Batch query for current user's likes
+  const userLikes = await LikeModel.find({
+    user: userId,
+    targetType: "comments",
+    target: { $in: allIds }
+  }).lean();
+
+  // Create a set of comment IDs the user has liked
+  const userLikedSet = new Set(
+    userLikes.map(like => like.target.toString())
+  );
+
+  // Group replies by parent comment
+  const repliesByParent = allReplies.reduce((acc : any, reply : any) => {
+    const parentId = reply.parentComment.toString();
+    if (!acc[parentId]) acc[parentId] = [];
+    
+    // Add likes info to reply
+    const replyId = reply._id.toString();
+    acc[parentId].push({
+      ...reply,
+      likesCount: likesCountMap.get(replyId) || 0,
+      isLikedByUser: userLikedSet.has(replyId)
+    });
+    
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  // Build final comments with replies
+  const commentsWithReplies = comments.map(comment => {
+    const commentId = comment._id.toString();
+    const replies = repliesByParent[commentId] || [];
+    
+    return {
+      ...comment,
+      replyCount: replies.length,
+      replies,
+      likesCount: likesCountMap.get(commentId) || 0,
+      isLikedByUser: userLikedSet.has(commentId)
+    };
+  });
 
   return {
     success: true,
@@ -289,6 +445,7 @@ export const getCommentService = async (req: Request, res: Response) => {
     },
   };
 };
+
 
 // Get replies for a specific comment
 export const getCommentRepliesService = async (req: Request, res: Response) => {

@@ -459,6 +459,13 @@ export const loginUserService = async (
       res
     );
   }
+  if (!userData.fcmToken) {
+    return errorResponseHandler(
+      "FCM token is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
   let query = getSignUpQueryByAuthType(userData, authType);
   let user: any = await usersModel.findOne(query);
   if (!user) {
@@ -488,7 +495,7 @@ export const loginUserService = async (
     );
     if (passwordValidationResponse) return passwordValidationResponse;
   }
-
+  user.fcmToken = userData.fcmToken;
   user.token = generateUserToken(user as any);
 
   await user.save();
@@ -2313,6 +2320,10 @@ export const getUserPostsService = async (req: any, res: Response) => {
     .populate("user", "userName photos")
     .populate({
       path: "originalPost",
+       populate: {
+      path: "user",
+      select: "userName photos"
+    }
     });
   return {
     success: true,
@@ -2419,18 +2430,18 @@ export const getConversationsByTypeService = async (
           conversation.backgroundSettings?.get(userId) || {
             backgroundImage: null,
             backgroundColor: null,
-            staticBackgroundImage:null
+            staticBackgroundImage: null,
           };
 
-          if (
-        conversationObj.lastMessage &&
-        Array.isArray(conversationObj.lastMessage.deletedFor) &&
-        conversationObj.lastMessage.deletedFor.some(
-          (id: any) => id.toString() === userId.toString()
-        )
-      ) {
-        conversationObj.lastMessage = null; // Hide last message
-      }
+        if (
+          conversationObj.lastMessage &&
+          Array.isArray(conversationObj.lastMessage.deletedFor) &&
+          conversationObj.lastMessage.deletedFor.some(
+            (id: any) => id.toString() === userId.toString()
+          )
+        ) {
+          conversationObj.lastMessage = null; // Hide last message
+        }
 
         // Count unread messages for current user in this conversation
         const unreadCount = await Message.countDocuments({
@@ -2481,7 +2492,7 @@ export const getConversationsByTypeService = async (
       })
       .sort({ updatedAt: -1 });
 
-    squadConversations = (squads as any).map((conversation) => {
+    squadConversations = (squads as any).map((conversation: any) => {
       const conversationObj: any = conversation.toObject();
       conversationObj.isPinned = conversation.isPinned.get(userId) || false;
       conversationObj.backgroundSettings = conversation.backgroundSettings.get(
@@ -2588,103 +2599,240 @@ export const getConversationsByTypeService = async (
   };
 };
 
-export const getUnchattedFollowingsService = async (req: any, res: Response) => {
-    const userId = req.user.id;
+export const getUnchattedFollowingsService = async (
+  req: any,
+  res: Response
+) => {
+  const userId = req.user.id;
 
-    // 🟩 Step 1: Get all users that current user follows (and follow is approved + active)
-    const followingUsers = await followModel.find({
+  // 🟩 Step 1: Get all users that current user follows (and follow is approved + active)
+  const followingUsers = await followModel
+    .find({
       follower_id: userId,
       relationship_status: FollowRelationshipStatus.FOLLOWING,
-    }).select("following_id");
+    })
+    .select("following_id");
 
-    if (!followingUsers.length) {
-      return {
-        success:true,
-        message:"No following users found.",
-        data:[]
-      };
-    }
-
-    const followingIds = followingUsers.map(f => f.following_id);
-
-    // 🟩 Step 2: Get users involved in an existing conversation
-    const existingConversations = await Conversation.find({
-      participants: userId,
-      isActive: true,
-    }).select("participants");
-
-    const chattedUserIds = new Set<string>();
-    existingConversations.forEach(conv => {
-      conv.participants.forEach(p => {
-        if (p.toString() !== userId.toString()) {
-          chattedUserIds.add(p.toString());
-        }
-      });
-    });
-
-    // 🟩 Step 3: Get all blocked relationships (either direction)
-    const blockedDocs = await blockModel.find({
-      $or: [
-        { blockedBy: userId },
-        { blockedUser: userId }
-      ]
-    }).select("blockedBy blockedUser");
-
-    const blockedUserIds = new Set<string>();
-    blockedDocs.forEach(block => {
-      blockedUserIds.add(block.blockedBy.toString());
-      blockedUserIds.add(block.blockedUser.toString());
-    });
-
-    // 🟩 Step 4: Filter users - remove those who are chatted or blocked
-    const filteredIds = followingIds.filter(id => 
-      !chattedUserIds.has(id.toString()) && 
-      !blockedUserIds.has(id.toString())
-    );
-
-    if (!filteredIds.length) {
-      return {
-        success:true,
-        message:"No available users to start chat with.",
-        data:[]
-      }
-    }
-
-    // 🟩 Step 5: Return user details (you can modify fields as needed)
-    const users = await usersModel.find({ _id: { $in: filteredIds } })
-      .select("_id userName photos");
-
+  if (!followingUsers.length) {
     return {
-      success:true,
-      message:"Users available to start chat with.",
-      data:users
+      success: true,
+      message: "No following users found.",
+      data: [],
     };
-};
+  }
 
-export const getUserAllDataService = async (userId: any, res: Response) => {
-  const [event, post, like] = await Promise.all([
-    eventModel.find({
-      creator: userId,
-    }),
-    postModels.find({
-      user: userId,
-    }),
-    LikeModel.find({
-      user: userId,
-      targetType: "post",
-    }),
-  ]);
+  const followingIds = followingUsers.map((f) => f.following_id);
+
+  // 🟩 Step 2: Get users involved in an existing conversation
+  const existingConversations = await Conversation.find({
+    participants: userId,
+    isActive: true,
+  }).select("participants");
+
+  const chattedUserIds = new Set<string>();
+  existingConversations.forEach((conv) => {
+    conv.participants.forEach((p) => {
+      if (p.toString() !== userId.toString()) {
+        chattedUserIds.add(p.toString());
+      }
+    });
+  });
+
+  // 🟩 Step 3: Get all blocked relationships (either direction)
+  const blockedDocs = await blockModel
+    .find({
+      $or: [{ blockedBy: userId }, { blockedUser: userId }],
+    })
+    .select("blockedBy blockedUser");
+
+  const blockedUserIds = new Set<string>();
+  blockedDocs.forEach((block) => {
+    blockedUserIds.add(block.blockedBy.toString());
+    blockedUserIds.add(block.blockedUser.toString());
+  });
+
+  // 🟩 Step 4: Filter users - remove those who are chatted or blocked
+  const filteredIds = followingIds.filter(
+    (id) =>
+      !chattedUserIds.has(id.toString()) && !blockedUserIds.has(id.toString())
+  );
+
+  if (!filteredIds.length) {
+    return {
+      success: true,
+      message: "No available users to start chat with.",
+      data: [],
+    };
+  }
+
+  // 🟩 Step 5: Return user details (you can modify fields as needed)
+  const users = await usersModel
+    .find({ _id: { $in: filteredIds } })
+    .select("_id userName photos");
 
   return {
     success: true,
-    message: "User All Data retrived",
-    data: {
-      event,
-      post,
-      like,
-    },
+    message: "Users available to start chat with.",
+    data: users,
   };
 };
+
+export const getUserAllDataService = async (userId: any, res: Response) => {
+    // === Fetch user-created data ===
+    const [events, posts, reposts, likes] = await Promise.all([
+      eventModel.find({ creator: userId }).populate("creator", "userName photos"),
+      postModels.find({ user: userId }),
+      RepostModel.find({ user: userId }).populate({
+        path: "originalPost",
+        populate: { path: "user", select: "userName photos" },
+      }), // user’s own reposts
+      LikeModel.find({ user: userId }),
+    ]);
+
+    const eventIds = events.map((e) => e._id);
+    const postIds = posts.map((p) => p._id);
+    const repostIds = reposts.map((r) => r._id);
+
+    // === Extract liked IDs ===
+    const likedEventIds = likes
+      .filter((l) => l.targetType === "event")
+      .map((l) => l.target);
+    const likedPostIds = likes
+      .filter((l) => l.targetType === "posts")
+      .map((l) => l.target);
+    const likedRepostIds = likes
+      .filter((l) => l.targetType === "reposts")
+      .map((l) => l.target);
+
+    // === Count Aggregations ===
+    const [likeCounts, commentCounts, repostCounts] = await Promise.all([
+      LikeModel.aggregate([
+        {
+          $match: {
+            target: {
+              $in: [
+                ...eventIds,
+                ...postIds,
+                ...repostIds,
+                ...likedEventIds,
+                ...likedPostIds,
+                ...likedRepostIds,
+              ],
+            },
+            targetType: { $in: ["event", "posts", "reposts"] },
+          },
+        },
+        { $group: { _id: "$target", count: { $sum: 1 } } },
+      ]),
+      Comment.aggregate([
+        {
+          $match: {
+            $or: [
+              { event: { $in: [...eventIds, ...likedEventIds] } },
+              { post: { $in: [...postIds, ...likedPostIds] } },
+              { repost: { $in: [...repostIds, ...likedRepostIds] } },
+            ],
+            isDeleted: false,
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $ifNull: ["$event", { $ifNull: ["$post", "$repost"] }],
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      RepostModel.aggregate([
+        { $match: { post: { $in: [...postIds, ...likedPostIds] } } },
+        { $group: { _id: "$post", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    // === Helpers ===
+    const getCount = (arr: any[], id: any) =>
+      arr.find((x) => x._id?.toString() === id.toString())?.count || 0;
+
+    const userLikedTargets = new Set(
+      likes.map((l) => `${l.targetType}_${l.target.toString()}`)
+    );
+
+    // === Enrich Events ===
+    const enrichedEvents = events.map((e) => ({
+      ...e.toObject(),
+      likeCount: getCount(likeCounts, e._id),
+      commentCount: getCount(commentCounts, e._id),
+      userHasLiked: userLikedTargets.has(`event_${e._id.toString()}`),
+    }));
+
+    // === Enrich Posts (user’s posts) ===
+    const enrichedPosts = posts.map((p) => ({
+      ...p.toObject(),
+      likeCount: getCount(likeCounts, p._id),
+      commentCount: getCount(commentCounts, p._id),
+      repostCount: getCount(repostCounts, p._id),
+      userHasLiked: userLikedTargets.has(`posts_${p._id.toString()}`),
+    }));
+
+    // === Enrich Reposts (user’s reposts) ===
+    const enrichedReposts = reposts.map((r) => ({
+      ...r.toObject(),
+      likeCount: getCount(likeCounts, r._id),
+      commentCount: getCount(commentCounts, r._id),
+      userHasLiked: userLikedTargets.has(`reposts_${r._id.toString()}`),
+    }));
+
+    // === Fetch liked items ===
+    const [likedEvents, likedPosts, likedReposts] = await Promise.all([
+      eventModel.find({ _id: { $in: likedEventIds } }).populate("creator", "userName photos"),
+      postModels.find({ _id: { $in: likedPostIds } }),
+      RepostModel.find({ _id: { $in: likedRepostIds } }).populate({
+        path: "originalPost",
+        populate: { path: "user", select: "userName photos" },
+      }),
+    ]);
+
+    // === Enrich liked data ===
+    const likedData = [
+      ...likedEvents.map((e) => ({
+        ...e.toObject(),
+        type: "event",
+        likeCount: getCount(likeCounts, e._id),
+        commentCount: getCount(commentCounts, e._id),
+        userHasLiked: true,
+      })),
+      ...likedPosts.map((p) => ({
+        ...p.toObject(),
+        type: "post",
+        likeCount: getCount(likeCounts, p._id),
+        commentCount: getCount(commentCounts, p._id),
+        repostCount: getCount(repostCounts, p._id),
+        userHasLiked: true,
+      })),
+      ...likedReposts.map((r) => ({
+        ...r.toObject(),
+        type: "repost",
+        likeCount: getCount(likeCounts, r._id),
+        commentCount: getCount(commentCounts, r._id),
+        userHasLiked: true,
+      })),
+    ];
+
+    // === Final structured response ===
+    return {
+      success: true,
+      message: "User all data retrieved",
+      data: {
+        events: enrichedEvents,
+        posts: {
+          post: enrichedPosts,
+          repost: enrichedReposts,
+        },
+        likes: likedData,
+      },
+    };
+  }
 export const editMessageService = async (req: any, res: Response) => {
   const userId = req.user.id;
   const { id } = req.params;

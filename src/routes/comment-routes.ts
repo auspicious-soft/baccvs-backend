@@ -18,13 +18,13 @@ const router = Router()
 router.post("/", checkAuth, createComment)
 
 // Get comments for a post or repost
-router.get("/:targetType/:targetId", getComments)
+router.get("/:targetType/:targetId",checkAuth, getComments)
 
 // Get comment count for a post or repost
 router.get("/:targetType/:targetId/count", countComments)
 
 // Get comments for a specific post
-router.get("/post/:postId", getPostComments)
+router.get("/post/:postId",checkAuth, getPostComments)
 
 // Get comment count for a specific post
 router.get("/post/:postId/count", countPostComments)
