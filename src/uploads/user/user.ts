@@ -459,13 +459,7 @@ export const loginUserService = async (
       res
     );
   }
-  if (!userData.fcmToken) {
-    return errorResponseHandler(
-      "FCM token is required",
-      httpStatusCode.BAD_REQUEST,
-      res
-    );
-  }
+
   let query = getSignUpQueryByAuthType(userData, authType);
   let user: any = await usersModel.findOne(query);
   if (!user) {
@@ -495,7 +489,7 @@ export const loginUserService = async (
     );
     if (passwordValidationResponse) return passwordValidationResponse;
   }
-  user.fcmToken = userData.fcmToken;
+  // user.fcmToken = userData.fcmToken;
   user.token = generateUserToken(user as any);
 
   await user.save();

@@ -53,6 +53,7 @@ import {
 import { generateMultipleSignedUrls } from "src/configF/s3";
 import { upload, uploadMultipleFilesToS3 } from "src/configF/multer";
 import { get } from "http";
+import { JwtPayload } from "jsonwebtoken";
 
 // Middleware for handling file uploads
 export const uploadUserPhotos = upload.array("photos", 5); // Allow up to 5 photos
@@ -571,7 +572,7 @@ export const getUnchattedFollowings = async (req: Request, res: Response) => {
 };
 export const getUserAllData = async (req: Request, res: Response) => {
   try {
-     const { id: userId } = req.user as any;
+     const userId  = req.query.userId || (req.user as JwtPayload).id;
       if (!userId) {
         return errorResponseHandler(
           "User id is required",
