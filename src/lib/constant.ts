@@ -40,6 +40,7 @@ export const MusicType = {
   EDM_DANCE: 'EDM/Dance music',
   HIP_HOP_RNB: 'Hip-Hop/R&B',
   COMMERCIAL: 'Commercial',
+  HOUSE: 'House',
   LATIN_REGGAETON: 'Latin/Reggaeton',
   POP_ROCK: 'Pop/Rock',
   TECH_HOUSE: 'Tech-House',

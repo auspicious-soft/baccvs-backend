@@ -14,6 +14,7 @@ import { purchaseModel } from "src/models/purchase/purchase-schema";
 import { usersModel } from "src/models/user/user-schema";
 import { LikeModel } from "src/models/like/like-schema";
 import { Comment } from "src/models/comment/comment-schema";
+import { convertToUTCAndLocal } from "src/utils/date";
 
 function getTimezoneOffset(timezone: string, date: Date): number {
   try {
@@ -114,14 +115,14 @@ export const createEventService = async (req: Request, res: Response) => {
           const isVideo =
             mimeType.startsWith("video/") && fieldname === "videos";
 
-          if (!isImage && !isVideo) {
-            fileStream.resume();
-            return reject({
-              success: false,
-              message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
+          // if (!isImage && !isVideo) {
+          //   fileStream.resume();
+          //   return reject({
+          //     success: false,
+          //     message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
+          //     code: httpStatusCode.BAD_REQUEST,
+          //   });
+          // }
 
           // Create readable stream
           const readableStream = new Readable();
@@ -405,14 +406,15 @@ const processEventCreation = async (
       res
     );
   }
-  const userTimezoneOffset = getTimezoneOffset(timezone, eventDateTime);
+  const result = convertToUTCAndLocal(date, startTime, timezone);
+  // const userTimezoneOffset = getTimezoneOffset(timezone, eventDateTime);
 
-  const utcDateTime = new Date(
-    eventDateTime.getTime() - userTimezoneOffset * 60000
-  );
+  // const utcDateTime = new Date(
+  //   eventDateTime.getTime() - userTimezoneOffset * 60000
+  // );
 
-  // Store both for reference
-  const localDateTime = eventDateTime;
+  // // Store both for reference
+  // const localDateTime = eventDateTime;
 
   // Create the event
   const newEvent = new eventModel({
@@ -422,8 +424,8 @@ const processEventCreation = async (
     date,
     startTime,
     endTime,
-    utcDateTime,
-    localDateTime,
+    utcDateTime: result.utcDateTime,
+    localDateTime: eventDateTime,
     timezone,
     venue,
     capacity,
@@ -1718,7 +1720,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           });
 
           // Upload to S3
-          const uploadPromise : any = uploadStreamToS3Service(
+          const uploadPromise: any = uploadStreamToS3Service(
             readableStream,
             filename,
             mimeType,
@@ -1735,7 +1737,7 @@ export const updateEventService = async (req: Request, res: Response) => {
           const uploadedFiles = await Promise.all(uploadPromises);
 
           // Separate uploaded files by type
-          uploadedFiles.forEach(({ url , fieldname }) => {
+          uploadedFiles.forEach(({ url, fieldname }) => {
             if (fieldname === "coverPhoto") {
               newCoverPhoto = url;
             } else if (fieldname === "videos") {
@@ -1923,13 +1925,14 @@ const processEventUpdate = async (
     ticketing: any;
     localDateTime: any;
     utcDateTime: any;
+    timezone: string;
   }> = {};
 
   if (data.title) updateData.title = data.title;
   if (data.aboutEvent) updateData.aboutEvent = data.aboutEvent;
   if (data.date) updateData.date = data.date;
-  if (data.date && data.startTime) {
-    const { date, startTime } = data;
+  if (data.date || data.startTime) {
+    const { date, startTime, timezone } = data;
     const localDateTimeString = `${date}T${startTime}`; // e.g. "2025-10-30T18:30"
     const localDateTime = new Date(localDateTimeString);
 
@@ -1942,12 +1945,13 @@ const processEventUpdate = async (
       );
     }
 
-    // Convert to UTC ISO string
-    const utcDateTime = new Date(
-      localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
-    );
+    // // Convert to UTC ISO string
+    // const utcDateTime = new Date(
+    //   localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
+    // );
+    const result = convertToUTCAndLocal(date, startTime, timezone);
 
-    updateData.utcDateTime = utcDateTime;
+    updateData.utcDateTime = result.utcDateTime;
     updateData.localDateTime = localDateTime;
   }
   if (data.startTime) updateData.startTime = data.startTime;
@@ -1957,6 +1961,7 @@ const processEventUpdate = async (
   if (data.eventPreferences)
     updateData.eventPreferences = data.eventPreferences;
   if (data.eventVisibility) updateData.eventVisibility = data.eventVisibility;
+  if (data.timezone) updateData.timezone = data.timezone;
   if (data.invitedGuests) updateData.invitedGuests = data.invitedGuests;
   if (data.coHosts) updateData.coHosts = data.coHosts;
   if (data.lineup) updateData.lineup = data.lineup;
