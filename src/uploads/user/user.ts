@@ -2962,7 +2962,7 @@ export const searchFeedService = async (req: any) => {
   // -------------------------------
   // TYPE-BASED CONTROL LOGIC
   // -------------------------------
-  const searchUsers = type === "user" || !type;
+  const searchUsers = type === "people" || !type;
   const searchEvents = type === "event" || !type;
 
   let users: any[] = [];
