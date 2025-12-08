@@ -771,26 +771,32 @@ export const getUserInfoService = async (req: any, res: Response) => {
   const { id: currentUserId } = req.user;
   const targetUserId = req.params.id;
 
-  // Check if either user has blocked the other
-  const isBlocked = await blockModel.findOne({
+  // Check block status
+  const blockRecord = await blockModel.findOne({
     $or: [
       { blockedBy: currentUserId, blockedUser: targetUserId },
       { blockedBy: targetUserId, blockedUser: currentUserId },
     ],
   });
 
-  if (isBlocked) {
-    return errorResponseHandler(
-      "Access to user data restricted",
-      httpStatusCode.FORBIDDEN,
-      res
-    );
+  // Single flag logic
+  let isBlockedByOtherUser: boolean | null = null;
+
+  if (blockRecord) {
+    if (blockRecord.blockedBy.toString() === targetUserId) {
+      // Other user blocked you
+      isBlockedByOtherUser = true;
+    } else {
+      // You blocked the other user
+      isBlockedByOtherUser = false;
+    }
   }
 
-  // Fetch target user data
+  // Fetch target user
   const user = await usersModel
     .findById(targetUserId)
     .select("-password -token -stripeCustomerId -__v");
+
   if (!user)
     return errorResponseHandler(
       "User not found",
@@ -798,24 +804,22 @@ export const getUserInfoService = async (req: any, res: Response) => {
       res
     );
 
-  // Get follower count
   const followerCount = await followModel.countDocuments({
     following_id: targetUserId,
     relationship_status: FollowRelationshipStatus.FOLLOWING,
     is_approved: true,
   });
 
-  // Get following count
   const followingCount = await followModel.countDocuments({
     follower_id: targetUserId,
     relationship_status: FollowRelationshipStatus.FOLLOWING,
     is_approved: true,
   });
+
   const eventCount = await eventModel.countDocuments({
     creator: targetUserId,
   });
 
-  // Check follow relationships
   const isFollowedByCurrentUser = await followModel.exists({
     follower_id: currentUserId,
     following_id: targetUserId,
@@ -829,6 +833,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
     relationship_status: FollowRelationshipStatus.FOLLOWING,
     is_approved: true,
   });
+
   const conversationId = await Conversation.findOne({
     participants: { $all: [currentUserId, targetUserId] },
   }).select("_id");
@@ -844,6 +849,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
       isFollowedByCurrentUser: !!isFollowedByCurrentUser,
       isFollowingCurrentUser: !!isFollowingCurrentUser,
       conversationId: conversationId ? conversationId._id : null,
+      isBlockedByOtherUser,
     },
   };
 };
