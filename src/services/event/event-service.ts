@@ -2101,6 +2101,18 @@ export const deleteEventService = async (req: Request, res: Response) => {
       res
     );
   }
+   const existingPurchases = await purchaseModel.findOne({
+    event: req.params.id,
+    status: { $in: ["active", "used", "transferred", "pending"] },
+  });
+
+  if (existingPurchases) {
+    return errorResponseHandler(
+      "Cannot delete event. Tickets have already been purchased for this event.",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
   await eventModel.findByIdAndDelete(req.params.id);
   await ticketModel.deleteMany({ event: req.params.id });

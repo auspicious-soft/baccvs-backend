@@ -109,15 +109,18 @@ export const transferTicketService = async (req: Request, res: Response) => {
 
     // Generate QR code for new purchase
     const newPurchaseId = new mongoose.Types.ObjectId();
-    const qrCode = await QRCode.toString(`purchase:${newPurchaseId}`, {
-      type: "svg",
-    });
+    const qrCode = await QRCode.toString(
+      `purchase:${newPurchaseId.toString()}`,
+      {
+        type: "svg",
+      }
+    );
 
     // Create new purchase for receiver
     const newPurchaseData = {
       _id: newPurchaseId,
-      ticket: originalPurchase.ticket,
-      event: originalPurchase.event,
+      ticket: originalPurchase.ticket._id.toString(),
+      event: originalPurchase.event._id.toString(),
       buyer: receiverUserId,
       quantity: transferQuantity,
       totalPrice: 0, // Transferred tickets have no cost
@@ -126,6 +129,11 @@ export const transferTicketService = async (req: Request, res: Response) => {
       isResale: false,
       status: "active",
       purchaseDate: new Date(),
+      purchaseType: "transfer",
+      metaData: {
+        originalPurchaseId: originalPurchase._id,
+        transferDate: new Date(),
+      },
     };
 
     const [newPurchase] = await purchaseModel.create([newPurchaseData], {
@@ -216,9 +224,9 @@ export const getTransferHistoryService = async (
 
     const transfers = await transferModel
       .find(query)
-      .populate("sender", "name email")
-      .populate("receiver", "name email")
-      .populate("event", "title date venue")
+      .populate("sender", "userName email")
+      .populate("receiver", "userName email")
+      .populate("event", "title date venue startTime")
       .populate("ticket", "name price")
       .populate("originalPurchase")
       .populate("newPurchase")

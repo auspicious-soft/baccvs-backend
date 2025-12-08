@@ -83,9 +83,10 @@ export const getTicketById = async (req: any, res: Response) => {
         ticket: ticketId,
         status: { $in: ['active', 'used', 'transferred'] }
       })
-      .populate('buyer', 'name email profilePicture') // Adjust fields based on your user schema
+      .populate('buyer', 'userName photos') // Adjust fields based on your user schema
       .sort({ purchaseDate: -1 }) // Most recent first
-      .select('buyer quantity totalPrice purchaseDate status');
+      .select('buyer quantity totalPrice purchaseDate status')
+      .limit(10);
 
     // Extract statistics or set defaults
     const stats = purchaseStats[0] || { totalSold: 0, totalSaleAmount: 0 };

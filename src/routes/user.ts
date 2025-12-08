@@ -121,6 +121,7 @@ import {
   updateTicketController,
 } from "src/controllers/ticket/ticket-controller";
 import { deleteChatService } from "src/services/chat/chat-service";
+import { transferTicketController } from "src/controllers/transfer/transfer-controller";
 
 const router = Router();
 
@@ -284,5 +285,8 @@ router.post(
 );
 
 router.post("/message/edit/:id", editMessage);
+
+// Transfer Ticket Route
+router.post("/transfer/ticket", transferTicketController);
 
 export { router };

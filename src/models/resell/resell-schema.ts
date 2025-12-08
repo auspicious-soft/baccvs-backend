@@ -22,7 +22,7 @@ const resaleSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['available', 'sold', 'canceled'],
+    enum: ['available', 'sold', 'cancelled'],
     default: 'available'
   },
   newPurchase: [{

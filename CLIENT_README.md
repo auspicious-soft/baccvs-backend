@@ -50,11 +50,13 @@ The `baccvs` backend is a Node.js + Express application built using TypeScript. 
 Note: All endpoints are under the base URL where the app is hosted. The server uses JWT for protected routes.
 
 - Auth & User
+
   - `POST /user/login` — login (returns JWT)
   - `POST /user/register` — register
   - `GET /user/profile` — get logged-in user profile (auth required)
 
 - Events
+
   - `POST /` — create event (multipart/form-data for media)
   - `POST /user/event/feed` — get user event feed with filters (date range, geo, pricing, preferences)
   - `GET /:id` — get event by id
@@ -63,11 +65,13 @@ Note: All endpoints are under the base URL where the app is hosted. The server u
   - `GET /user/events` — get events for logged-in user
 
 - Tickets
+
   - `POST /ticket` — create ticket
   - `GET /ticket` — list tickets
   - `GET /ticket/:id` — ticket details (populated with event)
 
 - Stories
+
   - `POST /story` — create story (multipart)
   - `GET /story/:id` — get story
 
@@ -98,7 +102,7 @@ Note: The feed now returns attached `tickets` for each event when tickets exist.
 1. Install dependencies
 
 ```powershell
-cd baccvs
+cd d:\sahil\baccvs
 npm install
 ```
 
@@ -117,6 +121,11 @@ Required variables (example names — confirm in `src/configF`):
 npm run dev
 ```
 
+4. API docs
+
+- If OpenAPI or docs generator is present run the relevant script; otherwise refer to `src/routes` and `src/controllers` for available endpoints.
+
+---
 
 ## Known Limitations & Notes
 
@@ -129,6 +138,8 @@ npm run dev
 
 ## Next steps / Recommendations
 
+- Add API documentation (Swagger/OpenAPI) for ease of client integration.
+- Add unit tests and CI pipeline.
 - Harden error handling and unify `errorResponseHandler` behavior.
 - Add pagination to feed endpoints and index frequently queried fields (date, location, creator).
 
@@ -142,6 +153,7 @@ npm run dev
 ---
 
 If you'd like, I can expand this README with:
+
 - Auto-generated endpoint list
 - Example requests and responses for key endpoints
 - Postman collection export

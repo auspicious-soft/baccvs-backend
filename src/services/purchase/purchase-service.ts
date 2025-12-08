@@ -4,6 +4,7 @@ import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { eventModel } from "src/models/event/event-schema";
 import { purchaseModel } from "src/models/purchase/purchase-schema";
+import { resellModel } from "src/models/resell/resell-schema";
 import { ticketModel } from "src/models/ticket/ticket-schema";
 import { generateQRCode } from "src/utils/qr/generateQRCode";
 
@@ -84,19 +85,47 @@ export const getPurchaseTicketsService = async (req: Request, res: Response) => 
   if (!req.user) {
     return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
   }
+  const { type } = req.query;
+  if (!type || (type !== 'upcoming' && type !== 'past')) {
+    return errorResponseHandler("Invalid or missing 'type' query parameter. Must be 'upcoming' or 'past'.", httpStatusCode.BAD_REQUEST, res);
+  }
 
   const { id: userId } = req.user as JwtPayload;
 
     // Fetch all purchase records for the authenticated user
     const purchases = await purchaseModel
-      .find({ buyer: userId,status:{$nin:['refunded', 'disabled','pending']} })
+      .find({ buyer: userId, status: { $nin: ['refunded', 'disabled', 'pending'] } })
       .populate("ticket") 
       .populate("event") 
       .select("-__v") 
       .lean(); 
-
+      
     if (!purchases || purchases.length === 0) {
       return errorResponseHandler("No purchases found for this user", httpStatusCode.NOT_FOUND, res);
+    }
+
+    if (type === 'upcoming') {
+      const currentDate = new Date();
+      const filteredPurchases = purchases.filter(purchase => {
+        const eventDate = new Date((purchase.event as any).utcDateTime);
+        return eventDate >= currentDate;
+      });
+      return {
+        success: true,
+        message:"Upcoming purchase records retrieved successfully",
+        data: filteredPurchases,
+      };
+    }else if (type === 'past') {
+      const currentDate = new Date();
+      const filteredPurchases = purchases.filter(purchase => {
+        const eventDate = new Date((purchase.event as any).utcDateTime);
+        return eventDate < currentDate;
+      });
+      return {
+        success: true,
+        message:"Past purchase records retrieved successfully",
+        data: filteredPurchases,
+      };
     }
 
     return {
@@ -104,4 +133,31 @@ export const getPurchaseTicketsService = async (req: Request, res: Response) => 
       message:"Purchase records retrieved successfully",
       data: purchases,
     };
+}
+
+export const getPurchaseTicketByIdService = async(req:Request,res:Response) => {
+  const { purchaseId } = req.params
+  const { id:userId } = req.user as JwtPayload
+
+  const purchase = await purchaseModel.findById(purchaseId).populate(
+    "event","date title startTime venue aboutEvent location"
+  );
+  if(!purchase){
+    errorResponseHandler("Purchase not found",httpStatusCode.NOT_FOUND,res)
   }
+  if(purchase?.buyer.toString() !== userId){
+    errorResponseHandler("Unauthorized to get ticket stats",httpStatusCode.UNAUTHORIZED,res)
+  }
+  const resell = await resellModel.findOne({
+    originalPurchase:purchase?._id
+  });
+  return {
+    success:true,
+    message:"Data fetched succesfully",
+    data:{
+      purchase,
+      isOnResale:!!resell,
+      resell:resell?.quantity
+    }
+  }
+}

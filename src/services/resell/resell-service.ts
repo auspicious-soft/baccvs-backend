@@ -256,6 +256,17 @@ export const updateResellListingService = async (req: Request, res: Response) =>
         res
       );
     }
+    const alreadySold = await purchaseModel.findOne({
+      status: {$or : ['active', 'used']},
+      metaData: { resaleListingId: resellListing._id }
+    })
+    if (alreadySold) {
+      return errorResponseHandler(
+        "Cannot update listing after tickets have been sold",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
     
     // Verify ownership by checking if the original purchase belongs to the user
     const purchase = await purchaseModel.findById(resellListing.originalPurchase);
@@ -310,8 +321,8 @@ export const cancelResellListingService = async (req: Request, res: Response) =>
     
     // Verify ownership by checking if the original purchase belongs to the user
     const purchase = await mongoose.model('purchase').findById(resellListing.originalPurchase);
-    
-    if (!purchase || purchase.user.toString() !== userId) {
+
+    if (!purchase || purchase.buyer.toString() !== userId) {
       return errorResponseHandler(
         "You can only cancel your own resell listings",
         httpStatusCode.FORBIDDEN,
@@ -326,17 +337,17 @@ export const cancelResellListingService = async (req: Request, res: Response) =>
         res
       );
     }
-    
+
     // Update the listing status
-    resellListing.status = 'canceled';
+    resellListing.status = 'cancelled';
     resellListing.canceledDate = new Date();
     await resellListing.save();
     
     // Return the tickets to the original purchase
-    await mongoose.model('purchase').findByIdAndUpdate(
-      resellListing.originalPurchase,
-      { $inc: { remainingQuantity: resellListing.availableQuantity } }
-    );
+    // await mongoose.model('purchase').findByIdAndUpdate(
+    //   resellListing.originalPurchase,
+    //   { $inc: { remainingQuantity: resellListing.availableQuantity } }
+    // );
     
     return {
       success: true,
