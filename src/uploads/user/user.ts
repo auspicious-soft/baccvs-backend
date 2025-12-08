@@ -2893,7 +2893,7 @@ export const searchFeedService = async (req: any) => {
 
   const {
     searchText,
-    maxDistance = 50000,
+    // maxDistance = 50000000, 
     latitude,
     longitude,
     interests,
@@ -2902,7 +2902,7 @@ export const searchFeedService = async (req: any) => {
     atmosphereVibes,
     page = 1,
     limit = 20,
-    type, // user | event | null
+    type,
   } = req.body;
 
   if (!latitude || !longitude) {
@@ -2914,112 +2914,105 @@ export const searchFeedService = async (req: any) => {
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  // -------------------------------
-  // USER FILTERS
-  // -------------------------------
-  const userFilters: any = {
-    _id: { $ne: userId },
-    // location: {
-    //   $near: {
-    //     $geometry: {
-    //       type: "Point",
-    //       coordinates: [Number(longitude), Number(latitude)],
-    //     },
-    //     $maxDistance: Number(maxDistance),
-    //   },
-    // },
-  };
-
-  if (searchText) userFilters.userName = { $regex: searchText, $options: "i" };
-  if (interests) userFilters.interestCategories = { $in: interests.split(",") };
-  if (musicStyles) userFilters.musicStyles = { $in: musicStyles.split(",") };
-  if (atmosphereVibes)
-    userFilters.atmosphereVibes = { $in: atmosphereVibes.split(",") };
-
-  // -------------------------------
-  // EVENT FILTERS
-  // -------------------------------
-  const eventFilters: any = {
-    // location: {
-    //   $near: {
-    //     $geometry: {
-    //       type: "Point",
-    //       coordinates: [Number(longitude), Number(latitude)],
-    //     },
-    //     $maxDistance: Number(maxDistance),
-    //   },
-    // },
-    utcDateTime: { $gte: new Date() },
-  };
-
-  if (searchText) eventFilters.title = { $regex: searchText, $options: "i" };
-  if (eventTypes)
-    eventFilters["eventPreferences.eventType"] = {
-      $in: eventTypes.split(","),
-    };
-  if (musicStyles)
-    eventFilters["eventPreferences.musicType"] = {
-      $in: musicStyles.split(","),
-    };
-
-  // -------------------------------
-  // TYPE-BASED CONTROL LOGIC
-  // -------------------------------
-  const searchUsers = type === "people" || !type;
-  const searchEvents = type === "event" || !type;
-
   let users: any[] = [];
   let events: any[] = [];
 
-  if (searchUsers) {
-    users = await usersModel
-      .find(userFilters)
-      .select(
-        "userName photos location interestCategories musicStyles atmosphereVibes"
-      )
-      .skip(skip)
-      .limit(Number(limit));
+  // ---------------------
+  // GEO POINT
+  // ---------------------
+  const userLocation = {
+    type: "Point",
+    coordinates: [Number(longitude), Number(latitude)],
+  };
+
+  // ---------------------
+  // SEARCH USERS
+  // ---------------------
+  if (type === "people" || !type) {
+    const userFilters: any = {};
+
+    if (searchText) userFilters.userName = { $regex: searchText, $options: "i" };
+    if (interests) userFilters.interestCategories = { $in: interests.split(",") };
+    if (musicStyles) userFilters.musicStyles = { $in: musicStyles.split(",") };
+    if (atmosphereVibes) userFilters.atmosphereVibes = { $in: atmosphereVibes.split(",") };
+
+    users = await usersModel.aggregate([
+      {
+        $geoNear: {
+          near: userLocation,
+          distanceField: "distanceInMeters",
+          // maxDistance: Number(maxDistance),
+          spherical: true,
+          query: {
+            _id: { $ne: userId },
+            ...userFilters,
+          },
+        },
+      },
+      { $skip: skip },
+      { $limit: Number(limit) },
+      {
+        $project: {
+          userName: 1,
+          photos: 1,
+          interestCategories: 1,
+          musicStyles: 1,
+          atmosphereVibes: 1,
+          distanceKm: { $divide: ["$distanceInMeters", 1000] },
+        },
+      },
+    ]);
   }
 
-if (searchEvents) {
-    const rawEvents = await eventModel
-      .find(eventFilters)
-      .select(
-        "title media date startTime location eventPreferences capacity timezone creator utcDateTime"
-      )
-      .skip(skip)
-      .limit(Number(limit));
+  // ---------------------
+  // SEARCH EVENTS
+  // ---------------------
+  if (type === "event" || !type) {
+    const eventFilters: any = {
+      utcDateTime: { $gte: new Date() },
+    };
 
-    // Add distance
-    events = rawEvents.map((event) => {
-      let distanceKm = null;
+    if (searchText) eventFilters.title = { $regex: searchText, $options: "i" };
+    if (eventTypes)
+      eventFilters["eventPreferences.eventType"] = { $in: eventTypes.split(",") };
+    if (musicStyles)
+      eventFilters["eventPreferences.musicType"] = { $in: musicStyles.split(",") };
 
-      if (
-        (event.location as any)?.coordinates &&
-        (event.location as any).coordinates.length === 2
-      ) {
-        const [eventLon, eventLat] = (event.location as any).coordinates;
-        distanceKm = calculateDistanceInKm(
-          Number(latitude),
-          Number(longitude),
-          eventLat,
-          eventLon
-        );
-      }
-
-      return {
-        ...event.toObject(),
-        distanceKm: distanceKm ? Number(distanceKm.toFixed(2)) : null,
-      };
-    });
-  }
+    events = await eventModel.aggregate([
+      {
+        $geoNear: {
+          near: userLocation,
+          distanceField: "distanceInMeters",
+          // maxDistance: Number(maxDistance),
+          spherical: true,
+          query: eventFilters,
+        },
+      },
+      { $skip: skip },
+      { $limit: Number(limit) },
+      {
+        $project: {
+          title: 1,
+          media: 1,
+          date: 1,
+          startTime: 1,
+          location: 1,
+          eventPreferences: 1,
+          capacity: 1,
+          timezone: 1,
+          utcDateTime: 1,
+          distanceKm: { $divide: ["$distanceInMeters", 1000] },
+        },
+      },
+    ]);
+  };
 
   return {
     success: true,
     message: "Search feed retrieved successfully",
     data: {
-      users: searchUsers ? users : [],
-      events: searchEvents ? events : [],
+      users,
+      events,
     },
   };
 };
