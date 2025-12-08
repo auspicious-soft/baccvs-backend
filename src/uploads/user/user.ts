@@ -829,6 +829,9 @@ export const getUserInfoService = async (req: any, res: Response) => {
     relationship_status: FollowRelationshipStatus.FOLLOWING,
     is_approved: true,
   });
+  const conversationId = await Conversation.findOne({
+    participants: { $all: [currentUserId, targetUserId] },
+  }).select("_id");
 
   return {
     success: true,
@@ -840,6 +843,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
       eventCount,
       isFollowedByCurrentUser: !!isFollowedByCurrentUser,
       isFollowingCurrentUser: !!isFollowingCurrentUser,
+      conversationId: conversationId ? conversationId._id : null,
     },
   };
 };
