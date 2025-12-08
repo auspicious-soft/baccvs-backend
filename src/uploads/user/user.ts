@@ -60,6 +60,7 @@ import { Message } from "src/models/chat/message-schema";
 import { Conversation } from "src/models/chat/conversation-schema";
 import { CommunityConversation } from "src/models/chat/community-conversation-schema";
 import { Community } from "src/models/community/community-schema";
+import { calculateDistanceInKm } from "src/utils/distanceCalculator";
 configDotenv();
 
 const sanitizeUser = (user: any) => {
@@ -2893,6 +2894,8 @@ export const searchFeedService = async (req: any) => {
   const {
     searchText,
     maxDistance = 50000,
+    latitude,
+    longitude,
     interests,
     musicStyles,
     eventTypes,
@@ -2902,12 +2905,12 @@ export const searchFeedService = async (req: any) => {
     type, // user | event | null
   } = req.body;
 
-  // if (!latitude || !longitude) {
-  //   throw {
-  //     code: 400,
-  //     message: "Latitude & Longitude are required",
-  //   };
-  // }
+  if (!latitude || !longitude) {
+    throw {
+      code: 400,
+      message: "Latitude & Longitude are required",
+    };
+  }
 
   const skip = (Number(page) - 1) * Number(limit);
 
@@ -2978,14 +2981,37 @@ export const searchFeedService = async (req: any) => {
       .limit(Number(limit));
   }
 
-  if (searchEvents) {
-    events = await eventModel
+if (searchEvents) {
+    const rawEvents = await eventModel
       .find(eventFilters)
       .select(
         "title media date startTime location eventPreferences capacity timezone creator utcDateTime"
       )
       .skip(skip)
       .limit(Number(limit));
+
+    // Add distance
+    events = rawEvents.map((event) => {
+      let distanceKm = null;
+
+      if (
+        (event.location as any)?.coordinates &&
+        (event.location as any).coordinates.length === 2
+      ) {
+        const [eventLon, eventLat] = (event.location as any).coordinates;
+        distanceKm = calculateDistanceInKm(
+          Number(latitude),
+          Number(longitude),
+          eventLat,
+          eventLon
+        );
+      }
+
+      return {
+        ...event.toObject(),
+        distanceKm: distanceKm ? Number(distanceKm.toFixed(2)) : null,
+      };
+    });
   }
 
   return {
