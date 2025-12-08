@@ -37,6 +37,7 @@ import {
   getAllFollowersService,
   editMessageService,
   getUnchattedFollowingsService,
+  searchFeedService,
   
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
@@ -610,3 +611,17 @@ export const editMessage = async(req:Request,res:Response)=>{
     });
   }
 }
+export const searchFeedController = async (req: Request, res: Response) => {
+  try {
+    const response = await searchFeedService(req);
+
+    return res.status(httpStatusCode.OK).json(response);
+
+  } catch (error: any) {
+    const { code, message } = errorParser(error);
+    return res.status(code || 500).json({
+      success: false,
+      message: message || "Failed to fetch search feed",
+    });
+  }
+};

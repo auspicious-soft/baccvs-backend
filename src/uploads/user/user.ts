@@ -2877,3 +2877,113 @@ export const editMessageService = async (req: any, res: Response) => {
     data: message,
   };
 };
+export const searchFeedService = async (req: any) => {
+  const userId = req.user?.id;
+
+  const {
+    searchText,
+    maxDistance = 50000,
+    interests,
+    musicStyles,
+    eventTypes,
+    atmosphereVibes,
+    page = 1,
+    limit = 20,
+    type, // user | event | null
+  } = req.body;
+
+  // if (!latitude || !longitude) {
+  //   throw {
+  //     code: 400,
+  //     message: "Latitude & Longitude are required",
+  //   };
+  // }
+
+  const skip = (Number(page) - 1) * Number(limit);
+
+  // -------------------------------
+  // USER FILTERS
+  // -------------------------------
+  const userFilters: any = {
+    _id: { $ne: userId },
+    // location: {
+    //   $near: {
+    //     $geometry: {
+    //       type: "Point",
+    //       coordinates: [Number(longitude), Number(latitude)],
+    //     },
+    //     $maxDistance: Number(maxDistance),
+    //   },
+    // },
+  };
+
+  if (searchText) userFilters.userName = { $regex: searchText, $options: "i" };
+  if (interests) userFilters.interestCategories = { $in: interests.split(",") };
+  if (musicStyles) userFilters.musicStyles = { $in: musicStyles.split(",") };
+  if (atmosphereVibes)
+    userFilters.atmosphereVibes = { $in: atmosphereVibes.split(",") };
+
+  // -------------------------------
+  // EVENT FILTERS
+  // -------------------------------
+  const eventFilters: any = {
+    // location: {
+    //   $near: {
+    //     $geometry: {
+    //       type: "Point",
+    //       coordinates: [Number(longitude), Number(latitude)],
+    //     },
+    //     $maxDistance: Number(maxDistance),
+    //   },
+    // },
+    utcDateTime: { $gte: new Date() },
+  };
+
+  if (searchText) eventFilters.title = { $regex: searchText, $options: "i" };
+  if (eventTypes)
+    eventFilters["eventPreferences.eventType"] = {
+      $in: eventTypes.split(","),
+    };
+  if (musicStyles)
+    eventFilters["eventPreferences.musicType"] = {
+      $in: musicStyles.split(","),
+    };
+
+  // -------------------------------
+  // TYPE-BASED CONTROL LOGIC
+  // -------------------------------
+  const searchUsers = type === "user" || !type;
+  const searchEvents = type === "event" || !type;
+
+  let users: any[] = [];
+  let events: any[] = [];
+
+  if (searchUsers) {
+    users = await usersModel
+      .find(userFilters)
+      .select(
+        "userName photos location interestCategories musicStyles atmosphereVibes"
+      )
+      .skip(skip)
+      .limit(Number(limit));
+  }
+
+  if (searchEvents) {
+    events = await eventModel
+      .find(eventFilters)
+      .select(
+        "title media date startTime location eventPreferences capacity timezone creator utcDateTime"
+      )
+      .skip(skip)
+      .limit(Number(limit));
+  }
+
+  return {
+    success: true,
+    message: "Search feed retrieved successfully",
+    data: {
+      users: searchUsers ? users : [],
+      events: searchEvents ? events : [],
+    },
+  };
+};

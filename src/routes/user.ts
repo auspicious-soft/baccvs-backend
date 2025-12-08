@@ -26,6 +26,7 @@ import {
   getAllFollowingUsers,
   editMessage,
   getUnchattedFollowings,
+  searchFeedController,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -167,6 +168,9 @@ router.get("/get/all/followedUser", getAllFollowedUsers);
 router.get("/get/all/followers", getAllFollowingUsers);
 router.get("/get/follow/list", getFollowList);
 router.get("/get/all-data", getUserAllData);
+
+// Search User/Events api
+router.post("/search/feed",searchFeedController);
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
