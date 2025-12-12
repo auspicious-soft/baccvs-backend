@@ -17,6 +17,4 @@ export { router as feedbackRoutes } from './feedback-routes';
 export { router as subscription } from './subscription-routes';
 export { router as stripeProduct } from './stripe-product-routes';
 export { router as resell } from './resell-routes';
-
-
-
+export { router as admin } from './admin-routes';

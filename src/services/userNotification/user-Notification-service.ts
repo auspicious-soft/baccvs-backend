@@ -1,17 +1,23 @@
-import { Request, Response } from 'express';
-import { usersModel } from 'src/models/user/user-schema';
-import { Squad } from 'src/models/squad/squad-schema';
-import { httpStatusCode } from 'src/lib/constant';
-import { errorResponseHandler } from 'src/lib/errors/error-response-handler';
-import mongoose, { Types } from 'mongoose';
-import { Notification, NotificationType } from 'src/models/userNotification/user-Notification-schema';
-import Joi from 'joi';
-
+import { Request, Response } from "express";
+import { usersModel } from "src/models/user/user-schema";
+import { Squad } from "src/models/squad/squad-schema";
+import { httpStatusCode } from "src/lib/constant";
+import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import mongoose, { Types } from "mongoose";
+import {
+  Notification,
+  NotificationType,
+} from "src/models/userNotification/user-Notification-schema";
+import Joi from "joi";
 
 const notificationQuerySchema = Joi.object({
-  page: Joi.string().pattern(/^[0-9]+$/).default('1'),
-  limit: Joi.string().pattern(/^[0-9]+$/).default('10'),
-  typeFilter: Joi.string().valid('all', 'user', 'squad').default('all'),
+  page: Joi.string()
+    .pattern(/^[0-9]+$/)
+    .default("1"),
+  limit: Joi.string()
+    .pattern(/^[0-9]+$/)
+    .default("10"),
+  typeFilter: Joi.string().valid("all", "user", "squad").default("all"),
 });
 
 // Helper function to validate query parameters
@@ -34,13 +40,17 @@ export const createNotification = async (
       sender: new Types.ObjectId(senderId),
       type,
       message,
-      relatedUser: relatedUserId ? new Types.ObjectId(relatedUserId) : undefined,
-      relatedSquad: relatedSquadId ? new Types.ObjectId(relatedSquadId) : undefined,
+      relatedUser: relatedUserId
+        ? new Types.ObjectId(relatedUserId)
+        : undefined,
+      relatedSquad: relatedSquadId
+        ? new Types.ObjectId(relatedSquadId)
+        : undefined,
     });
     await notification.save();
     return notification;
   } catch (error) {
-    console.error('Error creating notification:', error);
+    console.error("Error creating notification:", error);
     throw error;
   }
 };
@@ -48,14 +58,20 @@ export const createNotification = async (
 // Get notifications for a user with pagination
 export const getUserNotificationsService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
   const { error, value } = validateQuery(req.query);
-  
+
   if (error) {
-    const errorMessage = error.details.map((detail) => detail.message).join(', ');
+    const errorMessage = error.details
+      .map((detail) => detail.message)
+      .join(", ");
     return errorResponseHandler(errorMessage, httpStatusCode.BAD_REQUEST, res);
   }
 
@@ -64,9 +80,12 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
 
   // Define notification type filter based on typeFilter
   let typeFilterArray: NotificationType[] | undefined;
-  if (typeFilter === 'user') {
-    typeFilterArray = [NotificationType.USER_LIKE, NotificationType.USER_DISLIKE];
-  } else if (typeFilter === 'squad') {
+  if (typeFilter === "user") {
+    typeFilterArray = [
+      NotificationType.USER_LIKE,
+      NotificationType.USER_DISLIKE,
+    ];
+  } else if (typeFilter === "squad") {
     typeFilterArray = [
       NotificationType.SQUAD_LIKE,
       NotificationType.SQUAD_MEMBER_ADDED,
@@ -87,9 +106,16 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
 
   try {
     const notifications = await Notification.find(query)
-      .populate('sender', 'userName photos')
-      .populate('relatedUser', 'userName photos')
-      .populate('relatedSquad', 'title')
+      .populate("sender", "userName photos")
+      .populate("relatedUser", "userName photos")
+      .populate({
+        path: "relatedSquad",
+        select: "title media members",
+        populate: {
+          path: "members.user",
+          select: "userName photos",
+        },
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -99,7 +125,7 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
 
     return {
       success: true,
-      message: 'Notifications retrieved successfully',
+      message: "Notifications retrieved successfully",
       data: notifications,
       pagination: {
         total,
@@ -110,46 +136,57 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
     };
   } catch (error) {
     return errorResponseHandler(
-      error instanceof Error ? error.message : 'Failed to retrieve notifications',
+      error instanceof Error
+        ? error.message
+        : "Failed to retrieve notifications",
       httpStatusCode.INTERNAL_SERVER_ERROR,
       res
     );
   }
 };
 // Mark a notification as read
-export const markNotificationAsReadService = async (req: any, res: Response) => {
+export const markNotificationAsReadService = async (
+  req: any,
+  res: Response
+) => {
   if (!req.user) {
-    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
   const { notificationId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(notificationId)) {
-    return errorResponseHandler('Invalid notification ID', httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid notification ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
-  
-    const notification = await Notification.findOne({
-      _id: notificationId,
-      recipient: userId,
-    });
+  const notification = await Notification.findOne({
+    _id: notificationId,
+    recipient: userId,
+  });
 
-    if (!notification) {
-      return errorResponseHandler(
-        'Notification not found or you are not the recipient',
-        httpStatusCode.NOT_FOUND,
-        res
-      );
-    }
+  if (!notification) {
+    return errorResponseHandler(
+      "Notification not found or you are not the recipient",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-    notification.isRead = true;
-    await notification.save();
+  notification.isRead = true;
+  await notification.save();
 
-    return {
-      success: true,
-      message: 'Notification marked as read',
-      data: notification,
-    };
- 
+  return {
+    success: true,
+    message: "Notification marked as read",
+    data: notification,
+  };
 };

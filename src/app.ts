@@ -4,7 +4,7 @@ import cors from "cors"
 import path from "path"
 import { fileURLToPath } from 'url'
 import connectDB from "./configF/db"
-import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, blockRoutes, feedbackRoutes, subscription, stripeProduct, resell } from "./routes"
+import { comment, event, follow, like, locationRoutes, post, purchase, referal, report, repost, story, user, chatRoutes, blockRoutes, feedbackRoutes, subscription, stripeProduct, resell, admin } from "./routes"
 import { Server } from "socket.io"
 import http from "http"
 import { setupSocketServer } from "./socket/socket-handler"
@@ -84,6 +84,7 @@ app.get("/", (_, res: any) => {
 });
 app.post("/api/user/reset/password", resetPasswordWithToken);
 app.use("/api/referal",referal);
+app.use("/api/admin",admin);
 app.post("/api/login", login);
 app.post("/api/signup", signup);
 app.post("/api/social/signup",socialSignUp);
@@ -93,7 +94,7 @@ app.use("/api/post",checkAuth,post);
 app.use("/api/comment",comment);
 app.use("/api/event",checkAuth,event);
 app.use("/api/like",like);
-app.use("/api/report",checkAuth,report)
+app.use("/api/report",checkAuth,report);
 app.use("/api/repost",checkAuth,repost);
 app.use('/api/location',checkAuth, locationRoutes);
 app.use("/api/story",checkAuth, story);

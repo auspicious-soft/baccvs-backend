@@ -1182,6 +1182,15 @@ export const editUserInfoService = async (req: any, res: Response) => {
 export const getDashboardStatsService = async (req: any, res: Response) => {
   try {
     const { id: userId } = req.user;
+    const { lat, long } = req.query;
+    if (!lat && long) {
+      return errorResponseHandler(
+        "Latitude and Longitude are required",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    const coordinates = [parseFloat(long), parseFloat(lat)];
 
     // Check if user has posted any content
     const hasUserPostedContent = await postModels.exists({ user: userId });
@@ -1213,6 +1222,27 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
       .select("following_id");
 
     const followingIds = following.map((f) => f.following_id);
+
+    // === NEW: Get all posts and events that user has liked ===
+    const userLikedPosts = await LikeModel.find({
+      user: userId,
+      targetType: "posts",
+    }).select("target");
+    const likedPostIds = userLikedPosts.map((like) => like.target.toString());
+
+    const userLikedEvents = await LikeModel.find({
+      user: userId,
+      targetType: "events",
+    }).select("target");
+    const likedEventIds = userLikedEvents.map((like) => like.target.toString());
+
+    const userLikedRepost = await LikeModel.find({
+      user: userId,
+      targetType: "reposts",
+    }).select("target");
+    const likedRepostIds = userLikedRepost.map((like) =>
+      like.target.toString()
+    );
 
     // ===== STORIES SECTION =====
     // Get current user's own stories
@@ -1274,6 +1304,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     const followingPosts = await postModels
       .find({
         user: { $in: followingIds },
+        _id: { $nin: likedPostIds },
       })
       .sort({ createdAt: -1 })
       .populate("user", "userName photos");
@@ -1287,6 +1318,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         .find({
           user: { $nin: [...followingIds, userId, ...allBlockedIds] }, // Exclude followed users, self, and blocked users
           visibility: PostVisibility.PUBLIC,
+          _id: { $nin: likedPostIds },
         })
         .sort({ createdAt: -1 })
         .limit(neededPublicPosts)
@@ -1303,6 +1335,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     // Get reposts from followed users, excluding blocked users
     const followingReposts = await RepostModel.find({
       user: { $in: followingIds },
+      _id: { $nin: likedRepostIds },
     })
       .sort({ createdAt: -1 })
       .populate("user", "userName photos")
@@ -1374,12 +1407,23 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
       target: { $in: repostIds },
     });
 
+    // Get reposts created by current user for posts
+    const userReposts = await RepostModel.find({
+      user: userId,
+      originalPost: { $in: [...postIds, ...originalPostIds] },
+    }).select("originalPost");
+
     // Create sets of IDs that the user has liked for quick lookup
     const userLikedPostIds = new Set(
       userPostLikes.map((like) => like.target.toString())
     );
     const userLikedRepostIds = new Set(
       userRepostLikes.map((like) => like.target.toString())
+    );
+
+    // Create set of post IDs that user has reposted
+    const userRepostedPostIds = new Set(
+      userReposts.map((repost) => repost.originalPost.toString())
     );
 
     // Get comments for posts
@@ -1522,6 +1566,9 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
       // Check if the current user has liked this post
       const isLikedByUser = userLikedPostIds.has(postId);
 
+      // Check if the current user has reposted this post
+      const isRepostedByUser = userRepostedPostIds.has(postId);
+
       return {
         _id: post._id,
         content: post.content,
@@ -1534,6 +1581,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         repostsCount: engagement.reposts,
         isFollowedUser: isFollowed,
         isLikedByUser: isLikedByUser,
+        isRepostedByUser: isRepostedByUser,
       };
     });
 
@@ -1598,10 +1646,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
           $geoNear: {
             near: {
               type: "Point",
-              coordinates: userLocation.location.coordinates as [
-                number,
-                number
-              ],
+              coordinates: coordinates as [number, number],
             },
             distanceField: "distance",
             maxDistance: 50000, // 50km in meters
@@ -1610,7 +1655,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
         },
         {
           $match: {
-            startDate: { $gte: new Date() },
+            utcDateTime: { $gte: new Date() },
             user: { $nin: allBlockedIds }, // Exclude blocked users' events
           },
         },
@@ -2325,10 +2370,10 @@ export const getUserPostsService = async (req: any, res: Response) => {
     .populate("user", "userName photos")
     .populate({
       path: "originalPost",
-       populate: {
-      path: "user",
-      select: "userName photos"
-    }
+      populate: {
+        path: "user",
+        select: "userName photos",
+      },
     });
   return {
     success: true,
@@ -2683,161 +2728,165 @@ export const getUnchattedFollowingsService = async (
 };
 
 export const getUserAllDataService = async (userId: any, res: Response) => {
-    // === Fetch user-created data ===
-    const [events, posts, reposts, likes] = await Promise.all([
-      eventModel.find({ creator: userId }).populate("creator", "userName photos"),
-      postModels.find({ user: userId }),
-      RepostModel.find({ user: userId }).populate({
+  // === Fetch user-created data ===
+  const [events, posts, reposts, likes] = await Promise.all([
+    eventModel.find({ creator: userId }).populate("creator", "userName photos"),
+    postModels.find({ user: userId }).populate("user", "userName photos"),
+    RepostModel.find({ user: userId })
+      .populate("user", "userName photos")
+      .populate({
         path: "originalPost",
         populate: { path: "user", select: "userName photos" },
       }), // user’s own reposts
-      LikeModel.find({ user: userId }),
-    ]);
+    LikeModel.find({ user: userId }),
+  ]);
 
-    const eventIds = events.map((e) => e._id);
-    const postIds = posts.map((p) => p._id);
-    const repostIds = reposts.map((r) => r._id);
+  const eventIds = events.map((e) => e._id);
+  const postIds = posts.map((p) => p._id);
+  const repostIds = reposts.map((r) => r._id);
 
-    // === Extract liked IDs ===
-    const likedEventIds = likes
-      .filter((l) => l.targetType === "event")
-      .map((l) => l.target);
-    const likedPostIds = likes
-      .filter((l) => l.targetType === "posts")
-      .map((l) => l.target);
-    const likedRepostIds = likes
-      .filter((l) => l.targetType === "reposts")
-      .map((l) => l.target);
+  // === Extract liked IDs ===
+  const likedEventIds = likes
+    .filter((l) => l.targetType === "event")
+    .map((l) => l.target);
+  const likedPostIds = likes
+    .filter((l) => l.targetType === "posts")
+    .map((l) => l.target);
+  const likedRepostIds = likes
+    .filter((l) => l.targetType === "reposts")
+    .map((l) => l.target);
 
-    // === Count Aggregations ===
-    const [likeCounts, commentCounts, repostCounts] = await Promise.all([
-      LikeModel.aggregate([
-        {
-          $match: {
-            target: {
-              $in: [
-                ...eventIds,
-                ...postIds,
-                ...repostIds,
-                ...likedEventIds,
-                ...likedPostIds,
-                ...likedRepostIds,
-              ],
-            },
-            targetType: { $in: ["event", "posts", "reposts"] },
-          },
-        },
-        { $group: { _id: "$target", count: { $sum: 1 } } },
-      ]),
-      Comment.aggregate([
-        {
-          $match: {
-            $or: [
-              { event: { $in: [...eventIds, ...likedEventIds] } },
-              { post: { $in: [...postIds, ...likedPostIds] } },
-              { repost: { $in: [...repostIds, ...likedRepostIds] } },
+  // === Count Aggregations ===
+  const [likeCounts, commentCounts, repostCounts] = await Promise.all([
+    LikeModel.aggregate([
+      {
+        $match: {
+          target: {
+            $in: [
+              ...eventIds,
+              ...postIds,
+              ...repostIds,
+              ...likedEventIds,
+              ...likedPostIds,
+              ...likedRepostIds,
             ],
-            isDeleted: false,
           },
+          targetType: { $in: ["event", "posts", "reposts"] },
         },
-        {
-          $group: {
-            _id: {
-              $ifNull: ["$event", { $ifNull: ["$post", "$repost"] }],
-            },
-            count: { $sum: 1 },
+      },
+      { $group: { _id: "$target", count: { $sum: 1 } } },
+    ]),
+    Comment.aggregate([
+      {
+        $match: {
+          $or: [
+            { event: { $in: [...eventIds, ...likedEventIds] } },
+            { post: { $in: [...postIds, ...likedPostIds] } },
+            { repost: { $in: [...repostIds, ...likedRepostIds] } },
+          ],
+          isDeleted: false,
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $ifNull: ["$event", { $ifNull: ["$post", "$repost"] }],
           },
+          count: { $sum: 1 },
         },
-      ]),
-      RepostModel.aggregate([
-        { $match: { post: { $in: [...postIds, ...likedPostIds] } } },
-        { $group: { _id: "$post", count: { $sum: 1 } } },
-      ]),
-    ]);
+      },
+    ]),
+    RepostModel.aggregate([
+      { $match: { post: { $in: [...postIds, ...likedPostIds] } } },
+      { $group: { _id: "$post", count: { $sum: 1 } } },
+    ]),
+  ]);
 
-    // === Helpers ===
-    const getCount = (arr: any[], id: any) =>
-      arr.find((x) => x._id?.toString() === id.toString())?.count || 0;
+  // === Helpers ===
+  const getCount = (arr: any[], id: any) =>
+    arr.find((x) => x._id?.toString() === id.toString())?.count || 0;
 
-    const userLikedTargets = new Set(
-      likes.map((l) => `${l.targetType}_${l.target.toString()}`)
-    );
+  const userLikedTargets = new Set(
+    likes.map((l) => `${l.targetType}_${l.target.toString()}`)
+  );
 
-    // === Enrich Events ===
-    const enrichedEvents = events.map((e) => ({
+  // === Enrich Events ===
+  const enrichedEvents = events.map((e) => ({
+    ...e.toObject(),
+    likeCount: getCount(likeCounts, e._id),
+    commentCount: getCount(commentCounts, e._id),
+    userHasLiked: userLikedTargets.has(`event_${e._id.toString()}`),
+  }));
+
+  // === Enrich Posts (user’s posts) ===
+  const enrichedPosts = posts.map((p) => ({
+    ...p.toObject(),
+    likeCount: getCount(likeCounts, p._id),
+    commentCount: getCount(commentCounts, p._id),
+    repostCount: getCount(repostCounts, p._id),
+    userHasLiked: userLikedTargets.has(`posts_${p._id.toString()}`),
+  }));
+
+  // === Enrich Reposts (user’s reposts) ===
+  const enrichedReposts = reposts.map((r) => ({
+    ...r.toObject(),
+    likeCount: getCount(likeCounts, r._id),
+    commentCount: getCount(commentCounts, r._id),
+    userHasLiked: userLikedTargets.has(`reposts_${r._id.toString()}`),
+  }));
+
+  // === Fetch liked items ===
+  const [likedEvents, likedPosts, likedReposts] = await Promise.all([
+    eventModel
+      .find({ _id: { $in: likedEventIds } })
+      .populate("creator", "userName photos"),
+    postModels.find({ _id: { $in: likedPostIds } }),
+    RepostModel.find({ _id: { $in: likedRepostIds } }).populate({
+      path: "originalPost",
+      populate: { path: "user", select: "userName photos" },
+    }),
+  ]);
+
+  // === Enrich liked data ===
+  const likedData = [
+    ...likedEvents.map((e) => ({
       ...e.toObject(),
+      type: "event",
       likeCount: getCount(likeCounts, e._id),
       commentCount: getCount(commentCounts, e._id),
-      userHasLiked: userLikedTargets.has(`event_${e._id.toString()}`),
-    }));
-
-    // === Enrich Posts (user’s posts) ===
-    const enrichedPosts = posts.map((p) => ({
+      userHasLiked: true,
+    })),
+    ...likedPosts.map((p) => ({
       ...p.toObject(),
+      type: "post",
       likeCount: getCount(likeCounts, p._id),
       commentCount: getCount(commentCounts, p._id),
       repostCount: getCount(repostCounts, p._id),
-      userHasLiked: userLikedTargets.has(`posts_${p._id.toString()}`),
-    }));
-
-    // === Enrich Reposts (user’s reposts) ===
-    const enrichedReposts = reposts.map((r) => ({
+      userHasLiked: true,
+    })),
+    ...likedReposts.map((r) => ({
       ...r.toObject(),
+      type: "repost",
       likeCount: getCount(likeCounts, r._id),
       commentCount: getCount(commentCounts, r._id),
-      userHasLiked: userLikedTargets.has(`reposts_${r._id.toString()}`),
-    }));
+      userHasLiked: true,
+    })),
+  ];
 
-    // === Fetch liked items ===
-    const [likedEvents, likedPosts, likedReposts] = await Promise.all([
-      eventModel.find({ _id: { $in: likedEventIds } }).populate("creator", "userName photos"),
-      postModels.find({ _id: { $in: likedPostIds } }),
-      RepostModel.find({ _id: { $in: likedRepostIds } }).populate({
-        path: "originalPost",
-        populate: { path: "user", select: "userName photos" },
-      }),
-    ]);
-
-    // === Enrich liked data ===
-    const likedData = [
-      ...likedEvents.map((e) => ({
-        ...e.toObject(),
-        type: "event",
-        likeCount: getCount(likeCounts, e._id),
-        commentCount: getCount(commentCounts, e._id),
-        userHasLiked: true,
-      })),
-      ...likedPosts.map((p) => ({
-        ...p.toObject(),
-        type: "post",
-        likeCount: getCount(likeCounts, p._id),
-        commentCount: getCount(commentCounts, p._id),
-        repostCount: getCount(repostCounts, p._id),
-        userHasLiked: true,
-      })),
-      ...likedReposts.map((r) => ({
-        ...r.toObject(),
-        type: "repost",
-        likeCount: getCount(likeCounts, r._id),
-        commentCount: getCount(commentCounts, r._id),
-        userHasLiked: true,
-      })),
-    ];
-
-    // === Final structured response ===
-    return {
-      success: true,
-      message: "User all data retrieved",
-      data: {
-        events: enrichedEvents,
-        posts: {
-          post: enrichedPosts,
-          repost: enrichedReposts,
-        },
-        likes: likedData,
+  // === Final structured response ===
+  return {
+    success: true,
+    message: "User all data retrieved",
+    data: {
+      events: enrichedEvents,
+      posts: {
+        post: enrichedPosts,
+        repost: enrichedReposts,
       },
-    };
-  }
+      likes: likedData,
+    },
+  };
+};
 export const editMessageService = async (req: any, res: Response) => {
   const userId = req.user.id;
   const { id } = req.params;
@@ -2893,7 +2942,7 @@ export const searchFeedService = async (req: any) => {
 
   const {
     searchText,
-    // maxDistance = 50000000, 
+    // maxDistance = 50000000,
     latitude,
     longitude,
     interests,
@@ -2931,10 +2980,13 @@ export const searchFeedService = async (req: any) => {
   if (type === "people" || !type) {
     const userFilters: any = {};
 
-    if (searchText) userFilters.userName = { $regex: searchText, $options: "i" };
-    if (interests) userFilters.interestCategories = { $in: interests.split(",") };
+    if (searchText)
+      userFilters.userName = { $regex: searchText, $options: "i" };
+    if (interests)
+      userFilters.interestCategories = { $in: interests.split(",") };
     if (musicStyles) userFilters.musicStyles = { $in: musicStyles.split(",") };
-    if (atmosphereVibes) userFilters.atmosphereVibes = { $in: atmosphereVibes.split(",") };
+    if (atmosphereVibes)
+      userFilters.atmosphereVibes = { $in: atmosphereVibes.split(",") };
 
     users = await usersModel.aggregate([
       {
@@ -2973,23 +3025,104 @@ export const searchFeedService = async (req: any) => {
     };
 
     if (searchText) eventFilters.title = { $regex: searchText, $options: "i" };
+
     if (eventTypes)
-      eventFilters["eventPreferences.eventType"] = { $in: eventTypes.split(",") };
+      eventFilters["eventPreferences.eventType"] = {
+        $in: eventTypes.split(","),
+      };
+
     if (musicStyles)
-      eventFilters["eventPreferences.musicType"] = { $in: musicStyles.split(",") };
+      eventFilters["eventPreferences.musicType"] = {
+        $in: musicStyles.split(","),
+      };
 
     events = await eventModel.aggregate([
       {
         $geoNear: {
           near: userLocation,
           distanceField: "distanceInMeters",
-          // maxDistance: Number(maxDistance),
           spherical: true,
           query: eventFilters,
         },
       },
+
+      // -------------------------------
+      // 1️⃣ GET TICKETS FOR THE EVENT
+      // -------------------------------
+      {
+        $lookup: {
+          from: "tickets",
+          localField: "_id",
+          foreignField: "event",
+          as: "tickets",
+        },
+      },
+
+      // -------------------------------
+      // 2️⃣ GET LIKE COUNT
+      // -------------------------------
+      {
+        $lookup: {
+          from: "likes",
+          let: { eventId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$target", "$$eventId"] },
+                    { $eq: ["$targetType", "event"] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "likes",
+        },
+      },
+      {
+        $addFields: {
+          likeCount: { $size: "$likes" },
+        },
+      },
+
+      // -------------------------------
+      // 3️⃣ GET COMMENT COUNT
+      // -------------------------------
+      {
+        $lookup: {
+          from: "comments",
+          let: { eventId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$event", "$$eventId"] },
+                    { $eq: ["$isDeleted", false] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "eventComments",
+        },
+      },
+      {
+        $addFields: {
+          commentCount: { $size: "$eventComments" },
+        },
+      },
+
+      // -------------------------------
+      // PAGINATION
+      // -------------------------------
       { $skip: skip },
       { $limit: Number(limit) },
+
+      // -------------------------------
+      // FINAL PROJECTION
+      // -------------------------------
       {
         $project: {
           title: 1,
@@ -3001,11 +3134,18 @@ export const searchFeedService = async (req: any) => {
           capacity: 1,
           timezone: 1,
           utcDateTime: 1,
+
+          // distance in km
           distanceKm: { $divide: ["$distanceInMeters", 1000] },
+
+          // new fields
+          tickets: 1,
+          likeCount: 1,
+          commentCount: 1,
         },
       },
     ]);
-  };
+  }
 
   return {
     success: true,

@@ -1,14 +1,13 @@
-// import { adminModel } from "../../models/admin/admin-schema";
-// import bcrypt from "bcryptjs";
-// import { Response } from "express";
-// import { errorResponseHandler } from "../../lib/errors/error-response-handler";
-// import { httpStatusCode } from "../../lib/constant";
-// import { queryBuilder } from "../../utils";
-// import { sendPasswordResetEmail } from "src/utils/mails/mail";
-// import { generatePasswordResetToken, getPasswordResetTokenByToken, generatePasswordResetTokenByPhone } from "src/utils/mails/token";
-// import { generatePasswordResetTokenByPhoneWithTwilio } from "../../utils/sms/sms"
-// import { passwordResetTokenModel } from "src/models/password-token-schema";
-// import { usersModel } from "src/models/user/user-schema";
+import { Response } from "express";
+import { httpStatusCode } from "src/lib/constant";
+import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
+import Stripe from "stripe";
+
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2023-10-16",
+});
 
 // export const loginService = async (payload: any, res: Response) => {
 //     const { username, password } = payload;
@@ -119,105 +118,115 @@
 // }
 
 
-// export const getAllUsersService = async (payload: any) => {
-//     const page = parseInt(payload.page as string) || 1
-//     const limit = parseInt(payload.limit as string) || 0
-//     const offset = (page - 1) * limit
-//     const { query, sort } = queryBuilder(payload, ['fullName'])
-//     const totalDataCount = Object.keys(query).length < 1 ? await usersModel.countDocuments() : await usersModel.countDocuments(query)
-//     const results = await usersModel.find(query).sort(sort).skip(offset).limit(limit).select("-__v")
-//     if (results.length) return {
-//         page,
-//         limit,
-//         success: true,
-//         total: totalDataCount,
-//         data: results
-//     }
-//     else {
-//         return {
-//             data: [],
-//             page,
-//             limit,
-//             success: false,
-//             total: 0
-//         }
-//     }
-// }
 
-// export const getAUserService = async (id: string, res: Response) => {
-// //   const user = await usersModel.findById(id);
-// //   if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+export const createLikeProductService = async (req: any, res: Response) => {
+  const { title, credits, price, interval } = req.body;
 
-// //   const userProjects = await projectsModel.find({ userId: id }).select("-__v");
+  // Validation
+  if (!title || !credits || !price) {
+    return errorResponseHandler(
+      "title, credits & price are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-// //   return {
-// //       success: true,
-// //       message: "User retrieved successfully",
-// //       data: {
-// //           user,
-// //           projects: userProjects.length > 0 ? userProjects : [],
-// //       }
-// //   };
-// }
+  // Create Stripe product
+  const stripeProduct = await stripe.products.create({
+    name: title,
+    metadata: {
+      type: "likes",
+      credits: credits.toString(),
+    },
+  });
 
+  const stripePrice = await stripe.prices.create({
+    product: stripeProduct.id,
+    unit_amount: price * 100, // convert $ -> cents
+    currency: "usd",
+    recurring: { interval: interval || "month" },
+    metadata: {
+      type: "likes",
+      credits: credits.toString(),
+    },
+  });
 
-// export const updateAUserService = async (id: string, payload: any, res: Response) => {
-//     const user = await usersModel.findById(id);
-//     if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
-//     const countryCode = "+45";
-//     payload.phoneNumber = `${countryCode}${payload.phoneNumber}`;
-//     const updateduser = await usersModel.findByIdAndUpdate(id,{ ...payload },{ new: true});
+  // Save to MongoDB
+  const product = await LikeProductsModel.create({
+    title,
+    credits,
+    price,
+    interval: interval || "month",
+    stripeProductId: stripeProduct.id,
+    stripePriceId: stripePrice.id,
+  });
 
-//     return {
-//         success: true,
-//         message: "User updated successfully",
-//         data: updateduser,
-//     };
+  return {
+    success: true,
+    message: "Like product created successfully",
+    data: product,
+  };
+};
+export const updateLikeProductService = async (req: any, res: Response) => {
+  const { productId } = req.params;
+  const { title, credits, price, interval } = req.body;
 
-// };
+  const product = await LikeProductsModel.findById(productId);
+  if (!product) {
+    return errorResponseHandler(
+      "Product not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
+  // Update Stripe product
+  if (title) {
+    await stripe.products.update(product.stripeProductId!, {
+      name: title,
+    });
+  }
 
-// export const deleteAUserService = async (id: string, res: Response) => {
-//     // const user = await usersModel.findById(id);
-//     // if (!user) return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+  // Create new Stripe price if price/credits changed
+  let newStripePrice;
+  if (price || credits || interval) {
+    newStripePrice = await stripe.prices.create({
+      product: product.stripeProductId!,
+      unit_amount: (price || product.price) * 100,
+      currency: "usd",
+      recurring: { interval: interval || product.interval },
+      metadata: {
+        type: "likes",
+        credits: (credits || product.credits).toString(),
+      },
+    });
+  }
 
-//     // // Delete user projects ----
-//     // const userProjects = await projectsModel.deleteMany({ userId: id })
+  // Update MongoDB record
+  const updated = await LikeProductsModel.findByIdAndUpdate(
+    productId,
+    {
+      title: title ?? product.title,
+      credits: credits ?? product.credits,
+      price: price ?? product.price,
+      interval: interval ?? product.interval,
+      stripePriceId: newStripePrice?.id || product.stripePriceId,
+    },
+    { new: true }
+  );
 
-//     // // Delete user ----
-//     // await usersModel.findByIdAndDelete(id)
+  return {
+    success: true,
+    message: "Like product updated successfully",
+    data: updated,
+  };
+};
+export const getLikeProductsService = async (req: any, res: Response) => {
+  const products = await LikeProductsModel.find().sort({ price: 1 });
 
-//     // return {
-//     //     success: true,
-//     //     message: "User deleted successfully",
-//     //     data: {
-//     //         user,
-//     //         projects: userProjects
-//     //     }
-//     // }
-// }
-
-
-// // Dashboard
-// export const getDashboardStatsService = async (payload: any, res: Response) => {
-   
-//     // const ongoingProjectCount = await projectsModel.countDocuments({status: { $ne: "1" } })
-//     // const completedProjectCount = await projectsModel.countDocuments({status: "1" })
-//     // const workingProjectDetails = await projectsModel.find({status: { $ne: "1" } }).select("projectName projectimageLink projectstartDate projectendDate status"); // Adjust the fields as needed
-
-//     // const sevenDaysAgo = new Date(new Date().setDate(new Date().getDate() - 7)) 
-//     // const recentProjectDetails = await projectsModel.find({createdAt: { $gte: sevenDaysAgo } }).select("projectName projectimageLink projectstartDate projectendDate"); // Adjust the fields as needed
- 
-//     // const response = {
-//     //     success: true,
-//     //     message: "Dashboard stats fetched successfully",
-//     //     data: {
-//     //       ongoingProjectCount,
-//     //       completedProjectCount,
-//     //       workingProjectDetails,
-//     //       recentProjectDetails,
-//     //     }
-//     // }
-
-//     // return response
-// }
+  return {
+    success: true,
+    message: "Like products fetched successfully",
+    data: products,
+  };
+};
