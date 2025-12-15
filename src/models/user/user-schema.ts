@@ -9,7 +9,7 @@ export enum InterestCategory {
   EVENT_HANGOUTS = "Event Hangouts",
   SPORTS_NIGHTS = "Sports Nights",
   MOVIE_TV_SHOWS = "Movie & TV Shows",
-  FISHING = "Fishing"
+  FLIRTING = "Flirting"
 }
 
 export enum MusicStyle {
