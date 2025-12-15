@@ -24,6 +24,7 @@ import {
 import { generatePasswordResetTokenByPhoneWithTwilio } from "../../utils/sms/sms";
 import {
   FollowRelationshipStatus,
+  Gender,
   httpStatusCode,
   PostVisibility,
 } from "../../lib/constant";
@@ -981,15 +982,19 @@ export const editUserInfoService = async (req: any, res: Response) => {
         // Create an object with only the allowed fields
         const allowedFields = [
           "userName",
+          "gender",
           "about",
           "drinking",
           "smoke",
           "marijuana",
           "drugs",
+          "work",
+          "language",
           "interestCategories",
           "musicStyles",
           "atmosphereVibes",
           "eventTypes",
+          "zodiacSign",
           "height",
           "location",
         ];
@@ -1016,55 +1021,58 @@ export const editUserInfoService = async (req: any, res: Response) => {
 
         // Validate enum fields
         if (
+          updateData.gender &&
+          !Object.values(Gender).includes(updateData.gender)
+        ) {
+          return reject({
+            success: false,
+            message: "Invalid gender value",
+            code: httpStatusCode.BAD_REQUEST,
+          });
+        }
+
+        if (
           updateData.drinking &&
           !["Yes", "No", "prefer not to say"].includes(updateData.drinking)
         ) {
-          return reject(
-            errorResponseHandler(
-              "Invalid drinking value",
-              httpStatusCode.BAD_REQUEST,
-              res
-            )
-          );
+          return reject({
+            success: false,
+            message: "Invalid drinking value",
+            code: httpStatusCode.BAD_REQUEST,
+          });
         }
 
         if (
           updateData.smoke &&
           !["Yes", "No", "prefer not to say"].includes(updateData.smoke)
         ) {
-          return reject(
-            errorResponseHandler(
-              "Invalid smoke value",
-              httpStatusCode.BAD_REQUEST,
-              res
-            )
-          );
+          return reject({
+            success: false,
+            message: "Invalid smoke value",
+            code: httpStatusCode.BAD_REQUEST,
+          });
         }
 
         if (
           updateData.marijuana &&
           !["Yes", "No", "prefer not to say"].includes(updateData.marijuana)
         ) {
-          return reject(
-            errorResponseHandler(
-              "Invalid marijuana value",
-              httpStatusCode.BAD_REQUEST,
-              res
-            )
-          );
+          return reject({
+            success: false,
+            message: "Invalid marijuana value",
+            code: httpStatusCode.BAD_REQUEST,
+          });
         }
 
         if (
           updateData.drugs &&
           !["Yes", "No", "prefer not to say"].includes(updateData.drugs)
         ) {
-          return reject(
-            errorResponseHandler(
-              "Invalid drugs value",
-              httpStatusCode.BAD_REQUEST,
-              res
-            )
-          );
+          return reject({
+            success: false,
+            message: "Invalid drugs value",
+            code: httpStatusCode.BAD_REQUEST,
+          });
         }
 
         // Validate interestCategories
@@ -1074,13 +1082,11 @@ export const editUserInfoService = async (req: any, res: Response) => {
         ) {
           for (const category of updateData.interestCategories) {
             if (!Object.values(InterestCategory).includes(category)) {
-              return reject(
-                errorResponseHandler(
-                  `Invalid interest category: ${category}`,
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                )
-              );
+              return reject({
+                success: false,
+                message: `Invalid interest category: ${category}`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
             }
           }
         }
@@ -1089,13 +1095,11 @@ export const editUserInfoService = async (req: any, res: Response) => {
         if (updateData.musicStyles && Array.isArray(updateData.musicStyles)) {
           for (const style of updateData.musicStyles) {
             if (!Object.values(MusicStyle).includes(style)) {
-              return reject(
-                errorResponseHandler(
-                  `Invalid music style: ${style}`,
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                )
-              );
+              return reject({
+                success: false,
+                message: `Invalid music style: ${style}`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
             }
           }
         }
@@ -1107,13 +1111,11 @@ export const editUserInfoService = async (req: any, res: Response) => {
         ) {
           for (const vibe of updateData.atmosphereVibes) {
             if (!Object.values(AtmosphereVibe).includes(vibe)) {
-              return reject(
-                errorResponseHandler(
-                  `Invalid atmosphere vibe: ${vibe}`,
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                )
-              );
+              return reject({
+                success: false,
+                message: `Invalid atmosphere vibe: ${vibe}`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
             }
           }
         }
@@ -1122,13 +1124,11 @@ export const editUserInfoService = async (req: any, res: Response) => {
         if (updateData.eventTypes && Array.isArray(updateData.eventTypes)) {
           for (const type of updateData.eventTypes) {
             if (!Object.values(EventType).includes(type)) {
-              return reject(
-                errorResponseHandler(
-                  `Invalid event type: ${type}`,
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                )
-              );
+              return reject({
+                success: false,
+                message: `Invalid event type: ${type}`,
+                code: httpStatusCode.BAD_REQUEST,
+              });
             }
           }
         }
@@ -1136,11 +1136,11 @@ export const editUserInfoService = async (req: any, res: Response) => {
         // Handle location update if provided
         if (formData.location) {
           if (!updateData.location) {
-            updateData.location = {
-              type: "Point",
-              coordinates: [0, 0],
-              address: "",
-            };
+            // updateData.location = {
+            //   type: "Point",
+            //   coordinates: [0, 0],
+            //   address: "",
+            // };
           }
 
           if (formData.location.coordinates) {
@@ -1149,6 +1149,59 @@ export const editUserInfoService = async (req: any, res: Response) => {
 
           if (formData.location.address) {
             updateData.location.address = formData.location.address;
+          }
+        }
+
+        // Validate username if provided
+        if (updateData.userName) {
+          const existingUserName = await usersModel.findOne({
+            userName: updateData.userName,
+            _id: { $ne: userId }, // Exclude current user
+          });
+          if (existingUserName) {
+            return reject({
+              success: false,
+              message: "Username already taken",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+        }
+
+        // Validate height if provided
+        if (updateData.height) {
+          const heightNum = parseFloat(updateData.height);
+          if (isNaN(heightNum) || heightNum <= 0 || heightNum > 300) {
+            return reject({
+              success: false,
+              message: "Height must be a valid number between 0 and 300 cm",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
+          updateData.height = heightNum;
+        }
+
+        // Validate language if provided
+        if (updateData.language) {
+          const validLanguages = [
+            "English",
+            "French",
+            "German",
+            "Spanish",
+            "Italian",
+            "Portuguese",
+            "Dutch",
+            "Danish",
+            "Swedish",
+            "Norwegian",
+          ];
+          if (!validLanguages.includes(updateData.language)) {
+            return reject({
+              success: false,
+              message: `Invalid language. Supported languages: ${validLanguages.join(
+                ", "
+              )}`,
+              code: httpStatusCode.BAD_REQUEST,
+            });
           }
         }
 
@@ -3153,6 +3206,50 @@ export const searchFeedService = async (req: any) => {
     data: {
       users,
       events,
+    },
+  };
+};
+
+export const deleteUserService = async (req: any, res: Response) => {
+  const { id: userId } = req.user;
+
+  // Validate user exists
+  const user = await usersModel.findById(userId);
+  if (!user) {
+    return errorResponseHandler(
+      "User not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Check if user is already deleted
+  if (user.status === "deleted") {
+    return errorResponseHandler(
+      "User account is already deleted",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Update user status to "deleted" (soft delete)
+  const deletedUser = await usersModel
+    .findByIdAndUpdate(
+      userId,
+      {
+        status: "deleted",
+      },
+      { new: true }
+    )
+    .select("-password -token");
+
+  return {
+    success: true,
+    message: "User account deleted successfully",
+    data: {
+      userId: deletedUser?._id,
+      status: deletedUser?.status,
+      deletedAt: new Date(),
     },
   };
 };

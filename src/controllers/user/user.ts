@@ -38,7 +38,7 @@ import {
   editMessageService,
   getUnchattedFollowingsService,
   searchFeedService,
-  
+  deleteUserService,
 } from "../../uploads/user/user";
 import { validateReferralCodeService } from "../referal/referal";
 import {
@@ -622,6 +622,32 @@ export const searchFeedController = async (req: Request, res: Response) => {
     return res.status(code || 500).json({
       success: false,
       message: message || "Failed to fetch search feed",
+    });
+  }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+  try {
+    const response = await deleteUserService(req, res);
+    
+    // Check if response was already sent
+    if (res.headersSent) {
+      console.error("Response already sent, cannot send delete response");
+      return;
+    }
+    
+    return res.status(response.code || httpStatusCode.OK).json(response);
+  } catch (error: any) {
+    // Check if response was already sent
+    if (res.headersSent) {
+      console.error("Response already sent, cannot send error response:", error);
+      return;
+    }
+    
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "Failed to delete user account",
     });
   }
 };

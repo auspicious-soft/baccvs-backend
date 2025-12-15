@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { checkAuth } from "../middleware/check-auth";
 import {
   getDashboardStats,
   getUserInfo,
@@ -27,6 +28,7 @@ import {
   editMessage,
   getUnchattedFollowings,
   searchFeedController,
+  deleteUser,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -289,6 +291,9 @@ router.post(
 );
 
 router.post("/message/edit/:id", editMessage);
+
+// Delete User Account Route (Soft Delete)
+router.delete("/delete", checkAuth, deleteUser);
 
 // Transfer Ticket Route
 router.post("/transfer/ticket", transferTicketController);

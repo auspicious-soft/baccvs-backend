@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f5f5f5;
+        padding: 20px;
+      }
+      .container {
+        max-width: 800px;
+        margin: auto;
+        background: #ffffff;
+        padding: 25px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+      }
+      p,
+      li {
+        color: #555;
+        line-height: 1.6;
+      }
+      ul {
+        padding-left: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Privacy Policy</h1>
+      <p>Last updated: December 2025</p>
+
+      <h2>About BACCVS</h2>
+      <p>
+        <strong>BACCVS</strong> is a comprehensive social entertainment platform
+        that combines event discovery, ticket purchasing, and social networking.
+        Our platform enables users to:
+      </p>
+      <ul>
+        <li>
+          <strong>Discover Events:</strong> Browse nearby events with
+          location-based filtering, date ranges, pricing, and music preferences
+        </li>
+        <li>
+          <strong>Purchase Tickets:</strong> Buy tickets for events including
+          bulk purchases with secure Stripe payment integration
+        </li>
+        <li>
+          <strong>Resell Tickets:</strong> List and purchase resale tickets from
+          other users through our marketplace
+        </li>
+        <li>
+          <strong>Connect Socially:</strong> Create posts, share stories, follow
+          other users, like content, and engage with a community
+        </li>
+        <li>
+          <strong>Real-time Chat:</strong> Message other users through our
+          WebSocket-enabled chat system
+        </li>
+        <li>
+          <strong>Professional Network:</strong> Create DJ, Promoter, and
+          Nightclub profiles with service packages and ratings
+        </li>
+        <li>
+          <strong>Manage Subscriptions:</strong> Access premium features through
+          our subscription tiers (Free, Intro, Pro)
+        </li>
+        <li>
+          <strong>User Matching:</strong> Match with other users based on
+          interests and preferences
+        </li>
+      </ul>
+
+      <h2>What Information We Collect</h2>
+      <ul>
+        <li>
+          <strong>Account Information:</strong> Name, email address, phone
+          number, date of birth, gender, profile photos
+        </li>
+        <li>
+          <strong>Location Data:</strong> GPS coordinates for location-based
+          event discovery and user proximity features
+        </li>
+        <li>
+          <strong>Profile Content:</strong> Bio, interests, music preferences,
+          atmospheric vibes, event types, photos, videos
+        </li>
+        <li>
+          <strong>Social Data:</strong> Posts, stories, comments, likes,
+          reposts, follows, blocks, user matches
+        </li>
+        <li>
+          <strong>Chat Data:</strong> Messages, conversation history, file
+          attachments shared through chat
+        </li>
+        <li>
+          <strong>Transaction Data:</strong> Event purchases, ticket details,
+          resale listings, amounts, payment status
+        </li>
+        <li>
+          <strong>Professional Data:</strong> Service packages, pricing,
+          ratings, verification status, portfolio items
+        </li>
+        <li>
+          <strong>Authentication Data:</strong> JWT tokens, login history, OAuth
+          provider accounts (Google, Apple, Facebook, Twitter)
+        </li>
+        <li>
+          <strong>Payment Data:</strong> Stripe customer IDs (we do NOT store
+          credit card information)
+        </li>
+        <li>
+          <strong>Device & Usage Data:</strong> Device information, IP
+          addresses, browser information, push notification tokens
+        </li>
+        <li>
+          <strong>Preference Data:</strong> Notification settings, privacy
+          settings, account type (public/private/matches-only)
+        </li>
+      </ul>
+
+      <h2>How We Use Your Information</h2>
+      <ul>
+        <li>
+          <strong>Account Management:</strong> Create and maintain your account,
+          authenticate users, manage passwords
+        </li>
+        <li>
+          <strong>Event Services:</strong> Display nearby events, process ticket
+          purchases and resales, manage inventory
+        </li>
+        <li>
+          <strong>Social Features:</strong> Display your posts, stories,
+          connections, and enable social interactions
+        </li>
+        <li>
+          <strong>Messaging:</strong> Deliver real-time chat messages and
+          notifications
+        </li>
+        <li>
+          <strong>Payment Processing:</strong> Process payments through Stripe
+          for ticket purchases and subscriptions
+        </li>
+        <li>
+          <strong>Subscriptions:</strong> Manage subscription plans, track
+          credits, handle renewals
+        </li>
+        <li>
+          <strong>Matching System:</strong> Connect users based on preferences
+          and interests
+        </li>
+        <li>
+          <strong>Notifications:</strong> Send push notifications, email
+          updates, and in-app alerts
+        </li>
+        <li>
+          <strong>Safety & Moderation:</strong> Prevent fraud, enforce community
+          guidelines, process reports and blocks
+        </li>
+        <li>
+          <strong>Analytics & Improvement:</strong> Analyze usage patterns to
+          improve our services
+        </li>
+      </ul>
+
+      <h2>Data Storage & Security</h2>
+      <ul>
+        <li>
+          <strong>Database:</strong> User data stored securely in MongoDB with
+          encrypted authentication
+        </li>
+        <li>
+          <strong>Media Storage:</strong> Photos and videos uploaded to AWS S3
+          with secure access controls
+        </li>
+        <li>
+          <strong>Payment Security:</strong> Payment processing handled
+          exclusively by Stripe - we never store card details
+        </li>
+        <li>
+          <strong>Encryption:</strong> Passwords hashed with bcryptjs, JWT
+          tokens for secure authentication
+        </li>
+        <li>
+          <strong>Access Control:</strong> Role-based access, authentication
+          middleware on protected routes
+        </li>
+      </ul>
+
+      <h2>Third-Party Services</h2>
+      <p>We share data with the following third parties only as needed:</p>
+      <ul>
+        <li>
+          <strong>Stripe:</strong> Payment processing for ticket purchases and
+          subscriptions
+        </li>
+        <li>
+          <strong>AWS S3:</strong> Media file storage (photos, videos, stories)
+        </li>
+        <li>
+          <strong>OAuth Providers:</strong> Google, Apple, Facebook, Twitter for
+          authentication
+        </li>
+        <li>
+          <strong>Email/SMS Services:</strong> Email verification, password
+          reset, and SMS notifications
+        </li>
+      </ul>
+
+      <h2>Your Privacy Rights</h2>
+      <p>You have the right to:</p>
+      <ul>
+        <li>Access your personal data at any time</li>
+        <li>Update or correct your information</li>
+        <li>Delete your account and associated data</li>
+        <li>Control your privacy settings (public, private, matches-only)</li>
+        <li>Manage notification preferences</li>
+        <li>Block or unblock other users</li>
+        <li>Opt out of promotional communications</li>
+      </ul>
+
+      <h2>Data Retention</h2>
+      <p>
+        We retain your data as long as your account is active. Upon account
+        deletion, we will remove your personal data within 30 days, except where
+        required by law or for legitimate business purposes (transaction
+        records, fraud prevention).
+      </p>
+
+      <h2>Children's Privacy</h2>
+      <p>
+        BACCVS is not intended for children under 18 years of age. We do not
+        knowingly collect information from children. If we discover such
+        collection, we will delete the data immediately.
+      </p>
+
+      <h2>Changes to This Policy</h2>
+      <p>
+        We may update this Privacy Policy periodically. We will notify you of
+        significant changes via email or through the app. Your continued use of
+        BACCVS constitutes acceptance of updated policies.
+      </p>
+
+      <h2>Contact Us</h2>
+      <p>
+        If you have questions or concerns about this Privacy Policy or our data
+        practices:
+        <br />
+        <strong>Email:</strong> support@baccvs.com
+        <br />
+        <strong>Response Time:</strong> We aim to respond within 7 business days
+      </p>
+    </div>
+  </body>
+</html>

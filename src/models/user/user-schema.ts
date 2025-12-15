@@ -245,7 +245,12 @@ const UserSchema  = new mongoose.Schema( {
     totalBoosts:{
       type: Number,
       default: 0
-    },    
+    },
+    status:{
+      type: String,
+      enum: ["active", "deleted"],
+      default: "active"
+    },
   },
   {
     timestamps: true
