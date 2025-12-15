@@ -22,7 +22,8 @@ export enum MusicStyle {
   INDIE = "Indie",
   DEEP_HOUSE = "Deep House",
   POP = "Pop",
-  REGGAETON_HOUSE = "Reggaeton House",
+  AFRO_HOUSE = "Afro-House",
+  PROGRESSIVE_HOUSE = "Progressive House",
   MELODIC_HOUSE = "Melodic House",
   MELODIC_TECH = "Melodic Tech"
 }
@@ -32,7 +33,7 @@ export enum AtmosphereVibe {
   CHILL_RELAXED = "Chill & Relaxed",
   ENERGETIC_FESTIVE = "Energetic & Festive",
   UNDERGROUND = "Underground",
-  ROMANTIC = "Romantic",
+  ELEGANT_SELECTIVE = "Elegant & Selective",
   SURPRISE_MYSTERY = "Surprise & Mystery",
   EXTRAVAGANT_COSTUME = "Extravagant & Costume Party"
 }
