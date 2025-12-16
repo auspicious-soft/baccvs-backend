@@ -149,10 +149,17 @@ export const userLikeService = async (req: any, res: Response) => {
           { new: true }
         );
 
+        let notificationType = NotificationType.USER_LIKE;
+        if (finalSubType === "superlike") {
+          notificationType = NotificationType.USER_SUPERLIKE;
+        } else if (finalSubType === "boost") {
+          notificationType = NotificationType.USER_BOOST;
+        }
+
         await createNotification(
           toUserId,
           fromUserId,
-          NotificationType.USER_LIKE,
+          notificationType,
           finalSubType
             ? `${user?.userName} ${finalSubType}d you!`
             : `${user?.userName} liked you!`,
@@ -188,16 +195,23 @@ export const userLikeService = async (req: any, res: Response) => {
         type: "like",
         subType: finalSubType,
       });
-     const saved = await newLike.save();
-      
+      const saved = await newLike.save();
+
       const populatedLike = await saved.populate("toUser", "userName photos");
 
       const isMatch = await checkAndUpdateMatchStatus(fromUserId, toUserId);
 
+      let notificationType = NotificationType.USER_LIKE;
+      if (finalSubType === "superlike") {
+        notificationType = NotificationType.USER_SUPERLIKE;
+      } else if (finalSubType === "boost") {
+        notificationType = NotificationType.USER_BOOST;
+      }
+
       await createNotification(
         toUserId,
         fromUserId,
-        NotificationType.USER_LIKE,
+        notificationType,
         finalSubType
           ? `${user.userName} ${finalSubType}d you!`
           : `${user.userName} liked you!`,
@@ -617,15 +631,24 @@ export const getUserFeedService = async (req: Request, res: Response) => {
   // 3️⃣ Filter users who liked me but I haven’t liked back
   const pendingLikesIds = likedMeIds.filter((id) => !likedByMeIds.includes(id));
 
-  // 4️⃣ Fetch their profiles
+  // 4️⃣ Fetch their profiles with like type information
   let pendingLikeUsers: any[] = [];
 
   if (pendingLikesIds.length > 0) {
-    pendingLikeUsers = await usersModel
-      .find({
-        _id: { $in: pendingLikesIds },
-      })
-      .select("-password");
+    // Get the UserMatch records with type/subType info
+    const pendingLikeMatches = await UserMatch.find({
+      fromUser: { $in: pendingLikesIds },
+      toUser: userId,
+      type: "like",
+    })
+      .populate("fromUser", "-password")
+      .select("fromUser type subType");
+
+    // Map to include user data with like type
+    pendingLikeUsers = pendingLikeMatches.map((match) => ({
+      ...match.fromUser.toObject(),
+      likeType: match.subType || "like",
+    }));
   }
 
   const userUnreadNotification = await Notification.countDocuments({

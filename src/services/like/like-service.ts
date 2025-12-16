@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { LikeModel } from "src/models/like/like-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { JwtPayload } from "jsonwebtoken";
@@ -8,8 +9,86 @@ import { postModels } from "src/models/post/post-schema";
 import { Comment } from "src/models/comment/comment-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
 import { eventModel } from "src/models/event/event-schema";
-// Import your Event model here
-// import { EventModel } from "src/models/event/event-schema";
+import { usersModel } from "src/models/user/user-schema";
+
+// Helper function to send like notifications
+const sendLikeNotification = async (
+  userId: string,
+  targetType: string,
+  targetId: string
+) => {
+  try {
+    const liker = await usersModel
+      .findById(userId)
+      .select('userName photos');
+
+    if (!liker) return;
+
+    let ownerId: string | null = null;
+    let actionLink = '';
+    let contentPreview = '';
+
+    // Get the owner of the liked content
+    if (targetType === 'posts') {
+      const post = await postModels.findById(targetId).select('user content');
+      if (post && post.user.toString() !== userId) {
+        ownerId = post.user.toString();
+        actionLink = `/post/${targetId}`;
+        contentPreview = (post.content || '').substring(0, 50);
+      }
+    } else if (targetType === 'comments') {
+      const comment = await Comment.findById(targetId).select('user text');
+      if (comment && comment.user.toString() !== userId) {
+        ownerId = comment.user.toString();
+        actionLink = `/comment/${targetId}`;
+        contentPreview = (comment.text || '').substring(0, 50);
+      }
+    } else if (targetType === 'reposts') {
+      const repost = await RepostModel.findById(targetId).select('user content');
+      if (repost && repost.user.toString() !== userId) {
+        ownerId = repost.user.toString();
+        actionLink = `/repost/${targetId}`;
+        contentPreview = (repost.content || '').substring(0, 50);
+      }
+    } else if (targetType === 'event') {
+      const event = await eventModel.findById(targetId).select('creator title');
+      if (event && event.creator.toString() !== userId) {
+        ownerId = event.creator.toString();
+        actionLink = `/event/${targetId}`;
+        contentPreview = event.title || '';
+      }
+    }
+
+    // Send notification to owner if found and not self-like
+    if (ownerId) {
+      const notification = new NotificationModel({
+        recipient: ownerId,
+        sender: userId,
+        type: 'like',
+        title: `${liker.userName} liked your ${getTargetDisplayName(targetType).toLowerCase()}`,
+        message: `${liker.userName} liked your ${getTargetDisplayName(targetType).toLowerCase()}: "${contentPreview}${contentPreview.length > 50 ? '...' : ''}"`,
+        read: false,
+        actionLink,
+        metadata: {
+          likerId: userId,
+          likerName: liker.userName,
+          likerPhoto: liker.photos?.[0] || null,
+          targetType,
+          targetId,
+        },
+        reference: {
+          model: targetType === 'event' ? 'events' : targetType,
+          id: targetId,
+        },
+      });
+
+      await notification.save();
+    }
+  } catch (error) {
+    console.error('Error sending like notification:', error);
+    // Don't throw error - notifications shouldn't block like operation
+  }
+};
 
 // Toggle like (create/delete)
 export const toggleLikeService = async (req: Request, res: Response) => {
@@ -85,6 +164,12 @@ export const toggleLikeService = async (req: Request, res: Response) => {
         target: targetId
       });
       await newLike.save();
+
+      // Send notification to content owner (non-blocking)
+      sendLikeNotification(userId, targetType, targetId).catch(
+        (err) => console.error('Error in like notification:', err)
+      );
+
       return {
         success: true,
         message: `${getTargetDisplayName(targetType)} liked successfully`,

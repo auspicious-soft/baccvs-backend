@@ -1,122 +1,226 @@
-
-
 import { FollowRelationshipStatus } from "src/lib/constant";
 import { followModel } from "src/models/follow/follow-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
+import { usersModel } from "src/models/user/user-schema";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { isValidObjectId } from "mongoose";
 
+// Helper function to create follow notification
+const createFollowNotification = async (
+  senderId: string,
+  recipientId: string,
+  notificationType: "follow" | "follow_back"
+) => {
+  try {
+    const sender = await usersModel
+      .findById(senderId)
+      .select("userName photos");
+
+    let title = "";
+    let message = "";
+
+    if (notificationType === "follow") {
+      title = `${sender?.userName} started following you`;
+      message = `${sender?.userName} started following you`;
+    } else if (notificationType === "follow_back") {
+      title = `${sender?.userName} followed you back`;
+      message = `${sender?.userName} followed you back`;
+    }
+
+    const notification = new NotificationModel({
+      recipient: recipientId,
+      sender: senderId,
+      type: "follow",
+      title,
+      message,
+      read: false,
+      actionLink: `/profile/${senderId}`,
+      metadata: {
+        followerId: senderId,
+        followerName: sender?.userName,
+        followerPhoto: sender?.photos?.[0] || null,
+        notificationType,
+      },
+      reference: {
+        model: "users",
+        id: senderId,
+      },
+    });
+
+    await notification.save();
+    return notification;
+  } catch (error) {
+    console.error("Error creating follow notification:", error);
+    // Don't throw error - notifications shouldn't block the follow operation
+  }
+};
+
+// Helper function to check if target user follows back and send notification
+const checkAndSendFollowBackNotification = async (
+  currentUserId: string,
+  targetUserId: string
+) => {
+  try {
+    const reverseFollow = await followModel.findOne({
+      follower_id: targetUserId,
+      following_id: currentUserId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+    });
+
+    if (reverseFollow) {
+      // Target user follows back, send notification to current user
+      await createFollowNotification(
+        targetUserId,
+        currentUserId,
+        "follow_back"
+      );
+    }
+  } catch (error) {
+    console.error("Error checking follow back:", error);
+  }
+};
+
 // Unified service to handle sending, canceling, unfollowing, and resending follow requests
 export const followUserService = async (req: Request, res: Response) => {
-    if (!req.user) {
-      return errorResponseHandler(
-        "Authentication failed",
-        httpStatusCode.UNAUTHORIZED,
-        res
-      );
-    }
-  
-    const { id: currentUserId } = req.user as JwtPayload;
-    const { targetUserId } = req.params;
-  
-    if (!isValidObjectId(targetUserId)) {
-      return errorResponseHandler(
-        "Invalid target user ID",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-  
-    if (currentUserId === targetUserId) {
-      return errorResponseHandler(
-        "You cannot follow yourself",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-  
-    const existingFollow = await followModel.findOne({
-      follower_id: currentUserId,
-      following_id: targetUserId,
-    });
-  
-    if (!existingFollow) {
-      const newFollowRequest = new followModel({
-        follower_id: currentUserId,
-        following_id: targetUserId,
-        relationship_status: FollowRelationshipStatus.FOLLOWING,
-        is_approved: true,
-      });
-      await newFollowRequest.save();
-      return {
-        success: true,
-        message: "Followed the User successfully",
-        data: { follow: newFollowRequest },
-      };
-    } else {
-      if (existingFollow.relationship_status === FollowRelationshipStatus.FOLLOWING) {
-        await followModel.findByIdAndUpdate(existingFollow._id, {
-          relationship_status: FollowRelationshipStatus.UNFOLLOWED,
-          is_approved: false,
-          unfollowed_at: new Date(),
-        });
-        return {
-          success: true,
-          message: "Successfully unfollowed the user",
-        };
-      }
-      if (existingFollow.relationship_status === FollowRelationshipStatus.UNFOLLOWED) {
-        await followModel.findByIdAndUpdate(existingFollow._id, {
-          relationship_status: FollowRelationshipStatus.FOLLOWING,
-          is_approved: true,
-          unfollowed_at: null,
-        });
-        return {
-          success: true,
-          message: "Followed the user successfully",
-        };
-      }
-    }
-  
+  if (!req.user) {
     return errorResponseHandler(
-      "Invalid relationship status",
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
+  }
+
+  const { id: currentUserId } = req.user as JwtPayload;
+  const { targetUserId } = req.params;
+
+  if (!isValidObjectId(targetUserId)) {
+    return errorResponseHandler(
+      "Invalid target user ID",
       httpStatusCode.BAD_REQUEST,
       res
     );
+  }
+
+  if (currentUserId === targetUserId) {
+    return errorResponseHandler(
+      "You cannot follow yourself",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const existingFollow = await followModel.findOne({
+    follower_id: currentUserId,
+    following_id: targetUserId,
+  });
+
+  if (!existingFollow) {
+    const newFollowRequest = new followModel({
+      follower_id: currentUserId,
+      following_id: targetUserId,
+      relationship_status: FollowRelationshipStatus.FOLLOWING,
+      is_approved: true,
+    });
+    await newFollowRequest.save();
+
+    // Send notification to target user that current user is following them
+    await createFollowNotification(currentUserId, targetUserId, "follow");
+
+    // TODO: Check if target user follows back and send notification (non-blocking)
+    // checkAndSendFollowBackNotification(currentUserId, targetUserId).catch(
+    //   (err) => console.error("Error in follow back check:", err)
+    // );
+
+    return {
+      success: true,
+      message: "Followed the User successfully",
+      data: { follow: newFollowRequest },
+    };
+  } else {
+    if (
+      existingFollow.relationship_status === FollowRelationshipStatus.FOLLOWING
+    ) {
+      await followModel.findByIdAndDelete(existingFollow._id);
+      return {
+        success: true,
+        message: "Successfully unfollowed the user",
+      };
+    }
+    if (
+      existingFollow.relationship_status === FollowRelationshipStatus.UNFOLLOWED
+    ) {
+      await followModel.findByIdAndUpdate(existingFollow._id, {
+        relationship_status: FollowRelationshipStatus.FOLLOWING,
+        is_approved: true,
+        unfollowed_at: null,
+      });
+
+      // Send notification to target user that current user is following them again
+      await createFollowNotification(currentUserId, targetUserId, "follow");
+
+      // TODO: Check if target user follows back and send notification (non-blocking)
+      // checkAndSendFollowBackNotification(currentUserId, targetUserId).catch(
+      //   (err) => console.error("Error in follow back check:", err)
+      // );
+
+      return {
+        success: true,
+        message: "Followed the user successfully",
+      };
+    }
+  }
+
+  return errorResponseHandler(
+    "Invalid relationship status",
+    httpStatusCode.BAD_REQUEST,
+    res
+  );
 };
 export const getFollowStatsService = async (req: Request, res: Response) => {
   if (!req.user) {
-      return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
- 
+
   const { id: userId } = req.user as JwtPayload;
 
   const followersCount = await followModel.countDocuments({
-      following_id: userId,
-      relationship_status: FollowRelationshipStatus.FOLLOWING
+    following_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
   });
 
   const followingCount = await followModel.countDocuments({
-      follower_id: userId,
-      relationship_status: FollowRelationshipStatus.FOLLOWING
+    follower_id: userId,
+    relationship_status: FollowRelationshipStatus.FOLLOWING,
   });
 
   return {
-      success: true,
-      message: "Follow stats retrieved successfully",
-      data: {
-          followers: followersCount,
-          following: followingCount
-      }
+    success: true,
+    message: "Follow stats retrieved successfully",
+    data: {
+      followers: followersCount,
+      following: followingCount,
+    },
   };
 };
 
 // Get follow history between current user and target user
-export const getFollowRelationshipService = async (req: Request, res: Response) => {
+export const getFollowRelationshipService = async (
+  req: Request,
+  res: Response
+) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: currentUserId } = req.user as JwtPayload;
@@ -156,7 +260,7 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 
 //     const { id: currentUserId } = req.user as JwtPayload;
 
-//     const pendingRequests = await followModel.find({        
+//     const pendingRequests = await followModel.find({
 //         following_id: currentUserId,
 //         relationship_status: FollowRelationshipStatus.PENDING
 //     })
@@ -251,16 +355,6 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 
 // Get follow stats (followers and following count)
 
-
-
-
-
-
-
-
-
-
-
 // import { FollowRelationshipStatus } from "src/lib/constant";
 // import { followModel } from "src/models/follow/follow-schema";
 // import { Request, Response } from "express";
@@ -268,7 +362,6 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 // import { httpStatusCode } from "src/lib/constant";
 // import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 // import { isValidObjectId } from "mongoose";
-
 
 // export const followUserService = async (req: Request, res: Response) => {
 //     if (!req.user) {
@@ -278,10 +371,10 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 //         res
 //       );
 //     }
-  
+
 //     const { id: currentUserId } = req.user as JwtPayload;
 //     const { targetUserId } = req.params;
-  
+
 //     // Validate targetUserId
 //     if (!isValidObjectId(targetUserId)) {
 //       return errorResponseHandler(
@@ -290,7 +383,7 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 //         res
 //       );
 //     }
-  
+
 //     if (currentUserId === targetUserId) {
 //       return errorResponseHandler(
 //         "You cannot follow yourself",
@@ -298,13 +391,13 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 //         res
 //       );
 //     }
-  
+
 //     // Check for existing relationship
 //     const existingFollow = await followModel.findOne({
 //       follower_id: currentUserId,
 //       following_id: targetUserId,
 //     });
-  
+
 //     if (!existingFollow) {
 //       // No existing relationship: Create a new follow request with PENDING status
 //       const newFollowRequest = new followModel({
@@ -354,7 +447,7 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 //         };
 //       }
 //     }
-  
+
 //     // Fallback for unexpected cases
 //     return errorResponseHandler(
 //       "Invalid relationship status",
@@ -370,7 +463,7 @@ export const getFollowRelationshipService = async (req: Request, res: Response) 
 
 //     const { id: currentUserId } = req.user as JwtPayload;
 
-//     const pendingRequests = await followModel.find({        
+//     const pendingRequests = await followModel.find({
 //         following_id: currentUserId,
 //         relationship_status: FollowRelationshipStatus.PENDING
 //     })

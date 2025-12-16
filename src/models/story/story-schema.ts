@@ -47,7 +47,6 @@ const StorySchema = new Schema(
     textColor: {
       type: String,
       trim: true,
-      // Example validation for hex color codes or color names
       match: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$|^[a-zA-Z]+$/,
     },
     fontFamily: {
@@ -72,7 +71,12 @@ const StorySchema = new Schema(
   }
 );
 
-// Validation to ensure either content or media is present for appropriate storyType
+/**
+ * TTL index: Automatically deletes the story after expiresAt
+ */
+StorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+// Validation hook
 StorySchema.pre('save', function (next) {
   if (this.storyType === 'text' && !this.content) {
     return next(new Error('Text content is required for text stories'));

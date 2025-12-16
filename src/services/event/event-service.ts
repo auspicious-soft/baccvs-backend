@@ -4,7 +4,11 @@ import mongoose, { isValidObjectId } from "mongoose";
 import Busboy from "busboy";
 import { Readable } from "stream";
 import { customAlphabet } from "nanoid";
-import { EventVisibility, httpStatusCode } from "src/lib/constant";
+import {
+  EventVisibility,
+  httpStatusCode,
+  FollowRelationshipStatus,
+} from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { eventModel } from "src/models/event/event-schema";
 import { ticketModel } from "src/models/ticket/ticket-schema";
@@ -12,9 +16,140 @@ import { uploadStreamToS3Service } from "src/configF/s3";
 import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
 import { purchaseModel } from "src/models/purchase/purchase-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { followModel } from "src/models/follow/follow-schema";
 import { LikeModel } from "src/models/like/like-schema";
 import { Comment } from "src/models/comment/comment-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
 import { convertToUTCAndLocal } from "src/utils/date";
+
+// Helper function to send event creation notifications
+const sendEventNotifications = async (
+  eventId: string,
+  creatorId: string,
+  invitedGuestIds: string[],
+  coHostIds: string[],
+  eventTitle: string
+) => {
+  try {
+    const creator = await usersModel
+      .findById(creatorId)
+      .select("userName photos");
+
+    if (!creator) return;
+
+    const notificationsToCreate : any = [];
+
+    // Send invitations to invited guests
+    if (invitedGuestIds && invitedGuestIds.length > 0) {
+      const validInvitedGuests = invitedGuestIds.filter(
+        (id) => id.toString() !== creatorId
+      );
+
+      validInvitedGuests.forEach((guestId) => {
+        notificationsToCreate.push({
+          recipient: guestId,
+          sender: creatorId,
+          type: "event_invite",
+          title: `${creator.userName} invited you to ${eventTitle}`,
+          message: `${creator.userName} invited you to attend event: ${eventTitle}`,
+          read: false,
+          actionLink: `/event/${eventId}`,
+          metadata: {
+            invitedBy: creatorId,
+            invitedByName: creator.userName,
+            invitedByPhoto: creator.photos?.[0] || null,
+            eventId,
+            eventTitle,
+          },
+          reference: {
+            model: "events",
+            id: eventId,
+          },
+        });
+      });
+    }
+
+    // Send co-host invitations
+    if (coHostIds && coHostIds.length > 0) {
+      const validCoHosts = coHostIds.filter(
+        (id) => id.toString() !== creatorId
+      );
+
+      validCoHosts.forEach((coHostId) => {
+        notificationsToCreate.push({
+          recipient: coHostId,
+          sender: creatorId,
+          type: "event_invite",
+          title: `${creator.userName} invited you as co-host for ${eventTitle}`,
+          message: `${creator.userName} invited you to be a co-host for event: ${eventTitle}`,
+          read: false,
+          actionLink: `/event/${eventId}`,
+          metadata: {
+            invitedBy: creatorId,
+            invitedByName: creator.userName,
+            invitedByPhoto: creator.photos?.[0] || null,
+            eventId,
+            eventTitle,
+            role: "co_host",
+          },
+          reference: {
+            model: "events",
+            id: eventId,
+          },
+        });
+      });
+    }
+
+    // Get all followers of the event creator and send event_reminder notifications
+    const followers = await followModel
+      .find({
+        following_id: creatorId,
+        relationship_status: FollowRelationshipStatus.FOLLOWING,
+      })
+      .select("follower_id");
+
+    if (followers && followers.length > 0) {
+      followers.forEach((follow: any) => {
+        // Don't notify if follower is already in invited guests or co-hosts
+        const followerId = follow.follower_id.toString();
+        const isAlreadyNotified =
+          invitedGuestIds?.some((id) => id.toString() === followerId) ||
+          coHostIds?.some((id) => id.toString() === followerId);
+
+        if (!isAlreadyNotified) {
+          notificationsToCreate.push({
+            recipient: followerId,
+            sender: creatorId,
+            type: "event_reminder",
+            title: `${creator.userName} created a new event: ${eventTitle}`,
+            message: `${creator.userName} created a new event you might like: ${eventTitle}`,
+            read: false,
+            actionLink: `/event/${eventId}`,
+            metadata: {
+              createdBy: creatorId,
+              createdByName: creator.userName,
+              createdByPhoto: creator.photos?.[0] || null,
+              eventId,
+              eventTitle,
+            },
+            reference: {
+              model: "events",
+              id: eventId,
+            },
+          });
+        }
+      });
+    }
+
+    // Insert all notifications
+    if (notificationsToCreate.length > 0) {
+      await NotificationModel.insertMany(notificationsToCreate);
+    }
+  } catch (error) {
+    console.error("Error sending event notifications:", error);
+    // Don't throw error - notifications shouldn't block event creation
+  }
+};
 
 function getTimezoneOffset(timezone: string, date: Date): number {
   try {
@@ -489,6 +624,15 @@ const processEventCreation = async (
     path: "event",
     select: "title venue date",
   });
+
+  // Send notifications to invited guests and co-hosts (non-blocking)
+  sendEventNotifications(
+    savedEvent._id.toString(),
+    creatorId,
+    invitedGuests || [],
+    coHosts || [],
+    title
+  ).catch((err) => console.error("Error in event notifications:", err));
 
   return {
     success: true,
@@ -2101,7 +2245,7 @@ export const deleteEventService = async (req: Request, res: Response) => {
       res
     );
   }
-   const existingPurchases = await purchaseModel.findOne({
+  const existingPurchases = await purchaseModel.findOne({
     event: req.params.id,
     status: { $in: ["active", "used", "transferred", "pending"] },
   });

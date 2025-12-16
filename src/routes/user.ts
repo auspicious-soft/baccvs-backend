@@ -162,6 +162,7 @@ router.patch("/toggle/notification", notificationSetting);
 router.patch("/toggle/promotion/:id", togglePromotionStatus);
 router.patch("/toggle/twofactor", toggleTwoFactorAuthentication);
 router.patch("/toggle/privacy", togglePrivacyPreference);
+router.delete("/delete", deleteUser);
 router.delete("/delete/professional/profile/:id", deleteProfessionalProfile);
 router.delete("/delete/ticket/:id", deleteTicketController);
 
@@ -291,9 +292,6 @@ router.post(
 );
 
 router.post("/message/edit/:id", editMessage);
-
-// Delete User Account Route (Soft Delete)
-router.delete("/delete", checkAuth, deleteUser);
 
 // Transfer Ticket Route
 router.post("/transfer/ticket", transferTicketController);

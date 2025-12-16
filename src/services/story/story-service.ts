@@ -5,11 +5,58 @@ import { storyModel } from "src/models/story/story-schema";
 import { JwtPayload } from "jsonwebtoken";
 import { followModel } from "src/models/follow/follow-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
 import { FollowRelationshipStatus } from "src/lib/constant";
 import { deleteFileFromS3, uploadStreamToS3Service } from "src/configF/s3";
 import { customAlphabet } from "nanoid";
 import { Readable } from "stream";
 import busboy from "busboy";
+
+// Helper function to send mention notifications to tagged users in story
+const sendStoryTagNotifications = async (
+  storyId: string,
+  senderId: string,
+  taggedUserIds: string[],
+  storyContent: string
+) => {
+  try {
+    const sender = await usersModel
+      .findById(senderId)
+      .select("userName photos");
+
+    if (!sender || taggedUserIds.length === 0) return;
+
+    // Create notifications for each tagged user
+    const notifications = taggedUserIds.map((taggedUserId) => ({
+      recipient: taggedUserId,
+      sender: senderId,
+      type: "mention",
+      title: `${sender.userName} tagged you in a story`,
+      message: `${
+        sender.userName
+      } tagged you in a story: "${storyContent.substring(0, 50)}${
+        storyContent.length > 50 ? "..." : ""
+      }"`,
+      read: false,
+      actionLink: `/story/${storyId}`,
+      metadata: {
+        taggedBy: senderId,
+        taggedByName: sender.userName,
+        taggedByPhoto: sender.photos?.[0] || null,
+        storyId,
+      },
+      reference: {
+        model: "stories",
+        id: storyId,
+      },
+    }));
+
+    await NotificationModel.insertMany(notifications);
+  } catch (error) {
+    console.error("Error sending story tag notifications:", error);
+    // Don't throw error - notifications shouldn't block story creation
+  }
+};
 
 export const createStoryService = async (req: Request, res: Response) => {
   // Authentication check
@@ -91,7 +138,6 @@ export const createStoryService = async (req: Request, res: Response) => {
           } else {
             parsedData[fieldname] = value;
           }
-          console.log(`Parsed field: ${fieldname}=${value}`); // Debug: Log each field
         } catch (error) {
           console.error("Field processing error:", error);
           return errorResponseHandler(`Error processing field ${fieldname}`, httpStatusCode.BAD_REQUEST,res);
@@ -220,8 +266,6 @@ export const createStoryService = async (req: Request, res: Response) => {
             await fileUploadPromise;
           }
 
-          console.log("Parsed data:", parsedData); // Debug: Log all parsed data
-
           // Validate storyType
           if (!parsedData.storyType) {
             return errorResponseHandler("Story type is required", httpStatusCode.BAD_REQUEST,res);
@@ -328,6 +372,16 @@ export const createStoryService = async (req: Request, res: Response) => {
             { path: "taggedUsers", select: "-password" },
           ]);
 
+          // Send notifications to tagged users (non-blocking)
+          if (validatedTaggedUsers.length > 0) {
+            sendStoryTagNotifications(
+              newStory._id.toString(),
+              userId,
+              validatedTaggedUsers,
+              parsedData.content
+            ).catch((err) => console.error("Error in story tag notifications:", err));
+          }
+
           // Send success response
           res.status(httpStatusCode.CREATED).json({
             success: true,
@@ -376,8 +430,6 @@ export const createStoryService = async (req: Request, res: Response) => {
       }
 
       const { content, media, taggedUsers, visibility, storyType, textColor, fontFamily, textAlignment } = req.body;
-
-      console.log("JSON body:", req.body); // Debug: Log JSON body
 
       if (!storyType) {
         return errorResponseHandler("Story type is required", httpStatusCode.BAD_REQUEST, res);
@@ -489,6 +541,16 @@ export const createStoryService = async (req: Request, res: Response) => {
         { path: "user", select: "-password" },
         { path: "taggedUsers", select: "-password" },
       ]);
+
+      // Send notifications to tagged users (non-blocking)
+      if (validatedTaggedUsers.length > 0) {
+        sendStoryTagNotifications(
+          newStory._id.toString(),
+          userId,
+          validatedTaggedUsers,
+          content
+        ).catch((err) => console.error("Error in story tag notifications:", err));
+      }
 
       // Send success response
       return res.status(httpStatusCode.CREATED).json({

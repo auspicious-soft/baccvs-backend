@@ -24,6 +24,7 @@ import {
   stripeProduct,
   resell,
   admin,
+  notification,
 } from "./routes";
 import { Server } from "socket.io";
 import http from "http";
@@ -151,6 +152,7 @@ app.use("/api/block", checkAuth, blockRoutes);
 app.use("/api/feedback", checkAuth, feedbackRoutes);
 app.use("/api/subscription", subscription);
 app.use("/api/stripe-product", stripeProduct);
+app.use("/api/notification", checkAuth, notification);
 app.post("/api/email-otp", verifyEmail);
 app.post("/api/verify-email", verifyingEmailOtp);
 app.post("/api/verify-otp", verifyOtpPasswordReset);

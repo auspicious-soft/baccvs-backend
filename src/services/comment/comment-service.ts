@@ -8,15 +8,143 @@ import { eventModel } from "src/models/event/event-schema";
 import { LikeModel } from "src/models/like/like-schema";
 import { postModels } from "src/models/post/post-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
+import { usersModel } from "src/models/user/user-schema";
+
+// Helper function to send comment notifications
+const sendCommentNotifications = async (
+  commentId: string,
+  commenterId: string,
+  postId?: string,
+  repostId?: string,
+  eventId?: string,
+  parentCommentId?: string,
+  commentText?: string
+) => {
+  try {
+    const commenter = await usersModel
+      .findById(commenterId)
+      .select("userName photos");
+
+    if (!commenter) return;
+
+    // 1. Notify creator of post/repost/event
+    let creatorId: string | null = null;
+    let targetType = "";
+    let targetId = "";
+
+    if (postId) {
+      const post = await postModels.findById(postId).select("user");
+      if (post && post.user.toString() !== commenterId) {
+        creatorId = post.user.toString();
+        targetType = "posts";
+        targetId = postId;
+      }
+    } else if (repostId) {
+      const repost = await RepostModel.findById(repostId).select("user");
+      if (repost && repost.user.toString() !== commenterId) {
+        creatorId = repost.user.toString();
+        targetType = "reposts";
+        targetId = repostId;
+      }
+    } else if (eventId) {
+      const event = await eventModel.findById(eventId).select("creator");
+      if (event && event.creator.toString() !== commenterId) {
+        creatorId = event.creator.toString();
+        targetType = "events";
+        targetId = eventId;
+      }
+    }
+
+    // Send notification to creator
+    if (creatorId) {
+      const creatorNotification = new NotificationModel({
+        recipient: creatorId,
+        sender: commenterId,
+        type: "comment",
+        title: `${commenter.userName} commented on your ${targetType.slice(
+          0,
+          -1
+        )}`,
+        message: `${commenter.userName} commented: "${
+          commentText?.substring(0, 50) || "Audio comment"
+        }${commentText && commentText.length > 50 ? "..." : ""}"`,
+        read: false,
+        actionLink:
+          targetType === "posts"
+            ? `/post/${targetId}`
+            : targetType === "reposts"
+            ? `/repost/${targetId}`
+            : `/event/${targetId}`,
+        metadata: {
+          commenterId,
+          commenterName: commenter.userName,
+          commenterPhoto: commenter.photos?.[0] || null,
+          commentId,
+        },
+        reference: {
+          model: targetType,
+          id: targetId,
+        },
+      });
+      await creatorNotification.save();
+    }
+
+    // 2. If this is a reply, notify the parent comment creator
+    if (parentCommentId) {
+      const parentComment = await Comment.findById(parentCommentId).select(
+        "user"
+      );
+      if (parentComment && parentComment.user.toString() !== commenterId) {
+        const parentCreatorNotification = new NotificationModel({
+          recipient: parentComment.user.toString(),
+          sender: commenterId,
+          type: "comment",
+          title: `${commenter.userName} replied to your comment`,
+          message: `${commenter.userName} replied: "${
+            commentText?.substring(0, 50) || "Audio reply"
+          }${commentText && commentText.length > 50 ? "..." : ""}"`,
+          read: false,
+          actionLink:
+            targetType === "posts"
+              ? `/post/${targetId}`
+              : targetType === "reposts"
+              ? `/repost/${targetId}`
+              : `/event/${targetId}`,
+          metadata: {
+            commenterId,
+            commenterName: commenter.userName,
+            commenterPhoto: commenter.photos?.[0] || null,
+            commentId,
+            parentCommentId,
+          },
+          reference: {
+            model: targetType,
+            id: targetId,
+          },
+        });
+        await parentCreatorNotification.save();
+      }
+    }
+  } catch (error) {
+    console.error("Error sending comment notifications:", error);
+    // Don't throw error - notifications shouldn't block comment creation
+  }
+};
 
 // Create Comment
 export const createCommentService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
-  const { postId, repostId, eventId, parentCommentId, type, text, audioUrl } = req.body;
+  const { postId, repostId, eventId, parentCommentId, type, text, audioUrl } =
+    req.body;
 
   // Validate that exactly one of postId, repostId, or eventId is provided
   const providedTargets = [postId, repostId, eventId].filter(Boolean).length;
@@ -31,60 +159,104 @@ export const createCommentService = async (req: Request, res: Response) => {
   // Validate and check existence of post, repost, or event
   if (postId) {
     if (!mongoose.Types.ObjectId.isValid(postId)) {
-      return errorResponseHandler("Invalid post ID", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Invalid post ID",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     const post = await postModels.findById(postId);
     if (!post) {
-      return errorResponseHandler("Post not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Post not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
   }
 
   if (repostId) {
     if (!mongoose.Types.ObjectId.isValid(repostId)) {
-      return errorResponseHandler("Invalid repost ID", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Invalid repost ID",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     const repost = await RepostModel.findById(repostId);
     if (!repost) {
-      return errorResponseHandler("Repost not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Repost not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
   }
 
   if (eventId) {
     if (!mongoose.Types.ObjectId.isValid(eventId)) {
-      return errorResponseHandler("Invalid event ID", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Invalid event ID",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     const event = await eventModel.findById(eventId);
     if (!event) {
-      return errorResponseHandler("Event not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Event not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
   }
 
   // Validate parent comment if provided
   if (parentCommentId) {
     if (!mongoose.Types.ObjectId.isValid(parentCommentId)) {
-      return errorResponseHandler("Invalid parent comment ID", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Invalid parent comment ID",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     const parentComment = await Comment.findById(parentCommentId);
     if (!parentComment) {
-      return errorResponseHandler("Parent comment not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Parent comment not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     // Ensure reply is associated with the same target as the parent
-    if (postId && parentComment.post && parentComment.post.toString() !== postId) {
+    if (
+      postId &&
+      parentComment.post &&
+      parentComment.post.toString() !== postId
+    ) {
       return errorResponseHandler(
         "Parent comment does not belong to the specified post",
         httpStatusCode.BAD_REQUEST,
         res
       );
     }
-    if (repostId && parentComment.repost && parentComment.repost.toString() !== repostId) {
+    if (
+      repostId &&
+      parentComment.repost &&
+      parentComment.repost.toString() !== repostId
+    ) {
       return errorResponseHandler(
         "Parent comment does not belong to the specified repost",
         httpStatusCode.BAD_REQUEST,
         res
       );
     }
-    if (eventId && parentComment.get('event') && parentComment.get('event').toString() !== eventId) {
+    if (
+      eventId &&
+      parentComment.get("event") &&
+      parentComment.get("event").toString() !== eventId
+    ) {
       return errorResponseHandler(
         "Parent comment does not belong to the specified event",
         httpStatusCode.BAD_REQUEST,
@@ -95,14 +267,20 @@ export const createCommentService = async (req: Request, res: Response) => {
     // Inherit target from parent comment if not provided
     if (!postId && !repostId && !eventId) {
       if (parentComment.post) req.body.postId = parentComment.post.toString();
-      if (parentComment.repost) req.body.repostId = parentComment.repost.toString();
-      if (parentComment.get('event')) req.body.eventId = parentComment.get('event').toString();
+      if (parentComment.repost)
+        req.body.repostId = parentComment.repost.toString();
+      if (parentComment.get("event"))
+        req.body.eventId = parentComment.get("event").toString();
     }
   }
 
   // Validate comment type
   if (!type) {
-    return errorResponseHandler("Comment type is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Comment type is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Create comment data
@@ -134,7 +312,7 @@ export const createCommentService = async (req: Request, res: Response) => {
     return errorResponseHandler(errorMessage, httpStatusCode.BAD_REQUEST, res);
   }
 
-  const newComment = new Comment(commentData);
+  const newComment : any = new Comment(commentData);
   await newComment.save();
 
   // Populate user and target information
@@ -144,9 +322,26 @@ export const createCommentService = async (req: Request, res: Response) => {
     .populate("repost")
     .populate("event");
 
+  // Send notifications (non-blocking)
+  const finalPostId = postId || req.body.postId;
+  const finalRepostId = repostId || req.body.repostId;
+  const finalEventId = eventId || req.body.eventId;
+
+  sendCommentNotifications(
+    newComment._id.toString(),
+    userId,
+    finalPostId,
+    finalRepostId,
+    finalEventId,
+    parentCommentId,
+    text
+  ).catch((err) => console.error("Error in comment notifications:", err));
+
   return {
     success: true,
-    message: parentCommentId ? "Reply added successfully" : "Comment created successfully",
+    message: parentCommentId
+      ? "Reply added successfully"
+      : "Comment created successfully",
     data: populatedComment,
   };
 };
@@ -154,7 +349,7 @@ export const createCommentService = async (req: Request, res: Response) => {
 // Get All Comments for a Post, Repost, or Event (only top-level comments)
 export const getCommentsService = async (req: Request, res: Response) => {
   const { targetType, targetId } = req.params;
- const { id: userId } = req.user as JwtPayload;
+  const { id: userId } = req.user as JwtPayload;
 
   // Validate target type
   if (!["post", "repost", "event"].includes(targetType)) {
@@ -167,7 +362,11 @@ export const getCommentsService = async (req: Request, res: Response) => {
 
   // Validate target ID
   if (!mongoose.Types.ObjectId.isValid(targetId)) {
-    return errorResponseHandler(`Invalid ${targetType} ID`, httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      `Invalid ${targetType} ID`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Optional pagination parameters
@@ -212,18 +411,19 @@ export const getCommentsService = async (req: Request, res: Response) => {
       const replies = await Comment.find({
         parentComment: comment._id,
         isDeleted: false,
-      }).sort({ createdAt: 1 })
+      })
+        .sort({ createdAt: 1 })
         .populate("user", "userName photos");
 
-        const likesCount = await LikeModel.countDocuments({
-          targetType:"comments",
-          target:comment._id
-        })
+      const likesCount = await LikeModel.countDocuments({
+        targetType: "comments",
+        target: comment._id,
+      });
 
-        const isLikedByUser = await LikeModel.exists({
+      const isLikedByUser = await LikeModel.exists({
         user: userId,
         targetType: "comments",
-        target: comment._id
+        target: comment._id,
       });
 
       const commentObj = comment.toObject();
@@ -232,7 +432,7 @@ export const getCommentsService = async (req: Request, res: Response) => {
         replyCount,
         replies,
         likesCount,
-        isLikedByUser:!!isLikedByUser
+        isLikedByUser: !!isLikedByUser,
       };
     })
   );
@@ -253,7 +453,10 @@ export const getCommentsService = async (req: Request, res: Response) => {
   };
 };
 
-export const getCommentsServiceOptimized = async (req: Request, res: Response) => {
+export const getCommentsServiceOptimized = async (
+  req: Request,
+  res: Response
+) => {
   const { targetType, targetId } = req.params;
   const { id: userId } = req.user as JwtPayload;
 
@@ -268,7 +471,11 @@ export const getCommentsServiceOptimized = async (req: Request, res: Response) =
 
   // Validate target ID
   if (!mongoose.Types.ObjectId.isValid(targetId)) {
-    return errorResponseHandler(`Invalid ${targetType} ID`, httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      `Invalid ${targetType} ID`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Optional pagination parameters
@@ -302,8 +509,8 @@ export const getCommentsServiceOptimized = async (req: Request, res: Response) =
   const totalComments = await Comment.countDocuments(query);
 
   // Collect all comment IDs (including replies)
-  const commentIds = comments.map(c => c._id);
-  
+  const commentIds = comments.map((c) => c._id);
+
   // Get all replies for all comments in one query
   const allReplies = await Comment.find({
     parentComment: { $in: commentIds },
@@ -314,7 +521,7 @@ export const getCommentsServiceOptimized = async (req: Request, res: Response) =
     .lean();
 
   // Get reply IDs
-  const replyIds = allReplies.map(r => r._id);
+  const replyIds = allReplies.map((r) => r._id);
   const allIds = [...commentIds, ...replyIds];
 
   // Batch query for all likes counts
@@ -322,61 +529,59 @@ export const getCommentsServiceOptimized = async (req: Request, res: Response) =
     {
       $match: {
         targetType: "comments",
-        target: { $in: allIds }
-      }
+        target: { $in: allIds },
+      },
     },
     {
       $group: {
         _id: "$target",
-        count: { $sum: 1 }
-      }
-    }
+        count: { $sum: 1 },
+      },
+    },
   ]);
 
   // Create a map of likes counts
   const likesCountMap = new Map(
-    likesAggregation.map(item => [item._id.toString(), item.count])
+    likesAggregation.map((item) => [item._id.toString(), item.count])
   );
 
   // Batch query for current user's likes
   const userLikes = await LikeModel.find({
     user: userId,
     targetType: "comments",
-    target: { $in: allIds }
+    target: { $in: allIds },
   }).lean();
 
   // Create a set of comment IDs the user has liked
-  const userLikedSet = new Set(
-    userLikes.map(like => like.target.toString())
-  );
+  const userLikedSet = new Set(userLikes.map((like) => like.target.toString()));
 
   // Group replies by parent comment
-  const repliesByParent = allReplies.reduce((acc : any, reply : any) => {
+  const repliesByParent = allReplies.reduce((acc: any, reply: any) => {
     const parentId = reply.parentComment.toString();
     if (!acc[parentId]) acc[parentId] = [];
-    
+
     // Add likes info to reply
     const replyId = reply._id.toString();
     acc[parentId].push({
       ...reply,
       likesCount: likesCountMap.get(replyId) || 0,
-      isLikedByUser: userLikedSet.has(replyId)
+      isLikedByUser: userLikedSet.has(replyId),
     });
-    
+
     return acc;
   }, {} as Record<string, any[]>);
 
   // Build final comments with replies
-  const commentsWithReplies = comments.map(comment => {
+  const commentsWithReplies = comments.map((comment) => {
     const commentId = comment._id.toString();
     const replies = repliesByParent[commentId] || [];
-    
+
     return {
       ...comment,
       replyCount: replies.length,
       replies,
       likesCount: likesCountMap.get(commentId) || 0,
-      isLikedByUser: userLikedSet.has(commentId)
+      isLikedByUser: userLikedSet.has(commentId),
     };
   });
 
@@ -426,14 +631,22 @@ export const getCommentService = async (req: Request, res: Response) => {
 
   // Validate comment ID
   if (!mongoose.Types.ObjectId.isValid(commentId)) {
-    return errorResponseHandler("Invalid comment ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid comment ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Use the static method from your schema
   const { comment, replies } = await Comment.findWithReplies(commentId);
 
   if (!comment) {
-    return errorResponseHandler("Comment not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Comment not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   return {
@@ -446,14 +659,17 @@ export const getCommentService = async (req: Request, res: Response) => {
   };
 };
 
-
 // Get replies for a specific comment
 export const getCommentRepliesService = async (req: Request, res: Response) => {
   const { commentId } = req.params;
 
   // Validate comment ID
   if (!mongoose.Types.ObjectId.isValid(commentId)) {
-    return errorResponseHandler("Invalid comment ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid comment ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Optional pagination parameters
@@ -464,7 +680,11 @@ export const getCommentRepliesService = async (req: Request, res: Response) => {
   // Find the comment first to make sure it exists
   const parentComment = await Comment.findById(commentId);
   if (!parentComment) {
-    return errorResponseHandler("Comment not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Comment not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Find replies with pagination
@@ -502,7 +722,11 @@ export const getCommentRepliesService = async (req: Request, res: Response) => {
 // Update Comment
 export const updateCommentService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
@@ -511,14 +735,22 @@ export const updateCommentService = async (req: Request, res: Response) => {
 
   // Validate comment ID
   if (!mongoose.Types.ObjectId.isValid(commentId)) {
-    return errorResponseHandler("Invalid comment ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid comment ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Find comment
   const comment = await Comment.findById(commentId);
 
   if (!comment) {
-    return errorResponseHandler("Comment not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Comment not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Check if user is the owner of the comment
@@ -537,7 +769,10 @@ export const updateCommentService = async (req: Request, res: Response) => {
     updateData.text = text;
   } else if (comment.type === "audio" && audioUrl) {
     updateData.audioUrl = audioUrl;
-  } else if ((comment.type === "text" && !text) || (comment.type === "audio" && !audioUrl)) {
+  } else if (
+    (comment.type === "text" && !text) ||
+    (comment.type === "audio" && !audioUrl)
+  ) {
     const errorMessage =
       comment.type === "text"
         ? "Text is required for text comments"
@@ -546,10 +781,14 @@ export const updateCommentService = async (req: Request, res: Response) => {
   }
 
   // Update the comment
-  const updatedComment = await Comment.findByIdAndUpdate(commentId, updateData, {
-    new: true,
-    runValidators: true,
-  }).populate("user", "username photos");
+  const updatedComment = await Comment.findByIdAndUpdate(
+    commentId,
+    updateData,
+    {
+      new: true,
+      runValidators: true,
+    }
+  ).populate("user", "username photos");
 
   return {
     success: true,
@@ -561,7 +800,11 @@ export const updateCommentService = async (req: Request, res: Response) => {
 // Delete Comment (soft delete)
 export const deleteCommentService = async (req: Request, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user as JwtPayload;
@@ -569,14 +812,22 @@ export const deleteCommentService = async (req: Request, res: Response) => {
 
   // Validate comment ID
   if (!mongoose.Types.ObjectId.isValid(commentId)) {
-    return errorResponseHandler("Invalid comment ID", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Invalid comment ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Find comment
   const comment = await Comment.findById(commentId);
 
   if (!comment) {
-    return errorResponseHandler("Comment not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Comment not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   // Check if user is the owner of the comment
@@ -615,7 +866,11 @@ export const countCommentsService = async (req: Request, res: Response) => {
 
   // Validate target ID
   if (!mongoose.Types.ObjectId.isValid(targetId)) {
-    return errorResponseHandler(`Invalid ${targetType} ID`, httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      `Invalid ${targetType} ID`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   // Build query based on target type
@@ -658,7 +913,10 @@ export const countPostCommentsService = async (req: Request, res: Response) => {
 };
 
 // Count comments for a repost
-export const countRepostCommentsService = async (req: Request, res: Response) => {
+export const countRepostCommentsService = async (
+  req: Request,
+  res: Response
+) => {
   const { repostId } = req.params;
   req.params.targetType = "repost";
   req.params.targetId = repostId;
@@ -666,7 +924,10 @@ export const countRepostCommentsService = async (req: Request, res: Response) =>
 };
 
 // Count comments for an event
-export const countEventCommentsService = async (req: Request, res: Response) => {
+export const countEventCommentsService = async (
+  req: Request,
+  res: Response
+) => {
   const { eventId } = req.params;
   req.params.targetType = "event";
   req.params.targetId = eventId;

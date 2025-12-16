@@ -636,7 +636,7 @@ export const deleteUser = async (req: Request, res: Response) => {
       return;
     }
     
-    return res.status(response.code || httpStatusCode.OK).json(response);
+    return res.status(httpStatusCode.OK).json(response);
   } catch (error: any) {
     // Check if response was already sent
     if (res.headersSent) {

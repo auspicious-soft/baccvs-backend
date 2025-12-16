@@ -50,7 +50,7 @@ const NotificationSchema = new Schema({
   reference: {
     model: {
       type: String,
-      enum: ['posts', 'comments', 'events', 'chats'],
+      enum: ['posts', 'comments', 'events', 'chats','users', 'reposts', 'stories'],
       required: true
     },
     id: {
@@ -88,4 +88,4 @@ NotificationSchema.statics.getUnreadCount = async function(userId) {
   return this.countDocuments({ recipient: userId, read: false });
 };
 
-export const NotificationModel = mongoose.model('Notification', NotificationSchema);
+export const NotificationModel = mongoose.model('UserNotification', NotificationSchema);
