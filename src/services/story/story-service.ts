@@ -97,10 +97,7 @@ export const createStoryService = async (req: Request, res: Response) => {
       let fileUploadPromise: Promise<void> | null = null;
       let hasError = false;
 
-      const handleError = (
-        message: string,
-        statusCode: number = httpStatusCode.INTERNAL_SERVER_ERROR
-      ) => {
+      const handleError = (message: string, statusCode: number = httpStatusCode.INTERNAL_SERVER_ERROR) => {
         if (hasError) return;
         hasError = true;
         errorResponseHandler(message, statusCode, res); // Send error response
@@ -121,19 +118,11 @@ export const createStoryService = async (req: Request, res: Response) => {
             "textAlignment",
           ];
           if (!allowedFields.includes(fieldname)) {
-            return errorResponseHandler(
-              `Invalid field: ${fieldname}`,
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler(`Invalid field: ${fieldname}`, httpStatusCode.BAD_REQUEST,res);
           }
 
           if (value.length > 10000) {
-            return errorResponseHandler(
-              `Field ${fieldname} exceeds maximum length`,
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler(`Field ${fieldname} exceeds maximum length`, httpStatusCode.BAD_REQUEST,res);
           }
 
           if (["taggedUsers"].includes(fieldname)) {
@@ -151,161 +140,123 @@ export const createStoryService = async (req: Request, res: Response) => {
           }
         } catch (error) {
           console.error("Field processing error:", error);
-          return errorResponseHandler(
-            `Error processing field ${fieldname}`,
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler(`Error processing field ${fieldname}`, httpStatusCode.BAD_REQUEST,res);
         }
       });
 
-      busboyParser.on(
-        "file",
-        (fieldname: string, fileStream: any, fileInfo: any) => {
-          if (hasError) {
-            fileStream.resume();
-            return;
-          }
-
-          if (fieldname !== "media") {
-            fileStream.resume();
-            return errorResponseHandler(
-              "Invalid file field name",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
-          }
-
-          if (fileUploaded) {
-            fileStream.resume();
-            return errorResponseHandler(
-              "Only one file is allowed",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
-          }
-
-          const { filename, mimeType } = fileInfo;
-
-          if (!filename || filename.trim() === "") {
-            fileStream.resume();
-            return errorResponseHandler(
-              "Filename is required",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
-          }
-
-          const isImage = mimeType.startsWith("image/");
-          if (!isImage) {
-            fileStream.resume();
-            return errorResponseHandler(
-              "Only image files are allowed for story media",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
-          }
-
-          const allowedImageTypes = [
-            "image/jpeg",
-            "image/png",
-            "image/gif",
-            "image/webp",
-          ];
-          if (!allowedImageTypes.includes(mimeType)) {
-            fileStream.resume();
-            return errorResponseHandler(
-              "Unsupported image format",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
-          }
-
-          let fileSize = 0;
-          let uploadTimeout: NodeJS.Timeout | null = null;
-
-          fileUploadPromise = new Promise<void>(
-            (resolveUpload, rejectUpload) => {
-              const chunks: Buffer[] = [];
-
-              fileStream.on("data", (chunk: Buffer) => {
-                if (hasError) return;
-                fileSize += chunk.length;
-                chunks.push(chunk);
-              });
-
-              fileStream.on("end", async () => {
-                if (hasError) return;
-
-                try {
-                  if (chunks.length === 0) {
-                    return rejectUpload(new Error("No file data received"));
-                  }
-
-                  const fileBuffer = Buffer.concat(chunks);
-                  if (fileBuffer.length === 0) {
-                    return rejectUpload(new Error("Empty file received"));
-                  }
-
-                  const readableStream = new Readable();
-                  readableStream.push(fileBuffer);
-                  readableStream.push(null);
-
-                  uploadTimeout = setTimeout(() => {
-                    rejectUpload(new Error("S3 upload timed out"));
-                  }, 60000); // 60s timeout
-
-                  const uploadedMediaUrl = await uploadStreamToS3Service(
-                    readableStream,
-                    filename,
-                    mimeType,
-                    email || `story_${customAlphabet("0123456789", 5)()}`,
-                    true // Mark as temporary (auto-deletes after 24hrs via S3 Lifecycle)
-                  );
-
-                  if (
-                    !uploadedMediaUrl ||
-                    typeof uploadedMediaUrl !== "string"
-                  ) {
-                    throw new Error("Failed to get valid upload URL");
-                  }
-
-                  if (uploadTimeout) {
-                    clearTimeout(uploadTimeout);
-                    uploadTimeout = null;
-                  }
-
-                  media = {
-                    url: uploadedMediaUrl,
-                    mediaType: "image",
-                    filename: filename,
-                    size: fileBuffer.length,
-                    mimeType: mimeType,
-                  };
-                  fileUploaded = true;
-                  resolveUpload();
-                } catch (error) {
-                  if (uploadTimeout) {
-                    clearTimeout(uploadTimeout);
-                    uploadTimeout = null;
-                  }
-                  console.error("File processing error:", error);
-                  rejectUpload(error);
-                }
-              });
-
-              fileStream.on("error", (error: any) => {
-                if (uploadTimeout) {
-                  clearTimeout(uploadTimeout);
-                  uploadTimeout = null;
-                }
-                console.error("File stream error:", error);
-                rejectUpload(error);
-              });
-            }
-          );
+      busboyParser.on("file", (fieldname: string, fileStream: any, fileInfo: any) => {
+        if (hasError) {
+          fileStream.resume();
+          return;
         }
-      );
+
+        if (fieldname !== "media") {
+          fileStream.resume();
+          return errorResponseHandler("Invalid file field name", httpStatusCode.BAD_REQUEST,res);
+        }
+
+        if (fileUploaded) {
+          fileStream.resume();
+          return errorResponseHandler("Only one file is allowed", httpStatusCode.BAD_REQUEST,res);
+        }
+
+        const { filename, mimeType } = fileInfo;
+
+        if (!filename || filename.trim() === "") {
+          fileStream.resume();
+          return errorResponseHandler("Filename is required", httpStatusCode.BAD_REQUEST,res);
+        }
+
+        const isImage = mimeType.startsWith("image/");
+        if (!isImage) {
+          fileStream.resume();
+          return errorResponseHandler("Only image files are allowed for story media", httpStatusCode.BAD_REQUEST,res);
+        }
+
+        const allowedImageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+        if (!allowedImageTypes.includes(mimeType)) {
+          fileStream.resume();
+          return errorResponseHandler("Unsupported image format", httpStatusCode.BAD_REQUEST,res);
+        }
+
+        let fileSize = 0;
+        let uploadTimeout: NodeJS.Timeout | null = null;
+
+        fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
+          const chunks: Buffer[] = [];
+
+          fileStream.on("data", (chunk: Buffer) => {
+            if (hasError) return;
+            fileSize += chunk.length;
+            chunks.push(chunk);
+          });
+
+          fileStream.on("end", async () => {
+            if (hasError) return;
+
+            try {
+              if (chunks.length === 0) {
+                return rejectUpload(new Error("No file data received"));
+              }
+
+              const fileBuffer = Buffer.concat(chunks);
+              if (fileBuffer.length === 0) {
+                return rejectUpload(new Error("Empty file received"));
+              }
+
+              const readableStream = new Readable();
+              readableStream.push(fileBuffer);
+              readableStream.push(null);
+
+              uploadTimeout = setTimeout(() => {
+                rejectUpload(new Error("S3 upload timed out"));
+              }, 60000); // 60s timeout
+
+              const uploadedMediaUrl = await uploadStreamToS3Service(
+                readableStream,
+                filename,
+                mimeType,
+                email || `story_${customAlphabet("0123456789", 5)()}`
+              );
+
+              if (!uploadedMediaUrl || typeof uploadedMediaUrl !== "string") {
+                throw new Error("Failed to get valid upload URL");
+              }
+
+              if (uploadTimeout) {
+                clearTimeout(uploadTimeout);
+                uploadTimeout = null;
+              }
+
+              media = {
+                url: uploadedMediaUrl,
+                mediaType: "image",
+                filename: filename,
+                size: fileBuffer.length,
+                mimeType: mimeType,
+              };
+              fileUploaded = true;
+              resolveUpload();
+            } catch (error) {
+              if (uploadTimeout) {
+                clearTimeout(uploadTimeout);
+                uploadTimeout = null;
+              }
+              console.error("File processing error:", error);
+              rejectUpload(error);
+            }
+          });
+
+          fileStream.on("error", (error: any) => {
+            if (uploadTimeout) {
+              clearTimeout(uploadTimeout);
+              uploadTimeout = null;
+            }
+            console.error("File stream error:", error);
+            rejectUpload(error);
+          });
+        });
+      });
 
       busboyParser.on("finish", async () => {
         if (hasError) return;
@@ -317,38 +268,21 @@ export const createStoryService = async (req: Request, res: Response) => {
 
           // Validate storyType
           if (!parsedData.storyType) {
-            return errorResponseHandler(
-              "Story type is required",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler("Story type is required", httpStatusCode.BAD_REQUEST,res);
           }
           if (!["text", "photo"].includes(parsedData.storyType)) {
-            return errorResponseHandler(
-              `Invalid story type: ${parsedData.storyType}`,
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler(`Invalid story type: ${parsedData.storyType}`, httpStatusCode.BAD_REQUEST,res);
           }
 
           // Validate based on storyType
-          const hasContent =
-            parsedData.content && parsedData.content.trim().length > 0;
+          const hasContent = parsedData.content && parsedData.content.trim().length > 0;
           const hasMedia = media !== null;
 
           if (parsedData.storyType === "text" && !hasContent) {
-            return errorResponseHandler(
-              "Text content is required for text stories",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler("Text content is required for text stories", httpStatusCode.BAD_REQUEST,res);
           }
           if (parsedData.storyType === "photo" && !hasMedia) {
-            return errorResponseHandler(
-              "Media is required for photo stories",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler("Media is required for photo stories", httpStatusCode.BAD_REQUEST,res);
           }
 
           // Validate content length if present (for both text and photo stories)
@@ -363,38 +297,16 @@ export const createStoryService = async (req: Request, res: Response) => {
           // Validate text styling fields for text stories
           if (parsedData.storyType === "text") {
             if (!parsedData.textColor) {
-              return errorResponseHandler(
-                "Text color is required for text stories",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+              return errorResponseHandler("Text color is required for text stories", httpStatusCode.BAD_REQUEST,res);
             }
-            if (
-              !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$|^[a-zA-Z]+$/.test(
-                parsedData.textColor
-              )
-            ) {
-              return errorResponseHandler(
-                "Invalid text color format",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+            if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$|^[a-zA-Z]+$/.test(parsedData.textColor)) {
+              return errorResponseHandler("Invalid text color format", httpStatusCode.BAD_REQUEST,res);
             }
             if (!parsedData.fontFamily) {
-              return errorResponseHandler(
-                "Font family is required for text stories",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+              return errorResponseHandler("Font family is required for text stories", httpStatusCode.BAD_REQUEST,res);
             }
-            if (
-              !["left", "center", "right"].includes(parsedData.textAlignment)
-            ) {
-              return errorResponseHandler(
-                "Invalid text alignment",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+            if (!["left", "center", "right"].includes(parsedData.textAlignment)) {
+              return errorResponseHandler("Invalid text alignment", httpStatusCode.BAD_REQUEST,res);
             }
           }
 
@@ -402,36 +314,20 @@ export const createStoryService = async (req: Request, res: Response) => {
           let validatedTaggedUsers: string[] = [];
           if (parsedData.taggedUsers && Array.isArray(parsedData.taggedUsers)) {
             if (parsedData.taggedUsers.length > 20) {
-              return errorResponseHandler(
-                "Cannot tag more than 20 users in a story",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+              return errorResponseHandler("Cannot tag more than 20 users in a story", httpStatusCode.BAD_REQUEST,res);
             }
             if (parsedData.taggedUsers.includes(userId)) {
-              return errorResponseHandler(
-                "You cannot tag yourself in the story",
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+              return errorResponseHandler("You cannot tag yourself in the story", httpStatusCode.BAD_REQUEST,res);
             }
 
             for (const id of parsedData.taggedUsers) {
               if (typeof id !== "string" || !id.trim()) {
-                return errorResponseHandler(
-                  "Invalid user ID in tagged users",
-                  httpStatusCode.BAD_REQUEST,
-                  res
-                );
+                return errorResponseHandler("Invalid user ID in tagged users", httpStatusCode.BAD_REQUEST,res);
               }
               try {
                 const userExists = await usersModel.findById(id.trim());
                 if (!userExists) {
-                  return errorResponseHandler(
-                    `Tagged user ${id} not found`,
-                    httpStatusCode.BAD_REQUEST,
-                    res
-                  );
+                  return errorResponseHandler(`Tagged user ${id} not found`, httpStatusCode.BAD_REQUEST,res);
                 }
                 validatedTaggedUsers.push(id.trim());
               } catch (dbError) {
@@ -449,11 +345,7 @@ export const createStoryService = async (req: Request, res: Response) => {
           const validVisibilities = Object.values(PostVisibility);
           const visibility = parsedData.visibility || PostVisibility.PUBLIC;
           if (!validVisibilities.includes(visibility)) {
-            return errorResponseHandler(
-              "Invalid visibility setting",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler("Invalid visibility setting", httpStatusCode.BAD_REQUEST,res);
           }
 
           // Create expiration date (24 hours from now)
@@ -468,18 +360,9 @@ export const createStoryService = async (req: Request, res: Response) => {
             taggedUsers: validatedTaggedUsers,
             visibility: visibility,
             storyType: parsedData.storyType,
-            textColor:
-              parsedData.storyType === "text"
-                ? parsedData.textColor
-                : undefined,
-            fontFamily:
-              parsedData.storyType === "text"
-                ? parsedData.fontFamily
-                : undefined,
-            textAlignment:
-              parsedData.storyType === "text"
-                ? parsedData.textAlignment
-                : undefined,
+            textColor: parsedData.storyType === "text" ? parsedData.textColor : undefined,
+            fontFamily: parsedData.storyType === "text" ? parsedData.fontFamily : undefined,
+            textAlignment: parsedData.storyType === "text" ? parsedData.textAlignment : undefined,
             expiresAt,
           });
 
@@ -488,18 +371,6 @@ export const createStoryService = async (req: Request, res: Response) => {
             { path: "user", select: "-password" },
             { path: "taggedUsers", select: "-password" },
           ]);
-
-          // Send notifications to tagged users (non-blocking)
-          if (validatedTaggedUsers.length > 0) {
-            sendStoryTagNotifications(
-              newStory._id.toString(),
-              userId,
-              validatedTaggedUsers,
-              parsedData.content
-            ).catch((err) =>
-              console.error("Error in story tag notifications:", err)
-            );
-          }
 
           // Send success response
           res.status(httpStatusCode.CREATED).json({
@@ -527,19 +398,12 @@ export const createStoryService = async (req: Request, res: Response) => {
 
       req.on("error", (error) => {
         console.error("Request stream error:", error);
-        return handleError(
-          "Error reading request data",
-          httpStatusCode.BAD_REQUEST
-        );
+        return handleError("Error reading request data", httpStatusCode.BAD_REQUEST);
       });
 
       // Add timeout for busboy parsing
       const parserTimeout = setTimeout(() => {
-        errorResponseHandler(
-          "Request parsing timed out",
-          httpStatusCode.REQUEST_TIMEOUT,
-          res
-        );
+        errorResponseHandler("Request parsing timed out", httpStatusCode.REQUEST_TIMEOUT,res);
       }, 30000);
 
       busboyParser.on("finish", () => {
@@ -552,55 +416,26 @@ export const createStoryService = async (req: Request, res: Response) => {
     // JSON request handling
     try {
       if (!req.body || typeof req.body !== "object") {
-        return errorResponseHandler(
-          "Invalid request body",
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler("Invalid request body", httpStatusCode.BAD_REQUEST, res);
       }
 
-      const {
-        content,
-        media,
-        taggedUsers,
-        visibility,
-        storyType,
-        textColor,
-        fontFamily,
-        textAlignment,
-      } = req.body;
+      const { content, media, taggedUsers, visibility, storyType, textColor, fontFamily, textAlignment } = req.body;
 
       if (!storyType) {
-        return errorResponseHandler(
-          "Story type is required",
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler("Story type is required", httpStatusCode.BAD_REQUEST, res);
       }
       if (!["text", "photo"].includes(storyType)) {
-        return errorResponseHandler(
-          `Invalid story type: ${storyType}`,
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler(`Invalid story type: ${storyType}`, httpStatusCode.BAD_REQUEST, res);
       }
 
       const hasContent = content && content.trim().length > 0;
       const hasMedia = media && typeof media === "object";
 
       if (storyType === "text" && !hasContent) {
-        return errorResponseHandler(
-          "Text content is required for text stories",
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler("Text content is required for text stories", httpStatusCode.BAD_REQUEST, res);
       }
       if (storyType === "photo" && !hasMedia) {
-        return errorResponseHandler(
-          "Media is required for photo stories",
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler("Media is required for photo stories", httpStatusCode.BAD_REQUEST, res);
       }
 
       // Validate content length if present (for both text and photo stories)
@@ -614,93 +449,49 @@ export const createStoryService = async (req: Request, res: Response) => {
 
       if (storyType === "text") {
         if (!textColor) {
-          return errorResponseHandler(
-            "Text color is required for text stories",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Text color is required for text stories", httpStatusCode.BAD_REQUEST, res);
         }
         if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$|^[a-zA-Z]+$/.test(textColor)) {
-          return errorResponseHandler(
-            "Invalid text color format",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Invalid text color format", httpStatusCode.BAD_REQUEST, res);
         }
         if (!fontFamily) {
-          return errorResponseHandler(
-            "Font family is required for text stories",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Font family is required for text stories", httpStatusCode.BAD_REQUEST, res);
         }
         if (!["left", "center", "right"].includes(textAlignment)) {
-          return errorResponseHandler(
-            "Invalid text alignment",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Invalid text alignment", httpStatusCode.BAD_REQUEST, res);
         }
       }
 
       if (hasMedia) {
         const { url, mediaType } = media;
         if (!url || typeof url !== "string" || !url.trim()) {
-          return errorResponseHandler(
-            "Media URL is required and must be a valid string",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Media URL is required and must be a valid string", httpStatusCode.BAD_REQUEST, res);
         }
         if (!["image"].includes(mediaType)) {
-          return errorResponseHandler(
-            "Media type must be 'image' for photo stories",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Media type must be 'image' for photo stories", httpStatusCode.BAD_REQUEST, res);
         }
       }
 
       let validatedTaggedUsers: string[] = [];
       if (taggedUsers) {
         if (!Array.isArray(taggedUsers)) {
-          return errorResponseHandler(
-            "Tagged users must be an array",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Tagged users must be an array", httpStatusCode.BAD_REQUEST, res);
         }
         if (taggedUsers.length > 20) {
-          return errorResponseHandler(
-            "Cannot tag more than 20 users in a story",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("Cannot tag more than 20 users in a story", httpStatusCode.BAD_REQUEST, res);
         }
         if (taggedUsers.includes(userId)) {
-          return errorResponseHandler(
-            "You cannot tag yourself in the story",
-            httpStatusCode.BAD_REQUEST,
-            res
-          );
+          return errorResponseHandler("You cannot tag yourself in the story", httpStatusCode.BAD_REQUEST, res);
         }
 
         for (const id of taggedUsers) {
           if (typeof id !== "string" || !id.trim()) {
-            return errorResponseHandler(
-              "Invalid user ID in tagged users",
-              httpStatusCode.BAD_REQUEST,
-              res
-            );
+            return errorResponseHandler("Invalid user ID in tagged users", httpStatusCode.BAD_REQUEST, res);
           }
           try {
             const userExists = await usersModel.findById(id.trim());
             if (!userExists) {
-              return errorResponseHandler(
-                `Tagged user ${id} not found`,
-                httpStatusCode.BAD_REQUEST,
-                res
-              );
+              return errorResponseHandler(`Tagged user ${id} not found`, httpStatusCode.BAD_REQUEST, res);
             }
             validatedTaggedUsers.push(id.trim());
           } catch (dbError) {
@@ -717,11 +508,7 @@ export const createStoryService = async (req: Request, res: Response) => {
       const validVisibilities = Object.values(PostVisibility);
       const visibilityValue = visibility || PostVisibility.PUBLIC;
       if (!validVisibilities.includes(visibilityValue)) {
-        return errorResponseHandler(
-          "Invalid visibility setting",
-          httpStatusCode.BAD_REQUEST,
-          res
-        );
+        return errorResponseHandler("Invalid visibility setting", httpStatusCode.BAD_REQUEST, res);
       }
 
       const expiresAt = new Date();
@@ -745,18 +532,6 @@ export const createStoryService = async (req: Request, res: Response) => {
         { path: "taggedUsers", select: "-password" },
       ]);
 
-      // Send notifications to tagged users (non-blocking)
-      if (validatedTaggedUsers.length > 0) {
-        sendStoryTagNotifications(
-          newStory._id.toString(),
-          userId,
-          validatedTaggedUsers,
-          content
-        ).catch((err) =>
-          console.error("Error in story tag notifications:", err)
-        );
-      }
-
       // Send success response
       return res.status(httpStatusCode.CREATED).json({
         success: true,
@@ -775,8 +550,9 @@ export const createStoryService = async (req: Request, res: Response) => {
 };
 
 export const getUserStoriesService = async (req: Request, res: Response) => {
+  
   const { userId } = req.params;
-
+  
   const { id: currentUserId } = req.user as JwtPayload;
 
   const user = await usersModel.findById(userId);
@@ -792,12 +568,12 @@ export const getUserStoriesService = async (req: Request, res: Response) => {
     follower_id: currentUserId,
     following_id: userId,
     relationship_status: FollowRelationshipStatus.FOLLOWING,
-    is_approved: true,
+    is_approved: true
   });
 
   const query: any = {
     user: userId,
-    expiresAt: { $gt: new Date() },
+    expiresAt: { $gt: new Date() }
   };
 
   if (userId !== currentUserId.toString() && !isFollowing) {
@@ -807,9 +583,9 @@ export const getUserStoriesService = async (req: Request, res: Response) => {
   const stories = await storyModel
     .find(query)
     .sort({ createdAt: -1 })
-    .populate("user", "-password")
-    .populate("taggedUsers", "-password")
-    .populate("viewedBy", "-password");
+    .populate('user', '-password')
+    .populate('taggedUsers', '-password')
+    .populate('viewedBy', '-password');
 
   if (stories.length === 0) {
     return errorResponseHandler(
@@ -822,48 +598,47 @@ export const getUserStoriesService = async (req: Request, res: Response) => {
   return {
     success: true,
     message: "Stories retrieved successfully",
-    data: stories,
+    data: stories
   };
+
 };
-export const getFollowingStoriesService = async (
-  req: Request,
-  res: Response
-) => {
-  const { id: userId } = req.user as JwtPayload;
+export const getFollowingStoriesService = async (req: Request, res: Response) => {
+  
+    const { id: userId } = req.user as JwtPayload;
 
-  const following = await followModel
-    .find({
-      follower_id: userId,
-      relationship_status: FollowRelationshipStatus.FOLLOWING,
-      is_approved: true,
-    })
-    .select("following_id");
+    const following = await followModel
+      .find({
+        follower_id: userId,
+        relationship_status: FollowRelationshipStatus.FOLLOWING,
+        is_approved: true
+      })
+      .select('following_id');
 
-  const followingIds = following.map((f) => f.following_id);
-  followingIds.push(userId); // Include user's own stories
+    const followingIds = following.map(f => f.following_id);
+    followingIds.push(userId); // Include user's own stories
 
-  const stories = await storyModel
-    .find({
-      user: { $in: followingIds },
-      expiresAt: { $gt: new Date() },
-    })
-    .sort({ createdAt: -1 })
-    .populate("user", "-password")
-    .populate("taggedUsers", "-password")
-    .populate("viewedBy", "-password");
+    const stories = await storyModel
+      .find({
+        user: { $in: followingIds },
+        expiresAt: { $gt: new Date() }
+      })
+      .sort({ createdAt: -1 })
+      .populate('user', '-password')
+      .populate('taggedUsers', '-password')
+      .populate('viewedBy', '-password');
 
-  if (stories.length === 0) {
-    return errorResponseHandler(
-      "No stories found",
-      httpStatusCode.NOT_FOUND,
-      res
-    );
-  }
-  return {
-    success: true,
-    message: "Following stories retrieved successfully",
-    data: stories,
-  };
+    if (stories.length === 0) {
+      return errorResponseHandler(
+        "No stories found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+    return {
+      success: true,
+      message: "Following stories retrieved successfully",
+      data: stories
+    };
 };
 export const viewStoryService = async (req: Request, res: Response) => {
   const { id: userId } = req.user as JwtPayload;
@@ -898,7 +673,7 @@ export const viewStoryService = async (req: Request, res: Response) => {
 
   return {
     success: true,
-    message: "Story viewed successfully",
+    message: "Story viewed successfully"
   };
 };
 export const getStoryByIdService = async (req: Request, res: Response) => {
@@ -908,9 +683,9 @@ export const getStoryByIdService = async (req: Request, res: Response) => {
 
     const story = await storyModel
       .findById(storyId)
-      .populate("user", "-password")
-      .populate("taggedUsers", "-password")
-      .populate("viewedBy", "-password");
+      .populate('user', '-password')
+      .populate('taggedUsers', '-password')
+      .populate('viewedBy', '-password');
 
     if (!story) {
       return errorResponseHandler(
@@ -936,7 +711,7 @@ export const getStoryByIdService = async (req: Request, res: Response) => {
         follower_id: userId,
         following_id: story.user._id,
         relationship_status: FollowRelationshipStatus.FOLLOWING,
-        is_approved: true,
+        is_approved: true
       });
 
       if (!isFollowing) {
@@ -951,7 +726,7 @@ export const getStoryByIdService = async (req: Request, res: Response) => {
     return {
       success: true,
       message: "Story retrieved successfully",
-      data: story,
+      data: story
     };
   } catch (error) {
     throw error;
@@ -993,6 +768,6 @@ export const deleteStoryService = async (req: Request, res: Response) => {
 
   return {
     success: true,
-    message: "Story deleted successfully",
+    message: "Story deleted successfully"
   };
 };
