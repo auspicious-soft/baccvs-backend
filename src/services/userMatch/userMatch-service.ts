@@ -441,6 +441,28 @@ export const getUserFeedService = async (req: Request, res: Response) => {
     drugs,
   } = req.body;
 
+  // Helper to read a filter from body or query and normalize it to an array
+  const readFilter = (key: string) => {
+    const raw =
+      req.body && (req.body as any)[key] !== undefined
+        ? (req.body as any)[key]
+        : (req.query as any)[key];
+    if (raw === undefined || raw === null) return null;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string")
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    return [raw];
+  };
+
+  // Escape for regex and convert string values to case-insensitive exact-match regexes
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const toRegexArray = (arr: any[]) =>
+    arr.map((v) =>
+      typeof v === "string" ? new RegExp(`^${escapeRegex(v)}$`, "i") : v
+    );
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
@@ -513,57 +535,56 @@ export const getUserFeedService = async (req: Request, res: Response) => {
   }
 
   // 🧑‍🤝‍🧑 Gender
-  if (interestedIn) {
-    const genderFilter = Array.isArray(interestedIn)
-      ? interestedIn
-      : [interestedIn];
-    userQuery.gender = { $in: genderFilter };
+  const interestedInFilter = readFilter("interestedIn");
+  if (interestedInFilter) {
+    userQuery.gender = { $in: toRegexArray(interestedInFilter) };
   }
 
-  if (musicStyles) {
-    const music = Array.isArray(musicStyles) ? musicStyles : [musicStyles];
-    userQuery.musicStyles = { $in: music };
+  const musicStylesFilter = readFilter("musicStyles");
+  if (musicStylesFilter) {
+    userQuery.musicStyles = { $in: toRegexArray(musicStylesFilter) };
   }
 
-  if (interestCategories) {
-    const interests = Array.isArray(interestCategories)
-      ? interestCategories
-      : [interestCategories];
-    userQuery.interestCategories = { $in: interests };
-  }
-
-  if (atmosphereVibes) {
-    const vibes = Array.isArray(atmosphereVibes)
-      ? atmosphereVibes
-      : [atmosphereVibes];
-    userQuery.atmosphereVibes = { $in: vibes };
-  }
-
-  if (eventTypes) {
-    const events = Array.isArray(eventTypes) ? eventTypes : [eventTypes];
-    userQuery.eventTypes = { $in: events };
-  }
-
-  if (language) {
-    const langs = Array.isArray(language) ? language : [language];
-    userQuery.language = { $in: langs };
-  }
-
-  if (drinking) {
-    userQuery.drinking = {
-      $in: Array.isArray(drinking) ? drinking : [drinking],
+  const interestCategoriesFilter = readFilter("interestCategories");
+  if (interestCategoriesFilter) {
+    userQuery.interestCategories = {
+      $in: toRegexArray(interestCategoriesFilter),
     };
   }
-  if (smoke) {
-    userQuery.smoke = { $in: Array.isArray(smoke) ? smoke : [smoke] };
+
+  const atmosphereVibesFilter = readFilter("atmosphereVibes");
+  if (atmosphereVibesFilter) {
+    userQuery.atmosphereVibes = { $in: toRegexArray(atmosphereVibesFilter) };
   }
-  if (marijuana) {
-    userQuery.marijuana = {
-      $in: Array.isArray(marijuana) ? marijuana : [marijuana],
-    };
+
+  const eventTypesFilter = readFilter("eventTypes");
+  if (eventTypesFilter) {
+    userQuery.eventTypes = { $in: toRegexArray(eventTypesFilter) };
   }
-  if (drugs) {
-    userQuery.drugs = { $in: Array.isArray(drugs) ? drugs : [drugs] };
+
+  const languageFilter = readFilter("language");
+  if (languageFilter) {
+    userQuery.language = { $in: toRegexArray(languageFilter) };
+  }
+
+  const drinkingFilter = readFilter("drinking");
+  if (drinkingFilter) {
+    userQuery.drinking = { $in: toRegexArray(drinkingFilter) };
+  }
+
+  const smokeFilter = readFilter("smoke");
+  if (smokeFilter) {
+    userQuery.smoke = { $in: toRegexArray(smokeFilter) };
+  }
+
+  const marijuanaFilter = readFilter("marijuana");
+  if (marijuanaFilter) {
+    userQuery.marijuana = { $in: toRegexArray(marijuanaFilter) };
+  }
+
+  const drugsFilter = readFilter("drugs");
+  if (drugsFilter) {
+    userQuery.drugs = { $in: toRegexArray(drugsFilter) };
   }
 
   // ✨ Boosted users first
