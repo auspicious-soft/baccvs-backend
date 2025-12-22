@@ -18,6 +18,11 @@ export const checkAuth = async (req: Request, res: Response, next: NextFunction)
         const token = req.headers.authorization?.split(" ")[1]
         if (!token) return res.status(httpStatusCode.UNAUTHORIZED).json({ success: false, message: "Unauthorized token missing" })
 
+         const isvalidUser = await usersModel.findOne({token:token}).exec();
+         if(!isvalidUser){
+            return res.status(httpStatusCode.UNAUTHORIZED).json({ success: false, message: "Unauthorized token expired or invalid" })
+         }   
+
         // const isMobileApp = req.headers['x-client-type'] === 'mobile'
 
         // if (isMobileApp) {

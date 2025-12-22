@@ -9,7 +9,7 @@ export enum InterestCategory {
   EVENT_HANGOUTS = "Event Hangouts",
   SPORTS_NIGHTS = "Sports Nights",
   MOVIE_TV_SHOWS = "Movie & TV Shows",
-  FLIRTING = "Flirting"
+  FLIRTING = "Flirting",
 }
 
 export enum MusicStyle {
@@ -25,7 +25,7 @@ export enum MusicStyle {
   AFRO_HOUSE = "Afro-House",
   PROGRESSIVE_HOUSE = "Progressive House",
   MELODIC_HOUSE = "Melodic House",
-  MELODIC_TECH = "Melodic Tech"
+  MELODIC_TECH = "Melodic Tech",
 }
 
 export enum AtmosphereVibe {
@@ -35,7 +35,7 @@ export enum AtmosphereVibe {
   UNDERGROUND = "Underground",
   ELEGANT_SELECTIVE = "Elegant & Selective",
   SURPRISE_MYSTERY = "Surprise & Mystery",
-  EXTRAVAGANT_COSTUME = "Extravagant & Costume Party"
+  EXTRAVAGANT_COSTUME = "Extravagant & Costume Party",
 }
 
 export enum EventType {
@@ -47,14 +47,14 @@ export enum EventType {
   RAVES = "Raves",
   VIP_EVENTS = "VIP Events",
   THEMED_NIGHT = "Themed night",
-  NETWORKING = "Networking"
+  NETWORKING = "Networking",
 }
 
-
-const UserSchema  = new mongoose.Schema( {
+const UserSchema = new mongoose.Schema(
+  {
     identifier: {
       type: String,
-       // required: true,
+      // required: true,
       unique: true,
     },
     email: {
@@ -62,28 +62,28 @@ const UserSchema  = new mongoose.Schema( {
       required: true,
       unique: true,
       trim: true,
-      lowercase: true
+      lowercase: true,
     },
     phoneNumber: {
       type: String,
       required: true,
       unique: true,
-      trim: true
+      trim: true,
     },
     countryCode: {
       type: String,
-      default: "+62"
+      default: "+62",
     },
     password: {
       type: String,
       // required: true,
-      minlength: 8
+      minlength: 8,
     },
     userName: {
       type: String,
       required: true,
       // unique: true,
-      trim: true
+      trim: true,
     },
     dob: {
       type: Date,
@@ -91,38 +91,45 @@ const UserSchema  = new mongoose.Schema( {
     },
     gender: {
       type: String,
-      enum: ["male", "female","other"],
+      enum: ["male", "female", "other"],
       // required: true
     },
     interestedIn: {
       type: String,
-      enum: ["male", "female","everyone"],
+      enum: ["male", "female", "everyone"],
       // required: true
     },
-    photos: [{
-      type: String,
-      default: []
-    }],
+    photos: [
+      {
+        type: String,
+        default: [],
+      },
+    ],
+    selectedSquad: {
+      type: Types.ObjectId,
+      ref: "Squad",
+      default: null,
+    },
     token: {
       type: String,
     },
     isEmailVerified: {
       type: Boolean,
-      default: false
+      default: false,
     },
     authType: {
       type: String,
       enum: ["Email", "Twitter", "Facebook", "Apple", "Google"],
       default: "Email",
-    },   
-    referredBy:{
+    },
+    referredBy: {
       type: Types.ObjectId,
-      ref: "ReferralCode"
-    },    
+      ref: "ReferralCode",
+    },
     fcmToken: {
       type: String,
       default: null,
-    }, 
+    },
     tempEmail: {
       type: String,
       default: null,
@@ -131,132 +138,150 @@ const UserSchema  = new mongoose.Schema( {
       type: String,
       default: null,
     },
-    accountType:{
-      type:String,
-      enum:["public","matches","follower"],
-      default:"public"
+    accountType: {
+      type: String,
+      enum: ["public", "matches", "follower"],
+      default: "public",
     },
-    location:{
+    location: {
       type: {
         type: String,
-        default: 'Point'
+        default: "Point",
       },
       coordinates: {
         type: [Number, Number],
-        default: [0, 0]
+        default: [0, 0],
       },
-      address:{
+      address: {
         type: String,
-        default: null
+        default: null,
       },
     },
-    zodiacSign:{
+    zodiacSign: {
       type: String,
-      default: null
+      default: null,
     },
-    language:[{
+    language: [
+      {
+        type: String,
+        default: null,
+      },
+    ],
+    pushNotification: {
+      type: Boolean,
+      default: true,
+    },
+    newsLetterNotification: {
+      type: Boolean,
+      default: true,
+    },
+    eventsNotification: {
+      type: Boolean,
+      default: true,
+    },
+    chatNotification: {
+      type: Boolean,
+      default: true,
+    },
+    twoFactorAuthentication: {
+      type: Boolean,
+      default: false,
+    },
+    about: {
       type: String,
-      default: null
-    }],
-    pushNotification:{
-      type:Boolean,
-      default:true
+      default: null,
     },
-    newsLetterNotification:{
-      type:Boolean,
-      default:true
-    },
-    eventsNotification:{
-      type:Boolean,
-      default:true
-    },
-    chatNotification:{
-      type:Boolean,
-      default:true
-    },
-    twoFactorAuthentication:{
-      type:Boolean,
-      default:false
-    },
-    about:{
-      type:String,
-      default:null
-    },
-    drinking:{
-      type:String,
-      enum: ["Yes", "No","prefer not to say"],
-      default:null
-    },
-    smoke:{
-      type:String,
-      enum: ["Yes", "No","prefer not to say"],
-      default:null
-    },
-    marijuana:{
-      type:String,
-      enum: ["Yes", "No","prefer not to say"],
-      default:null
-    },
-    drugs:{
-      type:String,
-      enum: ["Yes", "No","prefer not to say"],
-      default:null
-    },
-    stripeCustomerId:{
+    drinking: {
       type: String,
-      default: null
+      enum: ["Yes", "No", "prefer not to say"],
+      default: null,
     },
-    interestCategories: [{
+    smoke: {
       type: String,
-      enum: Object.values(InterestCategory),
-      default: []
-    }],
-    musicStyles: [{
-      type: String,
-      enum: Object.values(MusicStyle),
-      default: []
-    }],
-    atmosphereVibes: [{
-      type: String,
-      enum: Object.values(AtmosphereVibe),
-      default: []
-    }],
-    eventTypes: [{
-      type: String,
-      enum: Object.values(EventType),
-      default: []
-    }],
-    height:{
-      type: String,
-      default: null
+      enum: ["Yes", "No", "prefer not to say"],
+      default: null,
     },
-    totalLikes:{
+    marijuana: {
+      type: String,
+      enum: ["Yes", "No", "prefer not to say"],
+      default: null,
+    },
+    drugs: {
+      type: String,
+      enum: ["Yes", "No", "prefer not to say"],
+      default: null,
+    },
+    stripeCustomerId: {
+      type: String,
+      default: null,
+    },
+    interestCategories: [
+      {
+        type: String,
+        enum: Object.values(InterestCategory),
+        default: [],
+      },
+    ],
+    musicStyles: [
+      {
+        type: String,
+        enum: Object.values(MusicStyle),
+        default: [],
+      },
+    ],
+    atmosphereVibes: [
+      {
+        type: String,
+        enum: Object.values(AtmosphereVibe),
+        default: [],
+      },
+    ],
+    eventTypes: [
+      {
+        type: String,
+        enum: Object.values(EventType),
+        default: [],
+      },
+    ],
+    height: {
+      type: String,
+      default: null,
+    },
+    work: {
+      type: String,
+      default: null,
+    },
+    totalLikes: {
       type: Number,
-      default: 0
+      default: 0,
     },
-    totalSuperLikes:{
+    unlimitedLikes: {
+      type: Boolean,
+      default: false,
+    },
+    unlimitedLikesExpiry: {
+      type: Date,
+      default: null,
+    },
+    totalSuperLikes: {
       type: Number,
-      default: 0
+      default: 0,
     },
-    work:{
-      type:String,
-      default:null
-    },
-    totalBoosts:{
+    totalBoosts: {
       type: Number,
-      default: 0
+      default: 0,
     },
-    status:{
+    status: {
       type: String,
       enum: ["active", "deleted"],
-      default: "active"
+      default: "active",
     },
   },
   {
-    timestamps: true
+    timestamps: true,
   }
-)
+);
 
-UserSchema.index({ location: '2dsphere' });
+UserSchema.index({ location: "2dsphere" });
 
-export const usersModel = mongoose.model("users", UserSchema)
+export const usersModel = mongoose.model("users", UserSchema);

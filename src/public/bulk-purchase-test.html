@@ -1,454 +1,699 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ticket Purchase Test</title>
-  <script src="https://js.stripe.com/v3/"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 600px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-    .container {
-      background-color: #f9f9f9;
-      border-radius: 8px;
-      padding: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    h1 {
-      color: #333;
-      text-align: center;
-    }
-    .tabs {
-      display: flex;
-      margin-bottom: 20px;
-    }
-    .tab {
-      flex: 1;
-      text-align: center;
-      padding: 10px;
-      background-color: #e0e0e0;
-      cursor: pointer;
-      border-radius: 4px 4px 0 0;
-      transition: background-color 0.3s;
-    }
-    .tab.active {
-      background-color: #4CAF50;
-      color: white;
-    }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    label {
-      display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-    input {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-sizing: border-box;
-    }
-    button {
-      background-color: #4CAF50;
-      color: white;
-      padding: 10px 15px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      width: 100%;
-      font-size: 16px;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
-    button:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
-    #card-element {
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      margin-bottom: 15px;
-    }
-    #card-errors {
-      color: red;
-      margin-top: 5px;
-      min-height: 20px;
-    }
-    .success-message {
-      color: green;
-      background-color: #e8f5e9;
-      padding: 10px;
-      border-radius: 4px;
-      margin-top: 20px;
-      display: none;
-    }
-    .error-message {
-      color: red;
-      background-color: #ffebee;
-      padding: 10px;
-      border-radius: 4px;
-      margin-top: 20px;
-      display: none;
-    }
-    .payment-details {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #e8f5e9;
-      border-radius: 4px;
-      display: none;
-    }
-    .loading {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 3px solid rgba(255,255,255,.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: spin 1s ease-in-out infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .form-container {
-      display: none;
-    }
-    .form-container.active {
-      display: block;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Ticket Purchase Test</h1>
-    
-    <div class="tabs">
-      <div class="tab active" data-tab="bulk">Bulk Purchase</div>
-      <div class="tab" data-tab="resale">Resale Purchase</div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket Purchase Test</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .container {
+        background-color: #f9f9f9;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+      .tabs {
+        display: flex;
+        margin-bottom: 20px;
+      }
+      .tab {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        background-color: #e0e0e0;
+        cursor: pointer;
+        border-radius: 4px 4px 0 0;
+        transition: background-color 0.3s;
+      }
+      .tab.active {
+        background-color: #4caf50;
+        color: white;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      #card-element {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 15px;
+      }
+      #card-errors {
+        color: red;
+        margin-top: 5px;
+        min-height: 20px;
+      }
+      .success-message {
+        color: green;
+        background-color: #e8f5e9;
+        padding: 10px;
+        border-radius: 4px;
+        margin-top: 20px;
+        display: none;
+      }
+      .error-message {
+        color: red;
+        background-color: #ffebee;
+        padding: 10px;
+        border-radius: 4px;
+        margin-top: 20px;
+        display: none;
+      }
+      .payment-details {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #e8f5e9;
+        border-radius: 4px;
+        display: none;
+      }
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #fff;
+        animation: spin 1s ease-in-out infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .form-container {
+        display: none;
+      }
+      .form-container.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Ticket Purchase Test</h1>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="bulk">Bulk Purchase</div>
+        <div class="tab" data-tab="resale">Resale Purchase</div>
+        <div class="tab" data-tab="like">Purchase Like</div>
+      </div>
+
+      <div id="bulk-form" class="form-container active">
+        <div class="form-group">
+          <label for="bulk-ticket-id">Ticket ID:</label>
+          <input
+            type="text"
+            id="bulk-ticket-id"
+            placeholder="Enter ticket ID"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="bulk-event-id">Event ID:</label>
+          <input type="text" id="bulk-event-id" placeholder="Enter event ID" />
+        </div>
+
+        <div class="form-group">
+          <label for="bulk-quantity">Quantity:</label>
+          <input type="number" id="bulk-quantity" min="1" value="1" />
+        </div>
+
+        <div class="form-group">
+          <label for="bulk-amount">Price per Ticket (USD):</label>
+          <input
+            type="number"
+            id="bulk-amount"
+            min="0.01"
+            step="0.01"
+            value="10.00"
+          />
+        </div>
+
+        <button id="bulk-create-payment" type="button">
+          Create Payment Intent
+        </button>
+      </div>
+
+      <div id="resale-form" class="form-container">
+        <div class="form-group">
+          <label for="resale-id">Resale Listing ID:</label>
+          <input
+            type="text"
+            id="resale-id"
+            placeholder="Enter resale listing ID"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="resale-quantity">Quantity:</label>
+          <input type="number" id="resale-quantity" min="1" value="1" />
+        </div>
+
+        <div class="form-group">
+          <label for="resale-amount">Resale Price per Ticket (USD):</label>
+          <input
+            type="number"
+            id="resale-amount"
+            min="0.01"
+            step="0.01"
+            value="10.00"
+          />
+        </div>
+
+        <button id="resale-create-payment" type="button">
+          Create Payment Intent
+        </button>
+      </div>
+
+      <div id="like-form" class="form-container">
+        <div class="form-group">
+          <label for="like-product-id">Like Product ID:</label>
+          <input
+            type="text"
+            id="like-product-id"
+            placeholder="Enter like product ID"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Product Type (Auto-detected):</label>
+          <input
+            type="text"
+            id="like-product-type"
+            readonly
+            placeholder="Will show: Likes, Super Likes, or Boosts"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Credits (Auto-detected):</label>
+          <input
+            type="text"
+            id="like-product-credits"
+            readonly
+            placeholder="Will show: Number or 'Unlimited'"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Price (Auto-detected):</label>
+          <input
+            type="text"
+            id="like-product-price"
+            readonly
+            placeholder="Will show: USD price"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Billing Interval (Auto-detected):</label>
+          <input
+            type="text"
+            id="like-product-interval"
+            readonly
+            placeholder="Will show: 'Monthly' or 'One-time'"
+          />
+        </div>
+
+        <button id="like-create-payment" type="button">
+          Create Payment Intent
+        </button>
+      </div>
+
+      <div id="payment-form" style="display: none; margin-top: 20px">
+        <h2>Complete Payment</h2>
+        <div id="card-element">
+          <!-- Stripe Card Element will be inserted here -->
+        </div>
+        <div id="card-errors" role="alert"></div>
+        <button id="submit-payment" type="button">Pay Now</button>
+      </div>
+
+      <div id="payment-details" class="payment-details">
+        <h3>Payment Details</h3>
+        <p><strong>Event:</strong> <span id="event-name"></span></p>
+        <p><strong>Ticket:</strong> <span id="ticket-name"></span></p>
+        <p><strong>Quantity:</strong> <span id="display-quantity"></span></p>
+        <p>
+          <strong>Price per Ticket:</strong> $<span
+            id="price-per-ticket"
+          ></span>
+        </p>
+        <p><strong>Total Amount:</strong> $<span id="total-amount"></span></p>
+      </div>
+
+      <div id="success-message" class="success-message">
+        <h3>Payment Successful!</h3>
+        <p>Your purchase has been completed successfully.</p>
+        <p><strong>Payment ID:</strong> <span id="payment-id"></span></p>
+      </div>
+
+      <div id="error-message" class="error-message">
+        <h3>Payment Failed</h3>
+        <p id="error-details"></p>
+      </div>
     </div>
-    
-    <div id="bulk-form" class="form-container active">
-      <div class="form-group">
-        <label for="bulk-ticket-id">Ticket ID:</label>
-        <input type="text" id="bulk-ticket-id" placeholder="Enter ticket ID">
-      </div>
-      
-      <div class="form-group">
-        <label for="bulk-event-id">Event ID:</label>
-        <input type="text" id="bulk-event-id" placeholder="Enter event ID">
-      </div>
-      
-      <div class="form-group">
-        <label for="bulk-quantity">Quantity:</label>
-        <input type="number" id="bulk-quantity" min="1" value="1">
-      </div>
-      
-      <div class="form-group">
-        <label for="bulk-amount">Price per Ticket (USD):</label>
-        <input type="number" id="bulk-amount" min="0.01" step="0.01" value="10.00">
-      </div>
-      
-      <button id="bulk-create-payment" type="button">Create Payment Intent</button>
-    </div>
-    
-    <div id="resale-form" class="form-container">
-      <div class="form-group">
-        <label for="resale-id">Resale Listing ID:</label>
-        <input type="text" id="resale-id" placeholder="Enter resale listing ID">
-      </div>
-      
-      <div class="form-group">
-        <label for="resale-quantity">Quantity:</label>
-        <input type="number" id="resale-quantity" min="1" value="1">
-      </div>
-      
-      <div class="form-group">
-        <label for="resale-amount">Resale Price per Ticket (USD):</label>
-        <input type="number" id="resale-amount" min="0.01" step="0.01" value="10.00">
-      </div>
-      
-      <button id="resale-create-payment" type="button">Create Payment Intent</button>
-    </div>
-    
-    <div id="payment-form" style="display: none; margin-top: 20px;">
-      <h2>Complete Payment</h2>
-      <div id="card-element">
-        <!-- Stripe Card Element will be inserted here -->
-      </div>
-      <div id="card-errors" role="alert"></div>
-      <button id="submit-payment" type="button">Pay Now</button>
-    </div>
-    
-    <div id="payment-details" class="payment-details">
-      <h3>Payment Details</h3>
-      <p><strong>Event:</strong> <span id="event-name"></span></p>
-      <p><strong>Ticket:</strong> <span id="ticket-name"></span></p>
-      <p><strong>Quantity:</strong> <span id="display-quantity"></span></p>
-      <p><strong>Price per Ticket:</strong> $<span id="price-per-ticket"></span></p>
-      <p><strong>Total Amount:</strong> $<span id="total-amount"></span></p>
-    </div>
-    
-    <div id="success-message" class="success-message">
-      <h3>Payment Successful!</h3>
-      <p>Your purchase has been completed successfully.</p>
-      <p><strong>Payment ID:</strong> <span id="payment-id"></span></p>
-    </div>
-    
-    <div id="error-message" class="error-message">
-      <h3>Payment Failed</h3>
-      <p id="error-details"></p>
-    </div>
-  </div>
-  
-  <script>
-    // Replace with your actual Stripe publishable key from .env
-    const stripe = Stripe('pk_test_51SOBQSK5obxLtxPFldnknRr2XbKwpXAk4Ly9CxPKq74JhZUC7JNjPXEMfQlORsx3BEOuQ8I8xCKXPM1jnkBmUNhb00HxysAAi1');
-    let elements;
-    let cardElement;
-    let paymentIntentId;
-    let clientSecret;
-    
-    // DOM Elements
-    const tabs = document.querySelectorAll('.tab');
-    const bulkForm = document.getElementById('bulk-form');
-    const resaleForm = document.getElementById('resale-form');
-    const bulkTicketIdInput = document.getElementById('bulk-ticket-id');
-    const bulkEventIdInput = document.getElementById('bulk-event-id');
-    const bulkQuantityInput = document.getElementById('bulk-quantity');
-    const bulkAmountInput = document.getElementById('bulk-amount');
-    const bulkCreatePaymentButton = document.getElementById('bulk-create-payment');
-    const resaleIdInput = document.getElementById('resale-id');
-    const resaleQuantityInput = document.getElementById('resale-quantity');
-    const resaleAmountInput = document.getElementById('resale-amount');
-    const resaleCreatePaymentButton = document.getElementById('resale-create-payment');
-    const paymentForm = document.getElementById('payment-form');
-    const submitPaymentButton = document.getElementById('submit-payment');
-    const cardErrors = document.getElementById('card-errors');
-    const successMessage = document.getElementById('success-message');
-    const errorMessage = document.getElementById('error-message');
-    const errorDetails = document.getElementById('error-details');
-    const paymentId = document.getElementById('payment-id');
-    const paymentDetails = document.getElementById('payment-details');
-    const eventNameSpan = document.getElementById('event-name');
-    const ticketNameSpan = document.getElementById('ticket-name');
-    const displayQuantitySpan = document.getElementById('display-quantity');
-    const pricePerTicketSpan = document.getElementById('price-per-ticket');
-    const totalAmountSpan = document.getElementById('total-amount');
-    
-    // Tab Switching
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        
-        const tabName = tab.getAttribute('data-tab');
-        bulkForm.classList.toggle('active', tabName === 'bulk');
-        resaleForm.classList.toggle('active', tabName === 'resale');
-        
-        // Reset forms and UI
-        resetForm();
+
+    <script>
+      // Replace with your actual Stripe publishable key from .env
+      const stripe = Stripe(
+        "pk_test_51SOBQJGkVWwtyJTcTOh3sbwyuoJaudVAGlVoN7aBoh9qTKFLpMCPvzDCmHHRcbMxzoE6VX865eAY7WKYGGGS8LDj00JXGiBVH9"
+      );
+      let elements;
+      let cardElement;
+      let paymentIntentId;
+      let clientSecret;
+
+      // DOM Elements
+      const tabs = document.querySelectorAll(".tab");
+      const bulkForm = document.getElementById("bulk-form");
+      const resaleForm = document.getElementById("resale-form");
+      const likeForm = document.getElementById("like-form");
+      const bulkTicketIdInput = document.getElementById("bulk-ticket-id");
+      const bulkEventIdInput = document.getElementById("bulk-event-id");
+      const bulkQuantityInput = document.getElementById("bulk-quantity");
+      const bulkAmountInput = document.getElementById("bulk-amount");
+      const bulkCreatePaymentButton = document.getElementById(
+        "bulk-create-payment"
+      );
+      const resaleIdInput = document.getElementById("resale-id");
+      const resaleQuantityInput = document.getElementById("resale-quantity");
+      const resaleAmountInput = document.getElementById("resale-amount");
+      const resaleCreatePaymentButton = document.getElementById(
+        "resale-create-payment"
+      );
+      const likeProductIdInput = document.getElementById("like-product-id");
+      const likeProductTypeInput = document.getElementById("like-product-type");
+      const likeProductCreditsInput = document.getElementById(
+        "like-product-credits"
+      );
+      const likeProductPriceInput =
+        document.getElementById("like-product-price");
+      const likeProductIntervalInput = document.getElementById(
+        "like-product-interval"
+      );
+      const likeCreatePaymentButton = document.getElementById(
+        "like-create-payment"
+      );
+      const paymentForm = document.getElementById("payment-form");
+      const submitPaymentButton = document.getElementById("submit-payment");
+      const cardErrors = document.getElementById("card-errors");
+      const successMessage = document.getElementById("success-message");
+      const errorMessage = document.getElementById("error-message");
+      const errorDetails = document.getElementById("error-details");
+      const paymentId = document.getElementById("payment-id");
+      const paymentDetails = document.getElementById("payment-details");
+      const eventNameSpan = document.getElementById("event-name");
+      const ticketNameSpan = document.getElementById("ticket-name");
+      const displayQuantitySpan = document.getElementById("display-quantity");
+      const pricePerTicketSpan = document.getElementById("price-per-ticket");
+      const totalAmountSpan = document.getElementById("total-amount");
+
+      // Tab Switching
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tabs.forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+
+          const tabName = tab.getAttribute("data-tab");
+          bulkForm.classList.toggle("active", tabName === "bulk");
+          resaleForm.classList.toggle("active", tabName === "resale");
+          likeForm.classList.toggle("active", tabName === "like");
+
+          // Reset forms and UI
+          resetForm();
+        });
       });
-    });
-    
-    // Create Payment Intent for Bulk Purchase
-    bulkCreatePaymentButton.addEventListener('click', async () => {
-      const ticketId = bulkTicketIdInput.value.trim();
-      const eventId = bulkEventIdInput.value.trim();
-      const quantity = parseInt(bulkQuantityInput.value) || 1;
-      const amount = parseFloat(bulkAmountInput.value) || 10.00;
-      
-      if (!ticketId || !eventId) {
-        showError('Please enter both ticket ID and event ID');
-        return;
-      }
-      
-      if (quantity < 1) {
-        showError('Quantity must be at least 1');
-        return;
-      }
-      
-      if (amount <= 0) {
-        showError('Amount must be greater than 0');
-        return;
-      }
-      
-      await createPaymentIntent({
-        paymentType: 'BULK_PURCHASE',
-        ticketId,
-        eventId,
-        quantity,
-        amount
-      }, bulkCreatePaymentButton);
-    });
-    
-    // Create Payment Intent for Resale Purchase
-    resaleCreatePaymentButton.addEventListener('click', async () => {
-      const resaleId = resaleIdInput.value.trim();
-      const quantity = parseInt(resaleQuantityInput.value) || 1;
-      const amount = parseFloat(resaleAmountInput.value) || 10.00;
-      
-      if (!resaleId) {
-        showError('Please enter a resale listing ID');
-        return;
-      }
-      
-      if (quantity < 1) {
-        showError('Quantity must be at least 1');
-        return;
-      }
-      
-      if (amount <= 0) {
-        showError('Resale price must be greater than 0');
-        return;
-      }
-      
-      await createPaymentIntent({
-        paymentType: 'RESALE_PURCHASE',
-        resaleId,
-        quantity,
-        amount
-      }, resaleCreatePaymentButton);
-    });
-    
-    // Submit Payment
-    submitPaymentButton.addEventListener('click', async () => {
-      if (!clientSecret) {
-        showError('No payment intent created');
-        return;
-      }
-      
-      try {
-        setLoading(submitPaymentButton, true);
-        
-        const result = await stripe.confirmCardPayment(clientSecret, {
-          payment_method: {
-            card: cardElement,
-          }
-        });
-        
-        if (result.error) {
-          throw new Error(result.error.message);
+
+      // Create Payment Intent for Bulk Purchase
+      bulkCreatePaymentButton.addEventListener("click", async () => {
+        const ticketId = bulkTicketIdInput.value.trim();
+        const eventId = bulkEventIdInput.value.trim();
+        const quantity = parseInt(bulkQuantityInput.value) || 1;
+        const amount = parseFloat(bulkAmountInput.value) || 10.0;
+
+        if (!ticketId || !eventId) {
+          showError("Please enter both ticket ID and event ID");
+          return;
         }
-        
-        if (result.paymentIntent.status === 'succeeded') {
-          paymentId.textContent = result.paymentIntent.id;
-          successMessage.style.display = 'block';
-          paymentForm.style.display = 'none';
-          errorMessage.style.display = 'none';
-          
-          // Optionally redirect to success page
-          // window.location.href = `/success?payment_intent=${result.paymentIntent.id}`;
+
+        if (quantity < 1) {
+          showError("Quantity must be at least 1");
+          return;
         }
-        
-        setLoading(submitPaymentButton, false);
-      } catch (error) {
-        setLoading(submitPaymentButton, false);
-        showError(error.message);
-      }
-    });
-    
-    // Create Payment Intent Helper
-    async function createPaymentIntent(data, button) {
-      try {
-        setLoading(button, true);
-        
-        const response = await fetch('/api/subscription/checkout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MDQ1NmZjNzEyMGViM2Y1MjE2ZThhZiIsImVtYWlsIjoicHJpa3NoaXQyQHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiIxMjM0NTY3MTExIiwiaWF0IjoxNzYyNDI2MjQ1fQ.1Ic2Bfk-YsjtKBrBnmkjwFE5nMDLBR8KW3MtgGdGlQA' // Replace with valid JWT token
+
+        if (amount <= 0) {
+          showError("Amount must be greater than 0");
+          return;
+        }
+
+        await createPaymentIntent(
+          {
+            paymentType: "BULK_PURCHASE",
+            ticketId,
+            eventId,
+            quantity,
+            amount,
           },
-          body: JSON.stringify(data),
-        });
-        
-        const result = await response.json();
-        
-        if (!result.success) {
-          throw new Error(result.message || 'Failed to create payment intent');
+          bulkCreatePaymentButton
+        );
+      });
+
+      // Create Payment Intent for Resale Purchase
+      resaleCreatePaymentButton.addEventListener("click", async () => {
+        const resaleId = resaleIdInput.value.trim();
+        const quantity = parseInt(resaleQuantityInput.value) || 1;
+        const amount = parseFloat(resaleAmountInput.value) || 10.0;
+
+        if (!resaleId) {
+          showError("Please enter a resale listing ID");
+          return;
         }
-        
-        // Store payment intent details
-        clientSecret = result.data.clientSecret;
-        paymentIntentId = result.data.paymentIntentId;
-        
-        // Display payment details
-        if (result.data.purchaseDetails) {
-          const details = result.data.purchaseDetails;
-          eventNameSpan.textContent = details.eventTitle || 'N/A';
-          ticketNameSpan.textContent = details.ticketName || 'N/A';
-          displayQuantitySpan.textContent = details.quantity;
-          pricePerTicketSpan.textContent = (data.paymentType === 'RESALE_PURCHASE' ? details.resalePrice : (details.totalAmount / (details.quantity * 100))).toFixed(2);
-          totalAmountSpan.textContent = (details.totalAmount / 100).toFixed(2);
-          paymentDetails.style.display = 'block';
+
+        if (quantity < 1) {
+          showError("Quantity must be at least 1");
+          return;
         }
-        
-        // Initialize Stripe Elements
-        if (!elements) {
-          elements = stripe.elements();
-          cardElement = elements.create('card');
-          cardElement.mount('#card-element');
-          
-          cardElement.on('change', (event) => {
-            cardErrors.textContent = event.error ? event.error.message : '';
+
+        if (amount <= 0) {
+          showError("Resale price must be greater than 0");
+          return;
+        }
+
+        await createPaymentIntent(
+          {
+            paymentType: "RESALE_PURCHASE",
+            resaleId,
+            quantity,
+            amount,
+          },
+          resaleCreatePaymentButton
+        );
+      });
+
+      // Fetch Like Product Details
+      likeProductIdInput.addEventListener("blur", async () => {
+        const productId = likeProductIdInput.value.trim();
+
+        if (!productId) {
+          likeProductTypeInput.value = "";
+          likeProductCreditsInput.value = "";
+          likeProductPriceInput.value = "";
+          likeProductIntervalInput.value = "";
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/like-products/${productId}`, {
+            headers: {
+              Authorization:
+                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MDQ4ZmFmOTRmNjZlYmU2M2NhMjhkZSIsImVtYWlsIjoia2FydGlrQHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI4NTQ0NzM3OTY0IiwiaWF0IjoxNzY1ODkxNjkyfQ.jGlHxJI95Z96tzKqVU6wIv9VxTW1491LZUrogUy7KPI",
+            },
           });
+
+          if (!response.ok) {
+            throw new Error("Product not found");
+          }
+
+          const result = await response.json();
+          const product = result.data;
+
+          // Detect product type
+          const title = product.title.toLowerCase();
+          let productType = "Likes";
+          if (title.includes("super")) productType = "Super Likes";
+          if (title.includes("boost")) productType = "Boosts";
+
+          likeProductTypeInput.value = productType;
+          likeProductCreditsInput.value =
+            product.credits === "unlimited"
+              ? "Unlimited"
+              : `${product.credits} credits`;
+          likeProductPriceInput.value = `$${product.price} USD`;
+          likeProductIntervalInput.value = product.interval
+            ? "Monthly (Recurring)"
+            : "One-time";
+        } catch (error) {
+          showError(`Failed to fetch product: ${error.message}`);
+          likeProductTypeInput.value = "";
+          likeProductCreditsInput.value = "";
+          likeProductPriceInput.value = "";
+          likeProductIntervalInput.value = "";
         }
-        
-        // Show payment form
-        paymentForm.style.display = 'block';
-        
-        setLoading(button, false);
-      } catch (error) {
-        setLoading(button, false);
-        showError(error.message);
+      });
+
+      // Create Payment Intent for Like Purchase
+      likeCreatePaymentButton.addEventListener("click", async () => {
+        const likeProductId = likeProductIdInput.value.trim();
+
+        if (!likeProductId) {
+          showError("Please enter a like product ID");
+          return;
+        }
+
+        await createPaymentIntent(
+          {
+            paymentType: "PURCHASE_LIKE",
+            likeProductId,
+          },
+          likeCreatePaymentButton
+        );
+      });
+
+      // Submit Payment
+      submitPaymentButton.addEventListener("click", async () => {
+        if (!clientSecret) {
+          showError("No payment intent created");
+          return;
+        }
+
+        try {
+          setLoading(submitPaymentButton, true);
+          console.log("Confirming payment with clientSecret:", clientSecret);
+          console.log("Payment intent ID:", paymentIntentId);
+
+          // Confirm payment with card element (do NOT pass unsupported params)
+          const result = await stripe.confirmCardPayment(clientSecret, {
+            payment_method: { card: cardElement },
+          });
+
+          console.log("Payment result:", result);
+
+          if (result.error) {
+            console.error("Stripe error:", result.error);
+            throw new Error(result.error.message);
+          }
+
+          console.log("Payment intent status:", result.paymentIntent?.status);
+          console.log(
+            "Full payment intent:",
+            JSON.stringify(result.paymentIntent, null, 2)
+          );
+
+          if (
+            result.paymentIntent?.status === "succeeded" ||
+            result.paymentIntent?.status === "processing" ||
+            result.paymentIntent?.status === "requires_action"
+          ) {
+            paymentId.textContent = result.paymentIntent.id;
+            successMessage.style.display = "block";
+            paymentForm.style.display = "none";
+            errorMessage.style.display = "none";
+            console.log("Payment processing:", result.paymentIntent.id);
+
+            // For requires_action, this will be handled by the webhook
+            if (result.paymentIntent?.status === "requires_action") {
+              showError(
+                "Payment processing - 3D Secure verification may be required. Check your email for verification."
+              );
+            }
+
+            // Optionally redirect to success page
+            // window.location.href = `/success?payment_intent=${result.paymentIntent.id}`;
+          } else {
+            throw new Error(
+              `Payment not completed. Status: ${result.paymentIntent?.status}`
+            );
+          }
+
+          setLoading(submitPaymentButton, false);
+        } catch (error) {
+          setLoading(submitPaymentButton, false);
+          console.error("Payment error:", error);
+          showError(error.message);
+        }
+      });
+
+      // Create Payment Intent Helper
+      async function createPaymentIntent(data, button) {
+        try {
+          setLoading(button, true);
+          console.log("Creating payment intent with data:", data);
+
+          const response = await fetch("/api/subscription/checkout", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MDQ1NmZjNzEyMGViM2Y1MjE2ZThhZiIsImVtYWlsIjoicHJpa3NoaXQyQHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiIxMjM0NTY3MTExIiwiaWF0IjoxNzYyNDI2MjQ1fQ.1Ic2Bfk-YsjtKBrBnmkjwFE5nMDLBR8KW3MtgGdGlQA", // Replace with valid JWT token
+            },
+            body: JSON.stringify(data),
+          });
+
+          const result = await response.json();
+          console.log("Checkout response:", result);
+
+          if (!result.success) {
+            throw new Error(
+              result.message || "Failed to create payment intent"
+            );
+          }
+
+          // Store payment intent details
+          clientSecret = result.data.clientSecret;
+          paymentIntentId = result.data.paymentIntentId;
+
+          // Log subscription details if this is a subscription
+          if (result.data.subscriptionId) {
+            console.log("Subscription ID:", result.data.subscriptionId);
+            console.log("This is a recurring subscription");
+          }
+
+          // Display payment details
+          if (result.data.purchaseDetails) {
+            const details =
+              result.data.productDetails || result.data.purchaseDetails;
+            eventNameSpan.textContent =
+              details.eventTitle || details.title || "N/A";
+            ticketNameSpan.textContent =
+              details.ticketName || details.title || "N/A";
+            displayQuantitySpan.textContent = details.quantity || 1;
+            pricePerTicketSpan.textContent = (
+              details.price ||
+              (details.totalAmount
+                ? details.totalAmount / (details.quantity * 100)
+                : details.unitAmount / 100)
+            ).toFixed(2);
+            totalAmountSpan.textContent = (
+              details.totalAmount
+                ? details.totalAmount / 100
+                : details.price || details.unitAmount / 100
+            ).toFixed(2);
+            paymentDetails.style.display = "block";
+          } else if (result.data.productDetails) {
+            const details = result.data.productDetails;
+            eventNameSpan.textContent = details.title || "Like Product";
+            ticketNameSpan.textContent = `${details.credits} ${details.title}`;
+            displayQuantitySpan.textContent = "1";
+            pricePerTicketSpan.textContent = details.price.toFixed(2);
+            totalAmountSpan.textContent = details.price.toFixed(2);
+            paymentDetails.style.display = "block";
+          }
+
+          // Initialize Stripe Elements
+          if (!elements) {
+            elements = stripe.elements();
+            cardElement = elements.create("card");
+            cardElement.mount("#card-element");
+
+            cardElement.on("change", (event) => {
+              cardErrors.textContent = event.error ? event.error.message : "";
+            });
+          }
+
+          // Show payment form
+          paymentForm.style.display = "block";
+
+          setLoading(button, false);
+        } catch (error) {
+          setLoading(button, false);
+          showError(error.message);
+        }
       }
-    }
-    
-    // Helper Functions
-    function showError(message) {
-      errorDetails.textContent = message;
-      errorMessage.style.display = 'block';
-      successMessage.style.display = 'none';
-    }
-    
-    function setLoading(button, isLoading) {
-      if (isLoading) {
-        button.disabled = true;
-        button.innerHTML = '<span class="loading"></span> Processing...';
-      } else {
-        button.disabled = false;
-        button.textContent = 'Create Payment Intent';
+
+      // Helper Functions
+      function showError(message) {
+        errorDetails.textContent = message;
+        errorMessage.style.display = "block";
+        successMessage.style.display = "none";
       }
-    }
-    
-    function resetForm() {
-      // Reset inputs
-      bulkTicketIdInput.value = '';
-      bulkEventIdInput.value = '';
-      bulkQuantityInput.value = '1';
-      bulkAmountInput.value = '10.00';
-      resaleIdInput.value = '';
-      resaleQuantityInput.value = '1';
-      resaleAmountInput.value = '10.00';
-      
-      // Reset UI
-      paymentForm.style.display = 'none';
-      paymentDetails.style.display = 'none';
-      successMessage.style.display = 'none';
-      errorMessage.style.display = 'none';
-      cardErrors.textContent = '';
-      if (cardElement) {
-        cardElement.clear();
+
+      function setLoading(button, isLoading) {
+        if (isLoading) {
+          button.disabled = true;
+          button.innerHTML = '<span class="loading"></span> Processing...';
+        } else {
+          button.disabled = false;
+          button.textContent = "Create Payment Intent";
+        }
       }
-      clientSecret = null;
-      paymentIntentId = null;
-    }
-  </script>
-</body>
+
+      function resetForm() {
+        // Reset inputs
+        bulkTicketIdInput.value = "";
+        bulkEventIdInput.value = "";
+        bulkQuantityInput.value = "1";
+        bulkAmountInput.value = "10.00";
+        resaleIdInput.value = "";
+        resaleQuantityInput.value = "1";
+        resaleAmountInput.value = "10.00";
+        likeProductIdInput.value = "";
+        likeProductTypeInput.value = "";
+        likeProductCreditsInput.value = "";
+        likeProductPriceInput.value = "";
+        likeProductIntervalInput.value = "";
+
+        // Reset UI
+        paymentForm.style.display = "none";
+        paymentDetails.style.display = "none";
+        successMessage.style.display = "none";
+        errorMessage.style.display = "none";
+        cardErrors.textContent = "";
+        if (cardElement) {
+          cardElement.clear();
+        }
+        clientSecret = null;
+        paymentIntentId = null;
+      }
+    </script>
+  </body>
 </html>

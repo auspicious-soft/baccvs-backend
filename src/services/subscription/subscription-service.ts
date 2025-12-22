@@ -32,6 +32,7 @@ import { ticketModel } from "src/models/ticket/ticket-schema";
 import mongoose from "mongoose";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { resellModel } from "src/models/resell/resell-schema";
+import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2025-02-24.acacia",
@@ -54,7 +55,7 @@ export const createCheckoutSessionService = async (
       quantity,
       amount,
       resaleId,
-      likeType,
+      likeProductId,
     } = req.body;
 
     if (!req.user) {
@@ -72,7 +73,6 @@ export const createCheckoutSessionService = async (
 
     if (user.stripeCustomerId) {
       stripeCustomerId = user.stripeCustomerId;
-      console.log(`Using existing customer: ${stripeCustomerId}`);
     } else {
       const customer = await stripe.customers.create({
         email,
@@ -85,7 +85,6 @@ export const createCheckoutSessionService = async (
         { stripeCustomerId },
         { session }
       );
-      console.log(`Created new customer: ${stripeCustomerId}`);
     }
 
     let paymentIntent;
@@ -106,7 +105,6 @@ export const createCheckoutSessionService = async (
         );
       }
 
-      console.log(`Creating checkout for product: ${productId}`);
       const stripeProduct = await stripe.products.retrieve(productId);
       if (!stripeProduct.active) {
         return errorResponseHandler("Product is not active", 400, res);
@@ -126,10 +124,6 @@ export const createCheckoutSessionService = async (
       if (priceDetails.currency.toLowerCase() !== "usd") {
         return errorResponseHandler("Only USD currency is supported", 400, res);
       }
-
-      console.log(
-        `Retrieved price: ${priceDetails.id}, ${priceDetails.unit_amount} USD`
-      );
 
       let planType = DatingSubscriptionPlan.BASIC;
       if (stripeProduct.metadata?.plan_type) {
@@ -194,9 +188,6 @@ export const createCheckoutSessionService = async (
       };
 
       await Transaction.create([transactionData], { session });
-      console.log(
-        `Created transaction for subscription payment intent: ${paymentIntent.id}`
-      );
 
       await session.commitTransaction();
 
@@ -277,10 +268,6 @@ export const createCheckoutSessionService = async (
 
       const totalAmount = amount * 100 * quantity;
 
-      console.log(
-        `Creating bulk purchase for ${quantity} tickets, total: ${totalAmount} USD`
-      );
-
       // Create PaymentIntent for bulk purchase
       paymentIntent = await stripe.paymentIntents.create({
         amount: totalAmount,
@@ -329,9 +316,6 @@ export const createCheckoutSessionService = async (
       };
 
       await Transaction.create([transactionData], { session });
-      console.log(
-        `Created transaction for bulk purchase payment intent: ${paymentIntent.id}`
-      );
 
       await session.commitTransaction();
 
@@ -418,10 +402,6 @@ export const createCheckoutSessionService = async (
       // Convert amount from dollars to cents
       const totalAmount = amount * 100 * quantity;
 
-      console.log(
-        `Creating resale purchase for ${quantity} tickets, total: ${totalAmount} USD`
-      );
-
       // Get ticket and event details for metadata
       const ticket = await ticketModel
         .findById(originalPurchase.ticket)
@@ -490,9 +470,6 @@ export const createCheckoutSessionService = async (
       };
 
       await Transaction.create([transactionData], { session });
-      console.log(
-        `Created transaction for resale purchase payment intent: ${paymentIntent.id}`
-      );
 
       await session.commitTransaction();
 
@@ -517,22 +494,254 @@ export const createCheckoutSessionService = async (
         },
       };
     } else if (paymentType === "PURCHASE_LIKE") {
-      if (!likeType || amount) {
+      // NEW: Handle like product purchase
+      if (!likeProductId) {
         return errorResponseHandler(
-          "likeType and amount to buy like",
+          "likeProductId is required for like purchase",
           400,
           res
         );
       }
-      if (amount <= 0) {
+
+      // Fetch the like product from database
+      const likeProduct: any = await LikeProductsModel.findById(
+        likeProductId
+      ).session(session);
+
+      if (!likeProduct) {
+        return errorResponseHandler("Like product not found", 404, res);
+      }
+
+      if (!likeProduct.stripeProductId || !likeProduct.stripePriceId) {
         return errorResponseHandler(
-          "Amount must be greater than zero",
+          "Like product is not configured with Stripe",
           400,
           res
         );
       }
-    } else {
-      throw new Error("Invalid payment type");
+
+      // Verify the product exists in Stripe
+      const stripeProduct = await stripe.products.retrieve(
+        likeProduct.stripeProductId
+      );
+      if (!stripeProduct.active) {
+        return errorResponseHandler(
+          "Product is not active in Stripe",
+          400,
+          res
+        );
+      }
+
+      const stripePrice = await stripe.prices.retrieve(
+        likeProduct.stripePriceId
+      );
+      if (stripePrice.currency.toLowerCase() !== "usd") {
+        return errorResponseHandler("Only USD currency is supported", 400, res);
+      }
+
+      // For recurring products, create a Stripe Subscription
+      // if (likeProduct.interval && stripePrice.recurring) {
+      // Check for active or incomplete subscriptions for this product
+      const subscriptions = await stripe.subscriptions.list({
+        customer: stripeCustomerId,
+        price: likeProduct.stripePriceId,
+        limit: 10,
+        status: "all", // Check all statuses
+      });
+
+      // Filter for active or incomplete subscriptions
+      // const activeOrIncomplete = subscriptions.data.filter(
+      //   (sub) =>
+      //     sub.status === "active" ||
+      //     sub.status === "incomplete" ||
+      //     sub.status === "incomplete_expired"
+      // );
+
+      // if (activeOrIncomplete.length > 0) {
+      //   const subscription = activeOrIncomplete[0];
+
+      //   // If it's incomplete or incomplete_expired, delete it and create a new one
+      //   if (
+      //     subscription.status === "incomplete" ||
+      //     subscription.status === "incomplete_expired"
+      //   ) {
+      //     try {
+      //       console.log(`Attempting to cancel incomplete subscription ${subscription.id}`);
+      //       await stripe.subscriptions.cancel(subscription.id);
+      //     } catch (subCancelErr: any) {
+      //       // If the subscription is already removed in Stripe, log and continue
+      //       console.warn(
+      //         `Failed to cancel subscription ${subscription.id}: ${subCancelErr?.message || subCancelErr}`
+      //       );
+      //     }
+      //   } else if (subscription.status === "active") {
+      //     // User already has an active subscription
+      //     return errorResponseHandler(
+      //       "You already have an active subscription for this product",
+      //       400,
+      //       res
+      //     );
+      //   }
+      // }
+
+      // Create new subscription with metadata for tracking
+      const stripeSubscription = await stripe.subscriptions.create({
+        customer: stripeCustomerId,
+        items: [{ price: likeProduct.stripePriceId }],
+        metadata: {
+          userId: userId,
+          likeProductId: likeProduct._id.toString(),
+          productTitle: likeProduct.title,
+          credits: likeProduct.credits.toString(),
+          type: "PURCHASE_LIKE",
+        },
+        payment_behavior: "default_incomplete",
+        expand: ["latest_invoice.payment_intent"],
+      });
+
+      // Fetch the subscription to get the latest invoice with payment intent
+      let paymentIntent: any = null;
+
+      // First, try to get payment intent from the expanded latest_invoice
+      if (stripeSubscription.latest_invoice) {
+        const latestInvoice =
+          stripeSubscription.latest_invoice as Stripe.Invoice;
+        if (latestInvoice.payment_intent) {
+          paymentIntent = latestInvoice.payment_intent as Stripe.PaymentIntent;
+        }
+      }
+
+      // If still no payment intent, fetch the invoice directly
+      if (!paymentIntent && stripeSubscription.latest_invoice) {
+        const invoiceId = (stripeSubscription.latest_invoice as any).id;
+        const invoice = await stripe.invoices.retrieve(invoiceId, {
+          expand: ["payment_intent"],
+        });
+        paymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
+      }
+
+      // Final fallback: if subscription status is incomplete_expired, Stripe might not auto-create invoice
+      // In this case, we need to finalize the invoice to create payment intent
+      if (!paymentIntent && stripeSubscription.latest_invoice) {
+        const invoiceId = (stripeSubscription.latest_invoice as any).id;
+        try {
+          const finalizedInvoice = await stripe.invoices.finalizeInvoice(
+            invoiceId
+          );
+          if (finalizedInvoice.payment_intent) {
+            paymentIntent =
+              finalizedInvoice.payment_intent as Stripe.PaymentIntent;
+          }
+        } catch (invoiceError) {
+          console.error(`Failed to finalize invoice: ${invoiceError}`);
+        }
+      }
+
+      if (!paymentIntent || !paymentIntent.client_secret) {
+        return errorResponseHandler(
+          "Failed to obtain payment intent for subscription. No invoice payment method available.",
+          400,
+          res
+        );
+      }
+
+      transactionData = {
+        ...transactionData,
+        type: TransactionType.PURCHASE_LIKE,
+        amount: likeProduct.price,
+        reference: { model: "likeProduct", id: likeProduct._id },
+        stripePaymentIntentId: paymentIntent.id,
+        stripeSubscriptionId: stripeSubscription.id,
+        metadata: {
+          likeProductId: likeProduct._id.toString(),
+          productTitle: likeProduct.title,
+          credits: likeProduct.credits,
+          interval: likeProduct.interval,
+          subscriptionType: "recurring",
+          checkoutCreated: new Date(),
+        },
+      };
+
+      await Transaction.create([transactionData], { session });
+
+      await session.commitTransaction();
+
+      return {
+        success: true,
+        message: "Subscription created successfully for like purchase",
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+          subscriptionId: stripeSubscription.id,
+          customer: stripeCustomerId,
+          productDetails: {
+            likeProductId: likeProduct._id,
+            title: likeProduct.title,
+            credits: likeProduct.credits,
+            price: likeProduct.price,
+            interval: likeProduct.interval,
+            currency: "usd",
+          },
+        },
+      };
+      // } else {
+      //   // One-time purchase
+      //   const totalAmount = likeProduct.price * 100;
+
+      //   // Create PaymentIntent for one-time like purchase
+      //   const paymentIntent = await stripe.paymentIntents.create({
+      //     amount: totalAmount,
+      //     currency: "usd",
+      //     customer: stripeCustomerId,
+      //     metadata: {
+      //       userId,
+      //       likeProductId: likeProduct._id.toString(),
+      //       productTitle: likeProduct.title,
+      //       credits: likeProduct.credits.toString(),
+      //       interval: likeProduct.interval || "once",
+      //       type: "PURCHASE_LIKE",
+      //     },
+      //   });
+
+      //   transactionData = {
+      //     ...transactionData,
+      //     type: TransactionType.PURCHASE_LIKE,
+      //     amount: likeProduct.price,
+      //     reference: { model: "likeProduct", id: likeProduct._id },
+      //     stripePaymentIntentId: paymentIntent.id,
+      //     metadata: {
+      //       likeProductId: likeProduct._id.toString(),
+      //       productTitle: likeProduct.title,
+      //       credits: likeProduct.credits,
+      //       interval: likeProduct.interval || "once",
+      //       subscriptionType: "one-time",
+      //       checkoutCreated: new Date(),
+      //     },
+      //   };
+
+      //   await Transaction.create([transactionData], { session });
+
+      //   await session.commitTransaction();
+
+      //   return {
+      //     success: true,
+      //     message: "PaymentIntent created successfully for like purchase",
+      //     data: {
+      //       clientSecret: paymentIntent.client_secret,
+      //       paymentIntentId: paymentIntent.id,
+      //       customer: stripeCustomerId,
+      //       productDetails: {
+      //         likeProductId: likeProduct._id,
+      //         title: likeProduct.title,
+      //         credits: likeProduct.credits,
+      //         price: likeProduct.price,
+      //         interval: likeProduct.interval,
+      //         currency: "usd",
+      //         totalAmount,
+      //       },
+      //     },
+      //   };
+      // }
     }
   } catch (error) {
     await session.abortTransaction();
@@ -552,34 +761,21 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
   try {
     const { payment_intent } = req.query;
 
-    console.log("Success route called with payment_intent:", payment_intent);
-
     if (!payment_intent) {
-      console.log("No payment_intent provided in query params");
       return errorResponseHandler("Payment Intent ID is required", 400, res);
     }
 
     if (!req.user) {
-      console.log("No user data found in request");
       return errorResponseHandler("User data not found in request", 400, res);
     }
 
     const { id: userId } = req.user as JwtPayload;
-    console.log(
-      `Processing success for user ${userId} and payment intent ${payment_intent}`
-    );
 
     // Retrieve the payment intent from Stripe
     let paymentIntent;
     try {
       paymentIntent = await stripe.paymentIntents.retrieve(
         payment_intent as string
-      );
-      console.log(
-        "Retrieved payment intent:",
-        paymentIntent.id,
-        "Status:",
-        paymentIntent.status
       );
     } catch (error) {
       console.error("Error retrieving payment intent:", error);
@@ -588,9 +784,6 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
 
     // Check if payment intent belongs to user
     if (paymentIntent.metadata?.userId !== userId.toString()) {
-      console.log(
-        `Payment intent ${paymentIntent.id} does not belong to user ${userId}`
-      );
       return errorResponseHandler(
         "Payment intent does not belong to this user",
         403,
@@ -825,13 +1018,7 @@ export const handleStripeWebhookService = async (
       );
     }
 
-    console.log("Webhook received:", {
-      headers: signature ? "Has signature" : "No signature",
-      bodyType: typeof req.body,
-    });
-
     event = stripe.webhooks.constructEvent(req.body, signature, endpointSecret);
-    console.log(`Webhook event constructed: ${event.type}`);
   } catch (err: any) {
     console.error("Webhook signature verification failed:", err.message);
     return errorResponseHandler(
@@ -844,11 +1031,11 @@ export const handleStripeWebhookService = async (
   const session = await mongoose.startSession();
   session.startTransaction();
 
+  console.log("event.type:", event.type);
   try {
     switch (event.type) {
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log("Payment intent succeeded:", paymentIntent.id);
 
         if (paymentIntent.currency.toLowerCase() !== "usd") {
           return errorResponseHandler(
@@ -857,15 +1044,10 @@ export const handleStripeWebhookService = async (
             res
           );
         }
-
-        if (!paymentIntent.metadata?.userId) {
-          return errorResponseHandler(
-            "Missing userId in payment intent metadata",
-            400,
-            res
-          );
-        }
-
+        // Try to resolve the owning user and related details from the stored
+        // Transaction first. Some PaymentIntents (eg. those created by
+        // subscription invoices) may not include our metadata, so using the
+        // Transaction saved at checkout is more reliable.
         const transaction = await Transaction.findOne({
           stripePaymentIntentId: paymentIntent.id,
         }).session(session);
@@ -873,6 +1055,22 @@ export const handleStripeWebhookService = async (
           return errorResponseHandler(
             "Transaction not found for payment intent: " + paymentIntent.id,
             404,
+            res
+          );
+        }
+
+        const txMeta: any = transaction.metadata || {};
+        const resolvedUserId =
+          (transaction.user &&
+            transaction.user.toString &&
+            transaction.user.toString()) ||
+          txMeta.userId ||
+          paymentIntent.metadata?.userId;
+
+        if (!resolvedUserId) {
+          return errorResponseHandler(
+            "Missing userId: cannot determine owner of this payment intent",
+            400,
             res
           );
         }
@@ -885,11 +1083,11 @@ export const handleStripeWebhookService = async (
         await transaction.save({ session });
 
         if (transaction.type === TransactionType.DATING_SUBSCRIPTION) {
-          // ... existing subscription handling code remains the same ...
-          const { productId, priceId, planType } = paymentIntent.metadata;
+          // Use transaction metadata as source of truth for product/price/plan
+          const { productId, priceId, planType } = txMeta as any;
           if (!productId || !priceId) {
             return errorResponseHandler(
-              "Missing productId or priceId in payment intent metadata",
+              "Missing productId or priceId in transaction metadata",
               400,
               res
             );
@@ -898,7 +1096,7 @@ export const handleStripeWebhookService = async (
           const product = await stripe.products.retrieve(productId);
           const price = await stripe.prices.retrieve(priceId);
           const subscription = await DatingSubscription.findOne({
-            user: paymentIntent.metadata.userId,
+            user: resolvedUserId,
           }).session(session);
 
           const startDate = new Date();
@@ -937,14 +1135,11 @@ export const handleStripeWebhookService = async (
                 : {}),
             };
             await subscription.save({ session });
-            console.log(
-              `Updated subscription for user ${paymentIntent.metadata.userId}`
-            );
           } else {
             const createdSubscriptions = await DatingSubscription.create(
               [
                 {
-                  user: paymentIntent.metadata.userId,
+                  user: resolvedUserId,
                   plan:
                     (planType as DatingSubscriptionPlan) ||
                     product.metadata?.plan_type ||
@@ -972,13 +1167,11 @@ export const handleStripeWebhookService = async (
               { "reference.id": newSubscription._id },
               { session }
             );
-            console.log(
-              `Created new subscription for user ${paymentIntent.metadata.userId}`
-            );
           }
         } else if (transaction.type === TransactionType.EVENT_TICKET) {
           // ... existing event ticket handling code remains the same ...
-          const { ticketId, eventId, quantity } = paymentIntent.metadata;
+          const { ticketId, eventId, quantity } = (transaction.metadata ||
+            paymentIntent.metadata) as any;
           if (!ticketId || !eventId || !quantity) {
             return errorResponseHandler(
               "Missing ticketId, eventId or quantity in payment intent metadata",
@@ -1033,11 +1226,75 @@ export const handleStripeWebhookService = async (
           purchase.purchaseType = "purchase";
           purchase.metaData = undefined;
           await purchase.save({ session });
-          console.log(
-            `Updated purchase ${purchase._id} with QR code for user ${paymentIntent.metadata.userId}`
-          );
-        } else if (transaction.type === TransactionType.TICKET_RESALE) {
-          // NEW: Handle resale ticket purchase success
+        } else if (transaction.type === TransactionType.PURCHASE_LIKE) {
+          // // Handle like product purchase success. Prefer transaction metadata
+          // const tx = transaction;
+          // const likeProductId =
+          //   (tx.metadata && tx.metadata.likeProductId) ||
+          //   paymentIntent.metadata?.likeProductId;
+          // if (!likeProductId) {
+          //   return errorResponseHandler(
+          //     "Missing likeProductId in transaction metadata",
+          //     400,
+          //     res
+          //   );
+          // }
+
+          // // Fetch the like product
+          // const likeProduct: any = await LikeProductsModel.findById(
+          //   likeProductId
+          // ).session(session);
+          // if (!likeProduct) {
+          //   return errorResponseHandler("Like product not found", 404, res);
+          // }
+
+          // // Get user and update their like credits
+          // const user = await usersModel
+          //   .findById(resolvedUserId)
+          //   .session(session);
+          // if (!user) {
+          //   return errorResponseHandler("User not found", 404, res);
+          // }
+
+          // // Determine which credit type to update based on product title
+          // const productTitle = likeProduct.title.toLowerCase();
+          // const isUnlimited = likeProduct.credits === "unlimited";
+
+          // if (productTitle.includes("super like")) {
+          //   if (isUnlimited) {
+          //     user.unlimitedSuperLikes = true;
+          //     user.unlimitedSuperLikesExpiry = new Date(
+          //       Date.now() + 30 * 24 * 60 * 60 * 1000
+          //     );
+          //   } else {
+          //     user.totalSuperLikes =
+          //       (user.totalSuperLikes || 0) + likeProduct.credits;
+          //   }
+          // } else if (productTitle.includes("boost")) {
+          //   if (isUnlimited) {
+          //     user.unlimitedBoosts = true;
+          //     user.unlimitedBoostsExpiry = new Date(
+          //       Date.now() + 30 * 24 * 60 * 60 * 1000
+          //     );
+          //   } else {
+          //     user.totalBoosts = (user.totalBoosts || 0) + likeProduct.credits;
+          //   }
+          // } else {
+          //   if (isUnlimited) {
+          //     user.unlimitedLikes = true;
+          //     user.unlimitedLikesExpiry = new Date(
+          //       Date.now() + 30 * 24 * 60 * 60 * 1000
+          //     );
+          //   } else {
+          //     user.totalLikes = (user.totalLikes || 0) + likeProduct.credits;
+          //   }
+          // }
+
+          // await user.save({ session });
+
+          break;
+        } else {
+          // Handle resale ticket purchase success
           const { resaleId, quantity, originalSeller } = paymentIntent.metadata;
           if (!resaleId || !quantity) {
             return errorResponseHandler(
@@ -1123,22 +1380,13 @@ export const handleStripeWebhookService = async (
             transferDate: null,
           };
           await purchase.save({ session });
-
-          console.log(
-            `Completed resale purchase ${purchase._id} for user ${paymentIntent.metadata.userId}`
-          );
-          console.log(
-            `Updated resale listing ${resaleId} - remaining quantity: ${resaleListing.availableQuantity}`
-          );
         }
 
-        console.log(`Updated transaction ${transaction._id} to SUCCESS`);
         break;
       }
 
       case "payment_intent.payment_failed": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log("Payment intent failed:", paymentIntent.id);
 
         if (paymentIntent.currency.toLowerCase() !== "usd") {
           console.warn(`Non-USD currency detected: ${paymentIntent.currency}`);
@@ -1163,8 +1411,6 @@ export const handleStripeWebhookService = async (
             paymentIntent.last_payment_error?.message || "Payment failed",
         };
         await transaction.save({ session });
-        console.log(`Updated transaction ${transaction._id} to FAILED`);
-
         if (!transaction.reference || !transaction.reference.id) {
           return errorResponseHandler(
             "Transaction reference or reference id is missing for transaction: " +
@@ -1184,9 +1430,6 @@ export const handleStripeWebhookService = async (
           if (purchase) {
             purchase.status = "disabled";
             await purchase.save({ session });
-            console.log(
-              `Disabled purchase ${purchase._id} due to failed payment`
-            );
           }
         }
 
@@ -1195,7 +1438,6 @@ export const handleStripeWebhookService = async (
 
       case "payment_intent.canceled": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log("Payment intent canceled:", paymentIntent.id);
 
         if (paymentIntent.currency.toLowerCase() !== "usd") {
           console.warn(`Non-USD currency detected: ${paymentIntent.currency}`);
@@ -1219,7 +1461,6 @@ export const handleStripeWebhookService = async (
           reason: "Payment intent canceled",
         };
         await transaction.save({ session });
-        console.log(`Updated transaction ${transaction._id} to CANCELLED`);
 
         if (!transaction.reference || !transaction.reference.id) {
           return errorResponseHandler(
@@ -1240,17 +1481,129 @@ export const handleStripeWebhookService = async (
           if (purchase) {
             purchase.status = "disabled";
             await purchase.save({ session });
-            console.log(
-              `Disabled purchase ${purchase._id} due to canceled payment`
-            );
           }
         }
 
         break;
       }
 
+      case "customer.subscription.updated": {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log("subscription:", subscription);
+
+        // Handle auto-renewal for like products
+        if (
+          subscription.metadata?.type === "PURCHASE_LIKE" &&
+          subscription.metadata?.likeProductId
+        ) {
+          const likeProductId = subscription.metadata.likeProductId;
+          const userId = subscription.metadata.userId;
+
+          // Fetch the like product
+          const likeProduct: any = await LikeProductsModel.findById(
+            likeProductId
+          ).session(session);
+          if (!likeProduct) {
+            console.warn(
+              `Like product ${likeProductId} not found for subscription renewal`
+            );
+            break;
+          }
+
+          // Get user and update like credits
+          const user: any = await usersModel.findById(userId).session(session);
+          if (!user) {
+            console.warn(`User ${userId} not found for subscription renewal`);
+            break;
+          }
+
+          // Update credits based on product type
+          const productTitle = likeProduct.title.toLowerCase();
+          const isUnlimited = likeProduct.credits === "unlimited";
+          // Resolve a safe period end timestamp (prefer current_period_end, fallback to billing_cycle_anchor or trial_end)
+          const rawPeriodEnd =
+            (subscription as any).current_period_end ||
+            (subscription as any).billing_cycle_anchor ||
+            (subscription as any).trial_end ||
+            null;
+          let periodEnd: Date | null = null;
+          if (rawPeriodEnd && !isNaN(Number(rawPeriodEnd))) {
+            // Stripe provides seconds since epoch; convert to ms
+            periodEnd = new Date(Number(rawPeriodEnd) * 1000);
+            if (isNaN(periodEnd.valueOf())) periodEnd = null;
+          }
+          const isActive = subscription.status === "active";
+
+          if (productTitle.includes("super like")) {
+            if (isUnlimited) {
+              // user.unlimitedSuperLikes = true;
+              // user.unlimitedSuperLikesExpiry = isActive ? periodEnd : null;
+            } else {
+              user.totalSuperLikes =
+                (user.totalSuperLikes || 0) + likeProduct.credits;
+            }
+          } else if (productTitle.includes("boost")) {
+            if (isUnlimited) {
+              // user.unlimitedBoosts = true;
+              // user.unlimitedBoostsExpiry = isActive ? periodEnd : null;
+            } else {
+              user.totalBoosts = (user.totalBoosts || 0) + likeProduct.credits;
+            }
+          } else {
+            if (isUnlimited) {
+              user.unlimitedLikes = true;
+              user.unlimitedLikesExpiry =
+                isActive && periodEnd ? periodEnd : null;
+            } else {
+              user.totalLikes = (user.totalLikes || 0) + likeProduct.credits;
+            }
+          }
+
+          await user.save({ session });
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
+
+        // Handle cancellation for like products
+        if (
+          subscription.metadata?.type === "PURCHASE_LIKE" &&
+          subscription.metadata?.likeProductId
+        ) {
+          const userId = subscription.metadata.userId;
+
+          // Get user and disable unlimited likes if applicable
+          const user = await usersModel.findById(userId).session(session);
+          if (!user) {
+            console.warn(
+              `User ${userId} not found for subscription cancellation`
+            );
+            break;
+          }
+
+          // Determine which unlimited likes to disable based on product title
+          const productTitle =
+            subscription.metadata.productTitle?.toLowerCase() || "";
+
+          if (productTitle.includes("super like")) {
+            // user.unlimitedSuperLikes = false;
+            // user.unlimitedSuperLikesExpiry = null as any;
+          } else if (productTitle.includes("boost")) {
+            // user.unlimitedBoosts = false;
+            // user.unlimitedBoostsExpiry = null as any;
+          } else if (productTitle.includes("Unlimited Likes")) {
+            user.unlimitedLikes = false;
+            user.unlimitedLikesExpiry = null as any;
+          }
+
+          await user.save({ session });
+        }
+        break;
+      }
+
       default:
-        console.log(`Unhandled event type: ${event.type}`);
     }
 
     await session.commitTransaction();
@@ -1600,10 +1953,6 @@ export const createPaymentIntentService = async (
     if (!productId) {
       return { success: false, message: "Product ID is required" };
     }
-
-    console.log(
-      `Creating payment intent for user ${userId} and product ${productId}`
-    );
 
     // Get product from Stripe
     const stripeProduct = await stripe.products.retrieve(productId);

@@ -10,6 +10,7 @@ import { postModels } from "src/models/post/post-schema";
 import { RepostModel } from "src/models/repost/repost-schema";
 import { NotificationModel } from "src/models/notification/notification-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { sendPushToToken } from "src/utils/firebase-admin";
 
 // Helper function to send comment notifications
 const sendCommentNotifications = async (
@@ -88,6 +89,16 @@ const sendCommentNotifications = async (
         },
       });
       await creatorNotification.save();
+      const userInfo = await usersModel.findById(creatorId).select("pushNotification fcmToken");
+      if (userInfo && userInfo?.pushNotification && userInfo?.fcmToken) {
+        sendPushToToken(userInfo.fcmToken, creatorNotification.title, creatorNotification.message, {
+          type: "comment",
+          postId: targetId,
+          commentId,
+        }).catch((err) =>
+          console.warn("sendPushToToken error for comment notification:", err)
+        );
+      }
     }
 
     // 2. If this is a reply, notify the parent comment creator
@@ -124,8 +135,17 @@ const sendCommentNotifications = async (
           },
         });
         await parentCreatorNotification.save();
+        const parentUserInfo = await usersModel.findById(parentComment?.user.toString()).select("pushNotification fcmToken");
+        if (parentUserInfo && parentUserInfo?.pushNotification && parentUserInfo?.fcmToken) {
+          sendPushToToken(parentUserInfo.fcmToken, parentCreatorNotification.title, parentCreatorNotification.message, {
+            type: "comment",
+            commentId,
+          }).catch((err) =>
+            console.warn("sendPushToToken error for comment notification:", err)
+          );
+        }
       }
-    }
+      }
   } catch (error) {
     console.error("Error sending comment notifications:", error);
     // Don't throw error - notifications shouldn't block comment creation

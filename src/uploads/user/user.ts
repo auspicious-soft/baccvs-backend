@@ -62,6 +62,8 @@ import { Conversation } from "src/models/chat/conversation-schema";
 import { CommunityConversation } from "src/models/chat/community-conversation-schema";
 import { Community } from "src/models/community/community-schema";
 import { calculateDistanceInKm } from "src/utils/distanceCalculator";
+import { parse } from "path";
+import { json } from "body-parser";
 configDotenv();
 
 const sanitizeUser = (user: any) => {
@@ -423,15 +425,20 @@ const processUserData = async (
   }
 
   if (authType !== "Email") {
+    if (!userData.fcmToken) {
+      return errorResponseHandler(
+        "FCM token is required",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
     user.token = generateUserToken(user as any);
+    user.fcmToken = userData.fcmToken;
   }
 
   // Populate and save
   user = await user.populate("referredBy");
   await user.save();
-
-  // Log saved user
-  console.log("processUserData - Saved user with photos:", user.photos);
 
   return {
     success: true,
@@ -491,7 +498,7 @@ export const loginUserService = async (
     );
     if (passwordValidationResponse) return passwordValidationResponse;
   }
-  // user.fcmToken = userData.fcmToken;
+  user.fcmToken = userData.fcmToken;
   user.token = generateUserToken(user as any);
 
   await user.save();
@@ -1180,7 +1187,7 @@ export const editUserInfoService = async (req: any, res: Response) => {
           updateData.height = heightNum;
         }
 
-        // Validate language if provided
+        // Validate language if provided (accept single string or JSON array)
         if (updateData.language) {
           const validLanguages = [
             "English",
@@ -1194,7 +1201,24 @@ export const editUserInfoService = async (req: any, res: Response) => {
             "Swedish",
             "Norwegian",
           ];
-          if (!validLanguages.includes(updateData.language)) {
+
+          let parsedLang: any = updateData.language;
+          try {
+            parsedLang = JSON.parse(updateData.language);
+          } catch (e) {
+            // keep as-is (string) if not valid JSON
+            parsedLang = updateData.language;
+          }
+
+          const languagesToCheck = Array.isArray(parsedLang)
+            ? parsedLang
+            : [parsedLang];
+
+          const invalid = languagesToCheck.find(
+            (l: any) => typeof l !== "string" || !validLanguages.includes(l)
+          );
+
+          if (invalid) {
             return reject({
               success: false,
               message: `Invalid language. Supported languages: ${validLanguages.join(
@@ -1203,6 +1227,9 @@ export const editUserInfoService = async (req: any, res: Response) => {
               code: httpStatusCode.BAD_REQUEST,
             });
           }
+
+          // normalize to array for storage
+          updateData.language = languagesToCheck;
         }
 
         const updatedUser = await usersModel.findByIdAndUpdate(

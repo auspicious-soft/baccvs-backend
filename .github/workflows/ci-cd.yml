@@ -94,7 +94,8 @@ jobs:
               -e AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
               -e AWS_REGION='${{ secrets.AWS_REGION }}' \
               -e AWS_BUCKET_NAME='${{ secrets.AWS_BUCKET_NAME }}' \
-              -e NEXT_PUBLIC_AWS_BUCKET_PATH='${{ secrets.NEXT_PUBLIC_AWS_BUCKET_PATH }}' \
+              -e AWS_BUCKET_NAME='${{ secrets.AWS_BUCKET_NAME }}' \
+              -e FIREBASE_PROJECT_JSON='${{ secrets.FIREBASE_PROJECT_JSON }}' \
               ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest || { echo 'Docker run failed'; exit 1; }
 
            

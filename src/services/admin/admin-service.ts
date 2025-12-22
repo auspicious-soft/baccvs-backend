@@ -4,16 +4,15 @@ import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
 import Stripe from "stripe";
 
-
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2023-10-16",
 });
 
 // export const loginService = async (payload: any, res: Response) => {
 //     const { username, password } = payload;
-//     const countryCode = "+45"; 
+//     const countryCode = "+45";
 //     const toNumber = Number(username);
-//     const isEmail = isNaN(toNumber); 
+//     const isEmail = isNaN(toNumber);
 //     let user: any = null;
 
 //     if (isEmail) {
@@ -48,7 +47,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 //     };
 // };
 
-
 // export const forgotPasswordService = async (payload: any, res: Response) => {
 //     const { username } = payload;
 //     const countryCode = "+45";
@@ -56,13 +54,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 //     const isEmail = isNaN(toNumber);
 //     let user: any = null;
 //     if (isEmail) {
-   
+
 //         user = await adminModel.findOne({ email: username }).select('+password');
 //         if (!user) {
 //             user = await usersModel.findOne({ email: username }).select('+password');
 //         }
 //         if (!user) return errorResponseHandler('User not found', httpStatusCode.NOT_FOUND, res);
-     
+
 //         const passwordResetToken = await generatePasswordResetToken(username);
 //         if (passwordResetToken) {
 //             await sendPasswordResetEmail(username, passwordResetToken.token);
@@ -75,7 +73,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 //             user = await usersModel.findOne({ phoneNumber: formattedPhoneNumber }).select('+password');
 //         }
 //         if (!user) return errorResponseHandler('User not found', httpStatusCode.NOT_FOUND, res);
-       
+
 //         const passwordResetTokenBySms = await generatePasswordResetTokenByPhone(formattedPhoneNumber);
 //         if (passwordResetTokenBySms) {
 //             await generatePasswordResetTokenByPhoneWithTwilio(formattedPhoneNumber, passwordResetTokenBySms.token);
@@ -85,7 +83,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 //     return errorResponseHandler('Failed to generate password reset token', httpStatusCode.INTERNAL_SERVER_ERROR, res);
 // };
-
 
 // export const newPassswordAfterOTPVerifiedService = async (payload: { password: string, otp: string }, res: Response) => {
 //     // console.log('payload: ', payload);
@@ -101,7 +98,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 //         if (existingToken.email) {
 //           existingAdmin = await adminModel.findOne({ email: existingToken.email });
-//         } 
+//         }
 //         else if (existingToken.phoneNumber) {
 //           existingAdmin = await adminModel.findOne({ phoneNumber: existingToken.phoneNumber });
 //         }
@@ -116,8 +113,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 //         data: response
 //     }
 // }
-
-
 
 export const createLikeProductService = async (req: any, res: Response) => {
   const { title, credits, price, interval } = req.body;
@@ -228,5 +223,25 @@ export const getLikeProductsService = async (req: any, res: Response) => {
     success: true,
     message: "Like products fetched successfully",
     data: products,
+  };
+};
+
+export const getLikeProductByIdService = async (req: any, res: Response) => {
+  const { productId } = req.params;
+
+  const product = await LikeProductsModel.findById(productId);
+
+  if (!product) {
+    return {
+      success: false,
+      message: "Like product not found",
+      status: 404,
+    };
+  }
+
+  return {
+    success: true,
+    message: "Like product fetched successfully",
+    data: product,
   };
 };

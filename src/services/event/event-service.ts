@@ -21,6 +21,7 @@ import { LikeModel } from "src/models/like/like-schema";
 import { Comment } from "src/models/comment/comment-schema";
 import { NotificationModel } from "src/models/notification/notification-schema";
 import { convertToUTCAndLocal } from "src/utils/date";
+import { sendPushToToken } from "src/utils/firebase-admin";
 
 // Helper function to send event creation notifications
 const sendEventNotifications = async (
@@ -33,15 +34,19 @@ const sendEventNotifications = async (
   try {
     const creator = await usersModel
       .findById(creatorId)
-      .select("userName photos");
+      .select("userName photos")
+      .lean();
 
     if (!creator) return;
 
-    const notificationsToCreate : any = [];
+    const notificationsToCreate: any = [];
+    let validInvitedGuests: string[] = [];
+    let validCoHosts: string[] = [];
+    const followerIdsToNotify: string[] = [];
 
-    // Send invitations to invited guests
+    // Prepare invited guests notifications
     if (invitedGuestIds && invitedGuestIds.length > 0) {
-      const validInvitedGuests = invitedGuestIds.filter(
+      validInvitedGuests = invitedGuestIds.filter(
         (id) => id.toString() !== creatorId
       );
 
@@ -69,11 +74,9 @@ const sendEventNotifications = async (
       });
     }
 
-    // Send co-host invitations
+    // Prepare co-host notifications
     if (coHostIds && coHostIds.length > 0) {
-      const validCoHosts = coHostIds.filter(
-        (id) => id.toString() !== creatorId
-      );
+      validCoHosts = coHostIds.filter((id) => id.toString() !== creatorId);
 
       validCoHosts.forEach((coHostId) => {
         notificationsToCreate.push({
@@ -100,7 +103,7 @@ const sendEventNotifications = async (
       });
     }
 
-    // Get all followers of the event creator and send event_reminder notifications
+    // Get all followers of the event creator and prepare follower notifications
     const followers = await followModel
       .find({
         following_id: creatorId,
@@ -110,11 +113,10 @@ const sendEventNotifications = async (
 
     if (followers && followers.length > 0) {
       followers.forEach((follow: any) => {
-        // Don't notify if follower is already in invited guests or co-hosts
         const followerId = follow.follower_id.toString();
         const isAlreadyNotified =
-          invitedGuestIds?.some((id) => id.toString() === followerId) ||
-          coHostIds?.some((id) => id.toString() === followerId);
+          validInvitedGuests?.some((id) => id.toString() === followerId) ||
+          validCoHosts?.some((id) => id.toString() === followerId);
 
         if (!isAlreadyNotified) {
           notificationsToCreate.push({
@@ -137,6 +139,8 @@ const sendEventNotifications = async (
               id: eventId,
             },
           });
+
+          followerIdsToNotify.push(followerId);
         }
       });
     }
@@ -144,6 +148,45 @@ const sendEventNotifications = async (
     // Insert all notifications
     if (notificationsToCreate.length > 0) {
       await NotificationModel.insertMany(notificationsToCreate);
+    }
+
+    // Send push notifications for all created notifications (non-blocking)
+    try {
+      const recipientIds = Array.from(
+        new Set(notificationsToCreate.map((n: any) => n.recipient.toString()))
+      );
+
+      // Avoid double-sending to invited guests (we'll send here as well but if you prefer single place, remove earlier block)
+      const users = await usersModel
+        .find({ _id: { $in: recipientIds } })
+        .select("fcmToken pushNotification")
+        .lean();
+
+      const userMap: Record<string, any> = {};
+      users.forEach((u: any) => (userMap[u._id.toString()] = u));
+
+      const sent = new Set<string>();
+
+      for (const notif of notificationsToCreate) {
+        const rid = notif.recipient.toString();
+        if (sent.has(rid)) continue; // send only one push per recipient
+        const recipient = userMap[rid];
+        if (recipient && recipient.pushNotification && recipient.fcmToken) {
+          // Choose title/message from the notification
+          sendPushToToken(recipient.fcmToken, notif.title, notif.message, {
+            type: notif.type,
+            eventId,
+          }).catch((err) =>
+            console.warn("sendPushToToken error for event notification:", err)
+          );
+          sent.add(rid);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "Failed to send push notifications for event notifications:",
+        err
+      );
     }
   } catch (error) {
     console.error("Error sending event notifications:", error);

@@ -84,10 +84,14 @@ export const getUserNotificationsService = async (req: any, res: Response) => {
     typeFilterArray = [
       NotificationType.USER_LIKE,
       NotificationType.USER_DISLIKE,
+      NotificationType.USER_SUPERLIKE,
+      NotificationType.USER_BOOST,
     ];
   } else if (typeFilter === "squad") {
     typeFilterArray = [
       NotificationType.SQUAD_LIKE,
+      NotificationType.SQUAD_SUPERLIKE,
+      NotificationType.SQUAD_BOOST,
       NotificationType.SQUAD_MEMBER_ADDED,
       NotificationType.SQUAD_MEMBER_REMOVED,
       NotificationType.SQUAD_JOIN,

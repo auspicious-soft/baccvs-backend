@@ -2,6 +2,7 @@ import { FollowRelationshipStatus } from "src/lib/constant";
 import { followModel } from "src/models/follow/follow-schema";
 import { NotificationModel } from "src/models/notification/notification-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { sendPushToToken } from "src/utils/firebase-admin";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { httpStatusCode } from "src/lib/constant";
@@ -23,10 +24,10 @@ const createFollowNotification = async (
     let message = "";
 
     if (notificationType === "follow") {
-      title = `${sender?.userName} started following you`;
+      title = 'New Follower';
       message = `${sender?.userName} started following you`;
     } else if (notificationType === "follow_back") {
-      title = `${sender?.userName} followed you back`;
+      title = 'Started following you back';
       message = `${sender?.userName} followed you back`;
     }
 
@@ -51,6 +52,23 @@ const createFollowNotification = async (
     });
 
     await notification.save();
+    // Try to send push notification (non-blocking)
+    try {
+      const recipient = await usersModel
+        .findById(recipientId)
+        .select("fcmToken pushNotification");
+      if (recipient && recipient.pushNotification && recipient.fcmToken) {
+        sendPushToToken(recipient.fcmToken, title, message, {
+          type: notificationType,
+          followerId: senderId,
+        }).catch((err) =>
+          console.warn("sendPushToToken error for follow notification:", err)
+        );
+      }
+    } catch (err) {
+      console.warn("Failed to fetch recipient for push send:", err);
+    }
+
     return notification;
   } catch (error) {
     console.error("Error creating follow notification:", error);

@@ -13,7 +13,11 @@ import { NotificationType } from "src/models/userNotification/user-Notification-
  */
 export const userLikeSquadService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler('Authentication failed', httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
@@ -21,20 +25,80 @@ export const userLikeSquadService = async (req: any, res: Response) => {
   const { subType } = req.body;
 
   if (!squadId) {
-    return errorResponseHandler('Squad ID is required', httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
-  if (subType && !['superlike', 'boost'].includes(subType)) {
-    return errorResponseHandler('Invalid subType. Must be "superlike" or "boost"', httpStatusCode.BAD_REQUEST, res);
+  if (subType && !["superlike", "boost"].includes(subType)) {
+    return errorResponseHandler(
+      'Invalid subType. Must be "superlike" or "boost"',
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
-    const squad = await Squad.findById(squadId).populate('members.user', 'userName');
+    const squad = await Squad.findById(squadId).populate(
+      "members.user",
+      "userName"
+    );
     if (!squad) {
-      return errorResponseHandler('Squad not found', httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
-    const isMember = squad.members.some((member: any) => member.user._id.toString() === userId);
+    // Load acting user and ensure they have selected a squad to act from
+    const actingUser = await usersModel
+      .findById(userId)
+      .select("userName selectedSquad totalLikes totalSuperLikes totalBoosts");
+    if (!actingUser) {
+      return errorResponseHandler(
+        "User not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+
+    if (!actingUser.selectedSquad) {
+      return errorResponseHandler(
+        "You must select a squad to act from",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    const fromSquadId = actingUser.selectedSquad.toString();
+
+    // Ensure the acting user is a member of the selected squad
+    const fromSquad = await Squad.findById(fromSquadId);
+    if (!fromSquad) {
+      return errorResponseHandler(
+        "Selected squad not found",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+    const isMemberOfFrom = fromSquad.members.some(
+      (member: any) => member.user.toString() === userId
+    );
+    if (!isMemberOfFrom) {
+      return errorResponseHandler(
+        "You are not a member of the selected squad",
+        httpStatusCode.FORBIDDEN,
+        res
+      );
+    }
+
+    // Prevent liking the same squad
+    const isMember = squad.members.some(
+      (member: any) => member.user._id.toString() === userId
+    );
     if (isMember) {
       return errorResponseHandler(
         "You cannot like a squad you're already a member of",
@@ -44,29 +108,29 @@ export const userLikeSquadService = async (req: any, res: Response) => {
     }
 
     const existingDislike = await SquadMatch.findOne({
-      fromUser: userId,
+      fromSquad: fromSquadId,
       toSquad: squadId,
-      type: 'dislike',
+      type: "dislike",
     });
     if (existingDislike) {
       await SquadMatch.findByIdAndDelete(existingDislike._id);
     }
 
     const existingLike = await SquadMatch.findOne({
-      fromUser: userId,
+      fromSquad: fromSquadId,
       toSquad: squadId,
-      type: 'like',
+      type: "like",
     });
 
     const finalSubType = subType || null;
-    let field = 'totalLikes';
-    if (finalSubType === 'superlike') {
-      field = 'totalSuperLikes';
-    } else if (finalSubType === 'boost') {
-      field = 'totalBoosts';
+    let field = "totalLikes";
+    if (finalSubType === "superlike") {
+      field = "totalSuperLikes";
+    } else if (finalSubType === "boost") {
+      field = "totalBoosts";
     }
 
-    const sender = await usersModel.findById(userId).select('userName');
+    const sender = await usersModel.findById(userId).select("userName");
 
     if (existingLike) {
       if (existingLike.subType === finalSubType) {
@@ -74,14 +138,14 @@ export const userLikeSquadService = async (req: any, res: Response) => {
         await usersModel.updateOne({ _id: userId }, { $inc: { [field]: 1 } });
         return {
           success: true,
-          message: finalSubType ? `${finalSubType} removed` : 'Like removed',
+          message: finalSubType ? `${finalSubType} removed` : "Like removed",
           active: false,
         };
       } else {
         const user = await usersModel.findById(userId);
         if (!user || (user.toObject() as any)[field] <= 0) {
           return errorResponseHandler(
-            `Insufficient ${field.replace('total', '').toLowerCase()}`,
+            `Insufficient ${field.replace("total", "").toLowerCase()}`,
             httpStatusCode.BAD_REQUEST,
             res
           );
@@ -90,20 +154,31 @@ export const userLikeSquadService = async (req: any, res: Response) => {
         await usersModel.updateOne({ _id: userId }, { $inc: { [field]: -1 } });
         const updatedLike = await SquadMatch.findByIdAndUpdate(
           existingLike._id,
-          { subType: finalSubType },
+          { subType: finalSubType, actionBy: userId },
           { new: true }
         );
 
-        // Notify all squad members
+        // Notify all squad members (choose notification type based on subType)
         for (const member of squad.members) {
           if (member.user && member.user._id) {
+            const notifType =
+              finalSubType === "superlike"
+                ? NotificationType.SQUAD_SUPERLIKE
+                : finalSubType === "boost"
+                ? NotificationType.SQUAD_BOOST
+                : NotificationType.SQUAD_LIKE;
+
             await createNotification(
               member.user._id.toString(),
               userId,
-              NotificationType.SQUAD_LIKE,
+              notifType,
               finalSubType
-                ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
-                : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
+                ? `${
+                    sender?.userName || "Someone"
+                  } ${finalSubType}d your squad "${squad.title}"!`
+                : `${sender?.userName || "Someone"} liked your squad "${
+                    squad.title
+                  }"!`,
               undefined,
               squadId
             );
@@ -112,16 +187,18 @@ export const userLikeSquadService = async (req: any, res: Response) => {
 
         return {
           success: true,
-          message: finalSubType ? `Updated to ${finalSubType}` : 'Updated to regular like',
+          message: finalSubType
+            ? `Updated to ${finalSubType}`
+            : "Updated to regular like",
           active: true,
           interaction: updatedLike,
         };
       }
     } else {
-      const user = await usersModel.findById(userId);
+      const user = actingUser; // already loaded
       if (!user || (user.toObject() as any)[field] <= 0) {
         return errorResponseHandler(
-          `Insufficient ${field.replace('total', '').toLowerCase()}`,
+          `Insufficient ${field.replace("total", "").toLowerCase()}`,
           httpStatusCode.BAD_REQUEST,
           res
         );
@@ -129,39 +206,57 @@ export const userLikeSquadService = async (req: any, res: Response) => {
 
       await usersModel.updateOne({ _id: userId }, { $inc: { [field]: -1 } });
       const newLike = new SquadMatch({
-        fromUser: userId,
+        fromSquad: fromSquadId,
         toSquad: squadId,
-        type: 'like',
+        type: "like",
         subType: finalSubType,
+        actionBy: userId,
       });
       await newLike.save();
 
-      // Notify all squad members
+      // Notify all squad members (choose notification type based on subType)
       for (const member of squad.members) {
-        if(member.user && member.user._id){
-        await createNotification(
-          member.user._id.toString(),
-          userId,
-          NotificationType.SQUAD_LIKE,
-          finalSubType
-            ? `${sender?.userName || 'Someone'} ${finalSubType}d your squad "${squad.title}"!`
-            : `${sender?.userName || 'Someone'} liked your squad "${squad.title}"!`,
-          undefined,
-          squadId
-        );
-      }
+        if (member.user && member.user._id) {
+          const notifType =
+            finalSubType === "superlike"
+              ? NotificationType.SQUAD_SUPERLIKE
+              : finalSubType === "boost"
+              ? NotificationType.SQUAD_BOOST
+              : NotificationType.SQUAD_LIKE;
+
+          await createNotification(
+            member.user._id.toString(),
+            userId,
+            notifType,
+            finalSubType
+              ? `${
+                  sender?.userName || "Someone"
+                } ${finalSubType}d your squad "${squad.title}"!`
+              : `${sender?.userName || "Someone"} liked your squad "${
+                  squad.title
+                }"!`,
+            undefined,
+            squadId
+          );
+        }
       }
 
       return {
         success: true,
-        message: finalSubType ? `Squad ${finalSubType}d successfully` : 'Squad liked successfully',
+        message: finalSubType
+          ? `Squad ${finalSubType}d successfully`
+          : "Squad liked successfully",
         active: true,
         interaction: newLike,
       };
     }
   } catch (error) {
     if ((error as any).code === 11000) {
-      return errorResponseHandler('Interaction already exists', httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Interaction already exists",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     throw error;
   }
@@ -172,21 +267,58 @@ export const userLikeSquadService = async (req: any, res: Response) => {
  */
 export const userDislikeSquadService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
   const { id: squadId } = req.params;
 
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
-    const squad = await Squad.findById(squadId).populate('members.user', 'userName');
+    const squad = await Squad.findById(squadId).populate(
+      "members.user",
+      "userName"
+    );
     if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
+
+    // Load acting user and ensure they have selected a squad to act from
+    const actingUser = await usersModel
+      .findById(userId)
+      .select("userName selectedSquad");
+    if (!actingUser) {
+      return errorResponseHandler(
+        "User not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+
+    if (!actingUser.selectedSquad) {
+      return errorResponseHandler(
+        "You must select a squad to act from",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    const fromSquadId = actingUser.selectedSquad.toString();
 
     const isMember = squad.members.some(
       (member: any) => member.user._id.toString() === userId
@@ -200,7 +332,7 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
     }
 
     const existingLike = await SquadMatch.findOne({
-      fromUser: userId,
+      fromSquad: fromSquadId,
       toSquad: squadId,
       type: "like",
     });
@@ -209,12 +341,12 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
     }
 
     const existingDislike = await SquadMatch.findOne({
-      fromUser: userId,
+      fromSquad: fromSquadId,
       toSquad: squadId,
       type: "dislike",
     });
 
-    const sender = await usersModel.findById(userId).select('userName');
+    const sender = await usersModel.findById(userId).select("userName");
 
     if (existingDislike) {
       await SquadMatch.findByIdAndDelete(existingDislike._id);
@@ -225,24 +357,27 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
       };
     } else {
       const newDislike = new SquadMatch({
-        fromUser: userId,
+        fromSquad: fromSquadId,
         toSquad: squadId,
         type: "dislike",
+        actionBy: userId,
       });
       await newDislike.save();
 
       // Notify all squad members
       for (const member of squad.members) {
-        if(member.user && member.user._id){
-        await createNotification(
-          member.user._id.toString(),
-          userId,
-          NotificationType.SQUAD_DISLIKE,
-          `${sender?.userName || 'Someone'} disliked your squad "${squad.title}"!`,
-          undefined,
-          squadId
-        );
-      }
+        if (member.user && member.user._id) {
+          await createNotification(
+            member.user._id.toString(),
+            userId,
+            NotificationType.SQUAD_DISLIKE,
+            `${sender?.userName || "Someone"} disliked your squad "${
+              squad.title
+            }"!`,
+            undefined,
+            squadId
+          );
+        }
       }
 
       return {
@@ -254,7 +389,11 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
     }
   } catch (error) {
     if ((error as any).code === 11000) {
-      return errorResponseHandler("Interaction already exists", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Interaction already exists",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
     throw error;
   }
@@ -263,28 +402,44 @@ export const userDislikeSquadService = async (req: any, res: Response) => {
 /**
  * Approve a user's request to join a squad (match with them)
  */
-export const approveSquadJoinRequestService = async (req: any, res: Response) => {
+export const approveSquadJoinRequestService = async (
+  req: any,
+  res: Response
+) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: adminId } = req.user;
   const { squadId, userId } = req.params;
 
   if (!squadId || !userId) {
-    return errorResponseHandler("Squad ID and User ID are required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID and User ID are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
     // Check if squad exists
     const squad = await Squad.findById(squadId);
     if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     // Check if user is admin of the squad
     const isAdmin = squad.members.some(
-      (member: any) => member.user.toString() === adminId && member.role === "admin"
+      (member: any) =>
+        member.user.toString() === adminId && member.role === "admin"
     );
 
     if (!isAdmin) {
@@ -298,7 +453,11 @@ export const approveSquadJoinRequestService = async (req: any, res: Response) =>
     // Check if user exists
     const user = await usersModel.findById(userId);
     if (!user) {
-      return errorResponseHandler("User not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "User not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     // Check if user is already a member
@@ -316,14 +475,18 @@ export const approveSquadJoinRequestService = async (req: any, res: Response) =>
 
     // Check if squad is full
     if (squad.members.length >= squad.maxMembers) {
-      return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Squad is full",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
-    // Check if user has liked the squad
+    // Check if user has liked the squad (they may have liked from a squad)
     const userLike = await SquadMatch.findOne({
-      fromUser: userId,
+      actionBy: userId,
       toSquad: squadId,
-      type: "like"
+      type: "like",
     });
 
     if (!userLike) {
@@ -343,7 +506,7 @@ export const approveSquadJoinRequestService = async (req: any, res: Response) =>
     squad.members.push({
       user: new mongoose.Types.ObjectId(userId),
       role: "member",
-      joinedAt: new Date()
+      joinedAt: new Date(),
     });
 
     // If squad is now full, update status
@@ -360,7 +523,7 @@ export const approveSquadJoinRequestService = async (req: any, res: Response) =>
     return {
       success: true,
       message: "User added to squad successfully",
-      squad: updatedSquad
+      squad: updatedSquad,
     };
   } catch (error) {
     throw error;
@@ -370,28 +533,44 @@ export const approveSquadJoinRequestService = async (req: any, res: Response) =>
 /**
  * Reject a user's request to join a squad
  */
-export const rejectSquadJoinRequestService = async (req: any, res: Response) => {
+export const rejectSquadJoinRequestService = async (
+  req: any,
+  res: Response
+) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: adminId } = req.user;
   const { squadId, userId } = req.params;
 
   if (!squadId || !userId) {
-    return errorResponseHandler("Squad ID and User ID are required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID and User ID are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
     // Check if squad exists
     const squad = await Squad.findById(squadId);
     if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     // Check if user is admin of the squad
     const isAdmin = squad.members.some(
-      (member: any) => member.user.toString() === adminId && member.role === "admin"
+      (member: any) =>
+        member.user.toString() === adminId && member.role === "admin"
     );
 
     if (!isAdmin) {
@@ -402,11 +581,11 @@ export const rejectSquadJoinRequestService = async (req: any, res: Response) => 
       );
     }
 
-    // Check if user has liked the squad
+    // Check if user has liked the squad (they may have liked from a squad)
     const userLike = await SquadMatch.findOne({
-      fromUser: userId,
+      actionBy: userId,
       toSquad: squadId,
-      type: "like"
+      type: "like",
     });
 
     if (!userLike) {
@@ -422,7 +601,7 @@ export const rejectSquadJoinRequestService = async (req: any, res: Response) => 
 
     return {
       success: true,
-      message: "Join request rejected successfully"
+      message: "Join request rejected successfully",
     };
   } catch (error) {
     throw error;
@@ -434,7 +613,11 @@ export const rejectSquadJoinRequestService = async (req: any, res: Response) => 
  */
 export const getSquadJoinRequestsService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
@@ -442,19 +625,28 @@ export const getSquadJoinRequestsService = async (req: any, res: Response) => {
   const { page = 1, limit = 10 } = req.query;
 
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
     // Check if squad exists
     const squad = await Squad.findById(squadId);
     if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     // Check if user is admin of the squad
     const isAdmin = squad.members.some(
-      (member: any) => member.user.toString() === userId && member.role === "admin"
+      (member: any) =>
+        member.user.toString() === userId && member.role === "admin"
     );
 
     if (!isAdmin) {
@@ -467,39 +659,96 @@ export const getSquadJoinRequestsService = async (req: any, res: Response) => {
 
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
-    // Get all users who have liked the squad but are not matched yet
+    // Get all squads/users who have liked the squad but are not matched yet
     const joinRequests = await SquadMatch.find({
       toSquad: squadId,
       type: "like",
-      isMatch: false
+      isMatch: false,
     })
-    .populate("fromUser", "userName photos")
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(parseInt(limit as string));
+      .populate("actionBy", "userName photos")
+      .populate("fromSquad", "title creator")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit as string));
 
     const total = await SquadMatch.countDocuments({
       toSquad: squadId,
       type: "like",
-      isMatch: false
+      isMatch: false,
     });
 
     return {
       success: true,
-      joinRequests: joinRequests.map(request => ({
+      joinRequests: joinRequests.map((request) => ({
         requestId: request._id,
-        user: request.fromUser,
+        user: request.actionBy,
+        fromSquad: request.fromSquad,
         subType: request.subType,
-        createdAt: request.createdAt
+        createdAt: request.createdAt,
       })),
       pagination: {
         total,
         page: parseInt(page as string),
         limit: parseInt(limit as string),
-        pages: Math.ceil(total / parseInt(limit as string))
-      }
+        pages: Math.ceil(total / parseInt(limit as string)),
+      },
     };
   } catch (error) {
     throw error;
   }
+};
+
+/**
+ * Set the squad the user will act from (must be a squad the user is a member of)
+ */
+export const selectUserSquadService = async (req: any, res: Response) => {
+  if (!req.user) {
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
+  }
+
+  const { id: userId } = req.user;
+  const squadId = req.params.squadId;
+
+  if (!squadId) {
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const squad = await Squad.findById(squadId);
+  if (!squad) {
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  const isMember = squad.members.some(
+    (member: any) => member.user.toString() === userId
+  );
+  if (!isMember) {
+    return errorResponseHandler(
+      "You must be a member of the selected squad",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  await usersModel.updateOne(
+    { _id: userId },
+    { $set: { selectedSquad: squadId } }
+  );
+
+  return {
+    success: true,
+    message: "Selected squad updated",
+    data: squadId,
+  };
 };

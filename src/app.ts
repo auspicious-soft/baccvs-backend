@@ -30,6 +30,7 @@ import { Server } from "socket.io";
 import http from "http";
 import { setupSocketServer } from "./socket/socket-handler";
 import { checkValidAdminRole } from "./utils";
+import { initFirebaseAdmin } from "./utils/firebase-admin";
 import bodyParser from "body-parser";
 import {
   verifyOtpPasswordReset,
@@ -126,6 +127,12 @@ app.get("/support", (req, res) => {
 
 connectDB();
 
+// Initialize Firebase Admin once at startup (if configured)
+try {
+  initFirebaseAdmin();
+} catch (err) {
+  console.warn("Firebase Admin init failed during startup:", err);
+}
 app.get("/", (_, res: any) => {
   res.send("Hello world entry point 🚀✅");
 });

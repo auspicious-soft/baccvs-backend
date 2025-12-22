@@ -6,7 +6,8 @@ export enum TransactionType {
   TICKET_RESALE = "TICKET_RESALE",
   EVENT_PROMOTION = "EVENT_PROMOTION",
   BOOST_PURCHASE = "BOOST_PURCHASE",
-  SUPERLIKE_PURCHASE = "SUPERLIKE_PURCHASE"
+  SUPERLIKE_PURCHASE = "SUPERLIKE_PURCHASE",
+  PURCHASE_LIKE = "PURCHASE_LIKE"
 }
 
 export enum TransactionStatus {
@@ -49,7 +50,7 @@ const TransactionSchema = new Schema(
     reference: {
       model: {
         type: String,
-        enum: ['DatingSubscription', 'purchase', 'resale', 'promotion'],
+        enum: ['DatingSubscription', 'purchase', 'resale', 'promotion','likeProduct'],
         required: true
       },
       id: {

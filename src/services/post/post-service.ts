@@ -14,6 +14,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { object } from "webidl-conversions";
 import mongoose from "mongoose";
 import { usersModel } from "src/models/user/user-schema";
+import { sendPushToToken } from "src/utils/firebase-admin";
 import { followModel } from "src/models/follow/follow-schema";
 import { LikeModel } from "src/models/like/like-schema";
 import { Comment } from "src/models/comment/comment-schema";
@@ -63,6 +64,32 @@ const sendTagNotifications = async (
     }));
 
     await NotificationModel.insertMany(notifications);
+    // Send push notifications (non-blocking)
+    try {
+      const recipients = await usersModel
+        .find({ _id: { $in: taggedUserIds } })
+        .select("fcmToken pushNotification")
+        .lean();
+
+      recipients.forEach((recipient) => {
+        if (recipient && recipient.pushNotification && recipient.fcmToken) {
+          sendPushToToken(
+            recipient.fcmToken,
+            notifications[0].title,
+            notifications[0].message,
+            {
+              type: "mention",
+              postId,
+              taggedBy: senderId,
+            }
+          ).catch((err) =>
+            console.warn("sendPushToToken error for mention notification:", err)
+          );
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to send push notifications to tagged users:", err);
+    }
   } catch (error) {
     console.error("Error sending tag notifications:", error);
     // Don't throw error - notifications shouldn't block post creation

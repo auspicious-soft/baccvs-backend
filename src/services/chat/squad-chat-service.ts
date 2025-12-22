@@ -35,6 +35,7 @@ export const createSquadConversationService = async (squadId: string) => {
 // Get squad conversation messages
 export const getSquadMessagesService = async (req: any, res: Response) => {
   const { squadId } = req.params;
+  console.log('squadId:', squadId);
   const userId = req.user.id;
   const limit = parseInt(req.query.limit as string) || 50;
   const page = parseInt(req.query.page as string) || 1;

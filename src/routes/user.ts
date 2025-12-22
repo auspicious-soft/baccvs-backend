@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { checkAuth } from "../middleware/check-auth";
 import {
   getDashboardStats,
   getUserInfo,
@@ -69,6 +68,7 @@ import {
 import {
   userDislikeSquadController,
   userLikeSquadController,
+  selectUserSquadController,
 } from "src/controllers/squadMatch/squadMatch-controller";
 import {
   deleteChat,
@@ -123,7 +123,6 @@ import {
   getTicketsByEventController,
   updateTicketController,
 } from "src/controllers/ticket/ticket-controller";
-import { deleteChatService } from "src/services/chat/chat-service";
 import { transferTicketController } from "src/controllers/transfer/transfer-controller";
 
 const router = Router();
@@ -173,7 +172,7 @@ router.get("/get/follow/list", getFollowList);
 router.get("/get/all-data", getUserAllData);
 
 // Search User/Events api
-router.post("/search/feed",searchFeedController);
+router.post("/search/feed", searchFeedController);
 
 // Dating App api
 router.post("/like-user/:id", userLikeController);
@@ -185,9 +184,10 @@ router.get("/match-stats", getUserMatchStatsController);
 // Squad Match api
 router.post("/like-squad/:id", userLikeSquadController);
 router.post("/dislike-squad/:id", userDislikeSquadController);
+router.patch("/select/squad/:squadId", selectUserSquadController);
 
 router.get("/conversations/message", getConversationsByType);
-router.get("/new/chat/users",getUnchattedFollowings)
+router.get("/new/chat/users", getUnchattedFollowings);
 
 // Squad api
 router.post("/create/squad", createSquad);

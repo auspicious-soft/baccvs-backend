@@ -1,6 +1,10 @@
 import { Request, Response } from "express";
 import mongoose, { Types } from "mongoose";
-import { Squad, SquadStatus, InterestCategory } from "src/models/squad/squad-schema";
+import {
+  Squad,
+  SquadStatus,
+  InterestCategory,
+} from "src/models/squad/squad-schema";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import Joi from "joi";
@@ -17,43 +21,54 @@ import { SquadMatch } from "src/models/squadmatch/squadmatch-schema";
 // Validation schemas
 
 const squadIdSchema = Joi.object({
-  squadId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+  squadId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
     .messages({
-      'string.base': 'Squad ID must be a string',
-      'string.empty': 'Squad ID is required',
-      'string.pattern.base': 'Invalid squad ID format',
-      'any.required': 'Squad ID is required'
-    })
+      "string.base": "Squad ID must be a string",
+      "string.empty": "Squad ID is required",
+      "string.pattern.base": "Invalid squad ID format",
+      "any.required": "Squad ID is required",
+    }),
 });
 
 const targetSquadSchema = Joi.object({
-  targetSquadId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+  targetSquadId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
     .messages({
-      'string.base': 'Target Squad ID must be a string',
-      'string.empty': 'Target Squad ID is required',
-      'string.pattern.base': 'Invalid target squad ID format',
-      'any.required': 'Target Squad ID is required'
-    })
+      "string.base": "Target Squad ID must be a string",
+      "string.empty": "Target Squad ID is required",
+      "string.pattern.base": "Invalid target squad ID format",
+      "any.required": "Target Squad ID is required",
+    }),
 });
 
 // Helper function to validate request data
-const validateRequest = (schema: Joi.ObjectSchema, data: any): { error?: string; value: any } => {
+const validateRequest = (
+  schema: Joi.ObjectSchema,
+  data: any
+): { error?: string; value: any } => {
   const { error, value } = schema.validate(data, { abortEarly: false });
-  
+
   if (error) {
     const errorMessage = error.details
-      .map((detail : any) => detail.message)
-      .join(', ');
+      .map((detail: any) => detail.message)
+      .join(", ");
     return { error: errorMessage, value: data };
   }
-  
+
   return { value };
 };
 
 // Helper function to authenticate user
 const authenticateUser = (req: any, res: Response): boolean => {
   if (!req.user) {
-    errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
     return false;
   }
   return true;
@@ -66,9 +81,9 @@ const isSquadAdmin = async (squadId: string, userId: string) => {
     members: {
       $elemMatch: {
         user: userId,
-        role: "admin"
-      }
-    }
+        role: "admin",
+      },
+    },
   });
 };
 
@@ -89,21 +104,24 @@ export const createSquadService = async (req: any, res: Response) => {
   const { id: userId, email } = req.user;
 
   // Handle multipart/form-data for file uploads
-  if (req.headers['content-type']?.includes('multipart/form-data')) {
+  if (req.headers["content-type"]?.includes("multipart/form-data")) {
     return new Promise((resolve, reject) => {
       const busboyParser = busboy({ headers: req.headers });
       let parsedData: any = { media: [], squadInterest: [], membersToAdd: [] };
       let uploadedMedia: string[] = [];
       let fileUploadPromises: Promise<void>[] = [];
 
-      busboyParser.on('field', (fieldname: string, value: string) => {
+      busboyParser.on("field", (fieldname: string, value: string) => {
         console.log(`Busboy - Received field: ${fieldname}=${value}`);
-        
-        if (['squadInterest', 'membersToAdd'].includes(fieldname)) {
+
+        if (["squadInterest", "membersToAdd"].includes(fieldname)) {
           try {
             parsedData[fieldname] = JSON.parse(value);
           } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, error instanceof Error ? error.message : String(error));
+            console.log(
+              `Busboy - Failed to parse ${fieldname}:`,
+              error instanceof Error ? error.message : String(error)
+            );
             return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON array`,
@@ -115,90 +133,99 @@ export const createSquadService = async (req: any, res: Response) => {
         }
       });
 
-      busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
-        
-        if (fieldname !== 'media') {
-          console.log(`Skipping file field: ${fieldname}`);
-          fileStream.resume(); // Drain the stream
-          return;
-        }
+      busboyParser.on(
+        "file",
+        (fieldname: string, fileStream: any, fileInfo: any) => {
+          console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
 
-        const { filename, mimeType } = fileInfo;
-        console.log(`Processing file: ${filename}, type: ${mimeType}`);
+          if (fieldname !== "media") {
+            console.log(`Skipping file field: ${fieldname}`);
+            fileStream.resume(); // Drain the stream
+            return;
+          }
 
-        const isImage = mimeType.startsWith('image/');
-        const isVideo = mimeType.startsWith('video/');
-        if (!isImage && !isVideo) {
-          console.log(`Invalid file type: ${mimeType}`);
-          fileStream.resume();
-          return reject({
-            success: false,
-            message: 'Only image or video files are allowed for squad media',
-            code: httpStatusCode.BAD_REQUEST,
-          });
-        }
+          const { filename, mimeType } = fileInfo;
+          console.log(`Processing file: ${filename}, type: ${mimeType}`);
 
-        const fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
-          const chunks: Buffer[] = [];
-          
-          fileStream.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
+          const isImage = mimeType.startsWith("image/");
+          const isVideo = mimeType.startsWith("video/");
+          if (!isImage && !isVideo) {
+            console.log(`Invalid file type: ${mimeType}`);
+            fileStream.resume();
+            return reject({
+              success: false,
+              message: "Only image or video files are allowed for squad media",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
 
-          fileStream.on('end', async () => {
-            try {
-              console.log(`File stream ended. Total chunks: ${chunks.length}`);
-              
-              if (chunks.length === 0) {
-                return rejectUpload(new Error('No file data received'));
-              }
+          const fileUploadPromise = new Promise<void>(
+            (resolveUpload, rejectUpload) => {
+              const chunks: Buffer[] = [];
 
-              const fileBuffer = Buffer.concat(chunks);
-              console.log(`File buffer size: ${fileBuffer.length} bytes`);
+              fileStream.on("data", (chunk: Buffer) => {
+                chunks.push(chunk);
+              });
 
-              const readableStream = new Readable();
-              console.log('readableStream:', readableStream);
-              readableStream.push(fileBuffer);
-              readableStream.push(null);
+              fileStream.on("end", async () => {
+                try {
+                  console.log(
+                    `File stream ended. Total chunks: ${chunks.length}`
+                  );
 
-              const uploadedMediaUrl = await uploadStreamToS3Service(
-                readableStream,
-                filename,
-                mimeType,
-                email || `squad_${customAlphabet('0123456789', 5)()}`
-              );
-              
-              uploadedMedia.push(uploadedMediaUrl);
-              console.log(`File uploaded successfully: ${uploadedMediaUrl}`);
-              resolveUpload();
-            } catch (error) {
-              console.error('File processing error:', error);
-              rejectUpload(error);
+                  if (chunks.length === 0) {
+                    return rejectUpload(new Error("No file data received"));
+                  }
+
+                  const fileBuffer = Buffer.concat(chunks);
+                  console.log(`File buffer size: ${fileBuffer.length} bytes`);
+
+                  const readableStream = new Readable();
+                  console.log("readableStream:", readableStream);
+                  readableStream.push(fileBuffer);
+                  readableStream.push(null);
+
+                  const uploadedMediaUrl = await uploadStreamToS3Service(
+                    readableStream,
+                    filename,
+                    mimeType,
+                    email || `squad_${customAlphabet("0123456789", 5)()}`
+                  );
+
+                  uploadedMedia.push(uploadedMediaUrl);
+                  console.log(
+                    `File uploaded successfully: ${uploadedMediaUrl}`
+                  );
+                  resolveUpload();
+                } catch (error) {
+                  console.error("File processing error:", error);
+                  rejectUpload(error);
+                }
+              });
+
+              fileStream.on("error", (error: any) => {
+                console.error("File stream error:", error);
+                rejectUpload(error);
+              });
             }
-          });
+          );
 
-          fileStream.on('error', (error: any) => {
-            console.error('File stream error:', error);
-            rejectUpload(error);
-          });
-        });
+          fileUploadPromises.push(fileUploadPromise);
+        }
+      );
 
-        fileUploadPromises.push(fileUploadPromise);
-      });
+      busboyParser.on("finish", async () => {
+        console.log("Busboy finished parsing");
+        console.log("Parsed data:", parsedData);
 
-      busboyParser.on('finish', async () => {
-        console.log('Busboy finished parsing');
-        console.log('Parsed data:', parsedData);
-        
         try {
           if (fileUploadPromises.length > 0) {
-            console.log('Waiting for file uploads to complete...');
+            console.log("Waiting for file uploads to complete...");
             await Promise.all(fileUploadPromises);
           }
-          
-          console.log('Media uploaded:', uploadedMedia);
-          
+
+          console.log("Media uploaded:", uploadedMedia);
+
           const { title, about, squadInterest, membersToAdd } = parsedData;
           if (!title || !about || !squadInterest) {
             return reject({
@@ -209,7 +236,9 @@ export const createSquadService = async (req: any, res: Response) => {
           }
 
           const maxMembers = 4;
-          const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+          const squadMembers = [
+            { user: userId, role: "admin", joinedAt: new Date() },
+          ];
 
           if (membersToAdd && Array.isArray(membersToAdd)) {
             if (1 + membersToAdd.length > maxMembers) {
@@ -219,7 +248,7 @@ export const createSquadService = async (req: any, res: Response) => {
                 code: httpStatusCode.BAD_REQUEST,
               });
             }
-            
+
             const uniqueMemberIds = new Set(membersToAdd);
             if (uniqueMemberIds.size !== membersToAdd.length) {
               return reject({
@@ -245,7 +274,7 @@ export const createSquadService = async (req: any, res: Response) => {
               squadMembers.push({
                 user: new mongoose.Types.ObjectId(memberId),
                 role: "member",
-                joinedAt: new Date()
+                joinedAt: new Date(),
               });
             }
           }
@@ -265,14 +294,16 @@ export const createSquadService = async (req: any, res: Response) => {
 
           // Send notifications to added members
           if (membersToAdd && Array.isArray(membersToAdd)) {
-            const sender = await usersModel.findById(userId).select('userName');
+            const sender = await usersModel.findById(userId).select("userName");
             for (const memberId of membersToAdd) {
               if (memberId === userId) continue;
               await createNotification(
                 memberId,
                 userId,
                 NotificationType.SQUAD_MEMBER_ADDED,
-                `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+                `${sender?.userName || "Someone"} added you to the squad "${
+                  squad.title
+                }"!`,
                 undefined,
                 squad._id.toString()
               );
@@ -298,22 +329,22 @@ export const createSquadService = async (req: any, res: Response) => {
             message: "Squad created successfully",
             squad: populatedSquad,
           });
-
         } catch (error) {
-          console.error('Squad creation error:', error);
+          console.error("Squad creation error:", error);
           reject({
             success: false,
-            message: error instanceof Error ? error.message : 'Failed to create squad',
+            message:
+              error instanceof Error ? error.message : "Failed to create squad",
             code: httpStatusCode.INTERNAL_SERVER_ERROR,
           });
         }
       });
 
-      busboyParser.on('error', (error: any) => {
-        console.error('Busboy error:', error);
+      busboyParser.on("error", (error: any) => {
+        console.error("Busboy error:", error);
         reject({
           success: false,
-          message: error.message || 'Error processing file uploads',
+          message: error.message || "Error processing file uploads",
           code: httpStatusCode.INTERNAL_SERVER_ERROR,
         });
       });
@@ -322,7 +353,7 @@ export const createSquadService = async (req: any, res: Response) => {
     });
   } else {
     const { title, about, media, squadInterest, membersToAdd } = req.body;
-    
+
     if (!title || !about || !squadInterest) {
       return errorResponseHandler(
         "Title, about, and squad interests are required",
@@ -330,9 +361,11 @@ export const createSquadService = async (req: any, res: Response) => {
         res
       );
     }
-    
+
     const maxMembers = 4;
-    const squadMembers = [{ user: userId, role: "admin", joinedAt: new Date() }];
+    const squadMembers = [
+      { user: userId, role: "admin", joinedAt: new Date() },
+    ];
 
     if (membersToAdd && Array.isArray(membersToAdd)) {
       if (1 + membersToAdd.length > maxMembers) {
@@ -342,7 +375,7 @@ export const createSquadService = async (req: any, res: Response) => {
           res
         );
       }
-      
+
       const uniqueMemberIds = new Set(membersToAdd);
       if (uniqueMemberIds.size !== membersToAdd.length) {
         return errorResponseHandler(
@@ -368,7 +401,7 @@ export const createSquadService = async (req: any, res: Response) => {
         squadMembers.push({
           user: new mongoose.Types.ObjectId(memberId),
           role: "member",
-          joinedAt: new Date()
+          joinedAt: new Date(),
         });
       }
     }
@@ -388,14 +421,16 @@ export const createSquadService = async (req: any, res: Response) => {
 
     // Send notifications to added members
     if (membersToAdd && Array.isArray(membersToAdd)) {
-      const sender = await usersModel.findById(userId).select('userName');
+      const sender = await usersModel.findById(userId).select("userName");
       for (const memberId of membersToAdd) {
         if (memberId === userId) continue;
         await createNotification(
           memberId,
           userId,
           NotificationType.SQUAD_MEMBER_ADDED,
-          `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+          `${sender?.userName || "Someone"} added you to the squad "${
+            squad.title
+          }"!`,
           undefined,
           squad._id.toString()
         );
@@ -428,24 +463,28 @@ export const createSquadService = async (req: any, res: Response) => {
  * Get a squad by ID
  */
 export const getSquadByIdService = async (req: any, res: Response) => {
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const squadId  = req.params.id;
+  const squadId = req.params.id;
 
-    const squad = await Squad.findById(squadId)
-      .populate("creator")
-      .populate("members.user")
-      .populate("matchedSquads.squad");
+  const squad = await Squad.findById(squadId)
+    .populate("creator")
+    .populate("members.user")
+    .populate("matchedSquads.squad");
 
-    if (!squad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
+  if (!squad) {
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
 
-     return {
-      success: true,
-      message: "Squad retrieved successfully",
-      data:squad,
-    };
+  return {
+    success: true,
+    message: "Squad retrieved successfully",
+    data: squad,
+  };
 };
 
 export const updateSquadService = async (req: any, res: Response) => {
@@ -455,21 +494,24 @@ export const updateSquadService = async (req: any, res: Response) => {
   const squadId = req.params.id;
 
   // Handle multipart/form-data for file uploads
-  if (req.headers['content-type']?.includes('multipart/form-data')) {
+  if (req.headers["content-type"]?.includes("multipart/form-data")) {
     return new Promise((resolve, reject) => {
       const busboyParser = busboy({ headers: req.headers });
       let parsedData: any = { squadInterest: [], membersToAdd: [] };
       let uploadedMedia: string[] = [];
       let fileUploadPromises: Promise<void>[] = [];
 
-      busboyParser.on('field', (fieldname: string, value: string) => {
+      busboyParser.on("field", (fieldname: string, value: string) => {
         console.log(`Busboy - Received field: ${fieldname}=${value}`);
-        
-        if (['squadInterest', 'membersToAdd'].includes(fieldname)) {
+
+        if (["squadInterest", "membersToAdd"].includes(fieldname)) {
           try {
             parsedData[fieldname] = JSON.parse(value);
           } catch (error) {
-            console.log(`Busboy - Failed to parse ${fieldname}:`, error instanceof Error ? error.message : String(error));
+            console.log(
+              `Busboy - Failed to parse ${fieldname}:`,
+              error instanceof Error ? error.message : String(error)
+            );
             return reject({
               success: false,
               message: `Failed to parse ${fieldname}. Must be a valid JSON array`,
@@ -481,103 +523,112 @@ export const updateSquadService = async (req: any, res: Response) => {
         }
       });
 
-      busboyParser.on('file', (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
-        
-        if (fieldname !== 'media') {
-          console.log(`Skipping file field: ${fieldname}`);
-          fileStream.resume(); // Drain the stream
-          return;
-        }
+      busboyParser.on(
+        "file",
+        (fieldname: string, fileStream: any, fileInfo: any) => {
+          console.log(`Busboy - Received file: ${fieldname}`, fileInfo);
 
-        const { filename, mimeType } = fileInfo;
-        console.log(`Processing file: ${filename}, type: ${mimeType}`);
+          if (fieldname !== "media") {
+            console.log(`Skipping file field: ${fieldname}`);
+            fileStream.resume(); // Drain the stream
+            return;
+          }
 
-        // Validate file type (image or video)
-        const isImage = mimeType.startsWith('image/');
-        const isVideo = mimeType.startsWith('video/');
-        if (!isImage && !isVideo) {
-          console.log(`Invalid file type: ${mimeType}`);
-          fileStream.resume(); // Drain the stream
-          return reject({
-            success: false,
-            message: 'Only image or video files are allowed for squad media',
-            code: httpStatusCode.BAD_REQUEST,
-          });
-        }
+          const { filename, mimeType } = fileInfo;
+          console.log(`Processing file: ${filename}, type: ${mimeType}`);
 
-        // Create a promise for each file upload
-        const fileUploadPromise = new Promise<void>((resolveUpload, rejectUpload) => {
-          // Collect file chunks
-          const chunks: Buffer[] = [];
-          
-          fileStream.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
+          // Validate file type (image or video)
+          const isImage = mimeType.startsWith("image/");
+          const isVideo = mimeType.startsWith("video/");
+          if (!isImage && !isVideo) {
+            console.log(`Invalid file type: ${mimeType}`);
+            fileStream.resume(); // Drain the stream
+            return reject({
+              success: false,
+              message: "Only image or video files are allowed for squad media",
+              code: httpStatusCode.BAD_REQUEST,
+            });
+          }
 
-          fileStream.on('end', async () => {
-            try {
-              console.log(`File stream ended. Total chunks: ${chunks.length}`);
-              
-              if (chunks.length === 0) {
-                return rejectUpload(new Error('No file data received'));
-              }
+          // Create a promise for each file upload
+          const fileUploadPromise = new Promise<void>(
+            (resolveUpload, rejectUpload) => {
+              // Collect file chunks
+              const chunks: Buffer[] = [];
 
-              // Combine all chunks into a single buffer
-              const fileBuffer = Buffer.concat(chunks);
-              console.log(`File buffer size: ${fileBuffer.length} bytes`);
+              fileStream.on("data", (chunk: Buffer) => {
+                chunks.push(chunk);
+              });
 
-              // Create readable stream from buffer
-              const readableStream = new Readable();
-              console.log('readableStream:', readableStream);
-              readableStream.push(fileBuffer);
-              readableStream.push(null); // End the stream
+              fileStream.on("end", async () => {
+                try {
+                  console.log(
+                    `File stream ended. Total chunks: ${chunks.length}`
+                  );
 
-              // Upload to S3
-              const uploadedMediaUrl = await uploadStreamToS3Service(
-                readableStream,
-                filename,
-                mimeType,
-                email || `squad_${customAlphabet('0123456789', 5)()}`
-              );
-              
-              uploadedMedia.push(uploadedMediaUrl);
-              console.log(`File uploaded successfully: ${uploadedMediaUrl}`);
-              resolveUpload();
-            } catch (error) {
-              console.error('File processing error:', error);
-              rejectUpload(error);
+                  if (chunks.length === 0) {
+                    return rejectUpload(new Error("No file data received"));
+                  }
+
+                  // Combine all chunks into a single buffer
+                  const fileBuffer = Buffer.concat(chunks);
+                  console.log(`File buffer size: ${fileBuffer.length} bytes`);
+
+                  // Create readable stream from buffer
+                  const readableStream = new Readable();
+                  console.log("readableStream:", readableStream);
+                  readableStream.push(fileBuffer);
+                  readableStream.push(null); // End the stream
+
+                  // Upload to S3
+                  const uploadedMediaUrl = await uploadStreamToS3Service(
+                    readableStream,
+                    filename,
+                    mimeType,
+                    email || `squad_${customAlphabet("0123456789", 5)()}`
+                  );
+
+                  uploadedMedia.push(uploadedMediaUrl);
+                  console.log(
+                    `File uploaded successfully: ${uploadedMediaUrl}`
+                  );
+                  resolveUpload();
+                } catch (error) {
+                  console.error("File processing error:", error);
+                  rejectUpload(error);
+                }
+              });
+
+              fileStream.on("error", (error: any) => {
+                console.error("File stream error:", error);
+                rejectUpload(error);
+              });
             }
-          });
+          );
 
-          fileStream.on('error', (error: any) => {
-            console.error('File stream error:', error);
-            rejectUpload(error);
-          });
-        });
+          fileUploadPromises.push(fileUploadPromise);
+        }
+      );
 
-        fileUploadPromises.push(fileUploadPromise);
-      });
+      busboyParser.on("finish", async () => {
+        console.log("Busboy finished parsing");
+        console.log("Parsed data:", parsedData);
 
-      busboyParser.on('finish', async () => {
-        console.log('Busboy finished parsing');
-        console.log('Parsed data:', parsedData);
-        
         try {
           // Wait for all file uploads to complete
           if (fileUploadPromises.length > 0) {
-            console.log('Waiting for file uploads to complete...');
+            console.log("Waiting for file uploads to complete...");
             await Promise.all(fileUploadPromises);
           }
-          
-          console.log('Media uploaded:', uploadedMedia);
-          
+
+          console.log("Media uploaded:", uploadedMedia);
+
           const updateData = { ...parsedData };
           const { membersToAdd } = parsedData;
-          
+
           // Remove membersToAdd from updateData since we'll handle it separately
           delete updateData.membersToAdd;
-          
+
           // Add uploaded media to update data if files were uploaded
           if (uploadedMedia.length > 0) {
             updateData.media = uploadedMedia;
@@ -598,11 +649,11 @@ export const updateSquadService = async (req: any, res: Response) => {
             members: {
               $elemMatch: {
                 user: userId,
-                role: "admin"
-              }
-            }
+                role: "admin",
+              },
+            },
           });
-          
+
           if (!squad) {
             return reject({
               success: false,
@@ -618,11 +669,13 @@ export const updateSquadService = async (req: any, res: Response) => {
             if (membersToAdd.length + 1 > squad.maxMembers) {
               return reject({
                 success: false,
-                message: `Cannot have ${membersToAdd.length + 1} members. Max members is ${squad.maxMembers}.`,
+                message: `Cannot have ${
+                  membersToAdd.length + 1
+                } members. Max members is ${squad.maxMembers}.`,
                 code: httpStatusCode.BAD_REQUEST,
               });
             }
-            
+
             // Check for duplicate member IDs
             const uniqueMemberIds = new Set(membersToAdd);
             if (uniqueMemberIds.size !== membersToAdd.length) {
@@ -646,10 +699,11 @@ export const updateSquadService = async (req: any, res: Response) => {
             }
 
             // Get the creator's member object to preserve
-            const creatorMember = squad.members.find((member: any) => 
-              member.user.toString() === squad.creator.toString()
+            const creatorMember = squad.members.find(
+              (member: any) =>
+                member.user.toString() === squad.creator.toString()
             );
-            
+
             if (!creatorMember) {
               return reject({
                 success: false,
@@ -660,20 +714,22 @@ export const updateSquadService = async (req: any, res: Response) => {
 
             // Create new members array with creator and new members
             const newMembers = [creatorMember];
-            
+
             // Add each provided member ID (excluding the creator if they're in the list)
             for (const memberId of membersToAdd) {
               // Skip if it's the creator (already added)
               if (memberId === squad.creator.toString()) continue;
-              
+
               // Add as a regular member
-              newMembers.push(squad.members.create({
-                user: new mongoose.Types.ObjectId(memberId),
-                role: "member",
-                joinedAt: new Date()
-              }));
+              newMembers.push(
+                squad.members.create({
+                  user: new mongoose.Types.ObjectId(memberId),
+                  role: "member",
+                  joinedAt: new Date(),
+                })
+              );
             }
-            
+
             // Replace the members array
             (squad as any).members = newMembers;
             await squad.save();
@@ -700,24 +756,24 @@ export const updateSquadService = async (req: any, res: Response) => {
           resolve({
             success: true,
             message: "Squad updated successfully",
-            squad: updatedSquad
+            squad: updatedSquad,
           });
-
         } catch (error) {
-          console.error('Squad update error:', error);
+          console.error("Squad update error:", error);
           reject({
             success: false,
-            message: error instanceof Error ? error.message : 'Failed to update squad',
+            message:
+              error instanceof Error ? error.message : "Failed to update squad",
             code: httpStatusCode.INTERNAL_SERVER_ERROR,
           });
         }
       });
 
-      busboyParser.on('error', (error: any) => {
-        console.error('Busboy error:', error);
+      busboyParser.on("error", (error: any) => {
+        console.error("Busboy error:", error);
         reject({
           success: false,
-          message: error.message || 'Error processing file uploads',
+          message: error.message || "Error processing file uploads",
           code: httpStatusCode.INTERNAL_SERVER_ERROR,
         });
       });
@@ -728,7 +784,7 @@ export const updateSquadService = async (req: any, res: Response) => {
     // Handle JSON request (original logic)
     const updateData = { ...req.body };
     const { membersToAdd } = req.body;
-    
+
     // Remove membersToAdd from updateData since we'll handle it separately
     delete updateData.membersToAdd;
 
@@ -747,11 +803,11 @@ export const updateSquadService = async (req: any, res: Response) => {
       members: {
         $elemMatch: {
           user: userId,
-          role: "admin"
-        }
-      }
+          role: "admin",
+        },
+      },
     });
-    
+
     if (!squad) {
       return errorResponseHandler(
         "You don't have permission to update this squad",
@@ -766,12 +822,14 @@ export const updateSquadService = async (req: any, res: Response) => {
       // +1 for the creator who must remain in the squad
       if (membersToAdd.length + 1 > squad.maxMembers) {
         return errorResponseHandler(
-          `Cannot have ${membersToAdd.length + 1} members. Max members is ${squad.maxMembers}.`,
+          `Cannot have ${membersToAdd.length + 1} members. Max members is ${
+            squad.maxMembers
+          }.`,
           httpStatusCode.BAD_REQUEST,
           res
         );
       }
-      
+
       // Check for duplicate member IDs
       const uniqueMemberIds = new Set(membersToAdd);
       if (uniqueMemberIds.size !== membersToAdd.length) {
@@ -795,10 +853,10 @@ export const updateSquadService = async (req: any, res: Response) => {
       }
 
       // Get the creator's member object to preserve
-      const creatorMember = squad.members.find((member: any) => 
-        member.user.toString() === squad.creator.toString()
+      const creatorMember = squad.members.find(
+        (member: any) => member.user.toString() === squad.creator.toString()
       );
-      
+
       if (!creatorMember) {
         return errorResponseHandler(
           "Creator not found in squad members",
@@ -809,20 +867,22 @@ export const updateSquadService = async (req: any, res: Response) => {
 
       // Create new members array with creator and new members
       const newMembers = [creatorMember];
-      
+
       // Add each provided member ID (excluding the creator if they're in the list)
       for (const memberId of membersToAdd) {
         // Skip if it's the creator (already added)
         if (memberId === squad.creator.toString()) continue;
-        
+
         // Add as a regular member
-        newMembers.push(squad.members.create({
-          user: new mongoose.Types.ObjectId(memberId),
-          role: "member",
-          joinedAt: new Date()
-        }));
+        newMembers.push(
+          squad.members.create({
+            user: new mongoose.Types.ObjectId(memberId),
+            role: "member",
+            joinedAt: new Date(),
+          })
+        );
       }
-      
+
       // Replace the members array
       (squad as any).members = newMembers;
       await squad.save();
@@ -839,13 +899,17 @@ export const updateSquadService = async (req: any, res: Response) => {
       .populate("matchedSquads.squad");
 
     if (!updatedSquad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+      return errorResponseHandler(
+        "Squad not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
     }
 
     return {
       success: true,
       message: "Squad updated successfully",
-      squad: updatedSquad
+      squad: updatedSquad,
     };
   }
 };
@@ -854,37 +918,37 @@ export const updateSquadService = async (req: any, res: Response) => {
  * Delete a squad (set to inactive)
  */
 export const deleteSquadService = async (req: any, res: Response) => {
-  
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
+  const { id: userId } = req.user;
 
-    const { id: squadId } = req.params;
+  const { id: squadId } = req.params;
 
-    // Check if user is admin of the squad
-    const squad = await isSquadAdmin(squadId, userId);
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to delete this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Set squad status to inactive
-    const deletedSquad = await Squad.findByIdAndDelete(
-      squadId
+  // Check if user is admin of the squad
+  const squad = await isSquadAdmin(squadId, userId);
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to delete this squad",
+      httpStatusCode.FORBIDDEN,
+      res
     );
+  }
 
-    if (!deletedSquad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
+  // Set squad status to inactive
+  const deletedSquad = await Squad.findByIdAndDelete(squadId);
 
-    return {
-      success: true,
-      message: "Squad deleted successfully",
-    };
-  
+  if (!deletedSquad) {
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  return {
+    success: true,
+    message: "Squad deleted successfully",
+  };
 };
 
 /**
@@ -896,9 +960,17 @@ export const getSquadsService = async (req: any, res: Response) => {
   const { id: userId } = req.user;
   const { page = 1, limit = 10, status, interest } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const toRegexArray = (arr: any[]) =>
+    arr.map((v) =>
+      typeof v === "string" ? new RegExp(`^${escapeRegex(v)}$`, "i") : v
+    );
 
   // Fetch the current user's interestCategories
-  const user = await usersModel.findById(userId).select('interestCategories').exec();
+  const user = await usersModel
+    .findById(userId)
+    .select("interestCategories selectedSquad")
+    .exec();
   if (!user) {
     return errorResponseHandler(
       "User not found",
@@ -909,12 +981,12 @@ export const getSquadsService = async (req: any, res: Response) => {
 
   const query: any = {
     status: { $ne: SquadStatus.FULL }, // Exclude full squads
-    'members.user': { $ne: userId }, // Exclude squads where user is a member
+    "members.user": { $ne: userId }, // Exclude squads where user is a member
   };
 
   // If user has interestCategories, filter squads by those
   if (user.interestCategories && user.interestCategories.length > 0) {
-    query.squadInterest = { $in: user.interestCategories };
+    query.squadInterest = { $in: toRegexArray(user.interestCategories) };
   }
 
   // Additional filters from query parameters
@@ -923,22 +995,78 @@ export const getSquadsService = async (req: any, res: Response) => {
   }
 
   if (interest) {
-    query.squadInterest = { $in: [interest] };
+    query.squadInterest = { $in: toRegexArray([interest]) };
   }
 
   // Find squads that the user has interacted with (liked, superliked, boosted, or disliked)
   const userInteractions = await SquadMatch.find({
-    fromUser: userId,
-    type: { $in: ['like', 'dislike'] },
-    subType: { $in: [null, 'superlike', 'boost'] }
-  }).select('toSquad').exec();
+    fromSquad: user?.selectedSquad,
+    type: { $in: ["like", "dislike"] },
+    subType: { $in: [null, "superlike", "boost"] },
+  })
+    .select("toSquad")
+    .exec();
 
   // Extract squad IDs from interactions
-  const interactedSquadIds = userInteractions.map(interaction => interaction.toSquad);
+  const interactedSquadIds = userInteractions.map(
+    (interaction) => interaction.toSquad
+  );
 
   // // Exclude interacted squads from the query
   if (interactedSquadIds.length > 0) {
     query._id = { $nin: interactedSquadIds };
+  }
+
+  // Find incoming likes to the user's selected squad that the selected squad hasn't responded to
+  let pendingIncomingLikes: any[] = [];
+  try {
+    if (user?.selectedSquad) {
+      // include subType so we can return which kind of like it was
+      const incomingInteractions = await SquadMatch.find({
+        toSquad: user.selectedSquad,
+        type: "like",
+        isMatch: false,
+      })
+        .select("fromSquad subType")
+        .exec();
+
+      // map incoming interactions to id -> subType
+      const incomingMap: Record<string, string | null> = {};
+      const incomingSquadIds = incomingInteractions.map((i: any) => {
+        const id = (i.fromSquad as any).toString();
+        incomingMap[id] = i.subType || null;
+        return id;
+      });
+
+      // Remove squads we've already interacted with from incoming list
+      const interactedIdsStr = interactedSquadIds.map((id: any) =>
+        id.toString()
+      );
+      const unrespondedIds = incomingSquadIds.filter(
+        (id: string) => !interactedIdsStr.includes(id)
+      );
+
+      if (unrespondedIds.length > 0) {
+        const squadsList = await Squad.find({
+          _id: { $in: unrespondedIds },
+          status: { $ne: SquadStatus.FULL },
+          "members.user": { $ne: userId },
+        })
+          .populate("creator", "userName photos")
+          .populate("members.user", "userName photos")
+          .sort({ createdAt: -1 })
+          .exec();
+
+        // attach the subType for each returned squad
+        pendingIncomingLikes = squadsList.map((sq: any) => ({
+          squad: sq,
+          subType: incomingMap[sq._id.toString()] || null,
+        }));
+      }
+    }
+  } catch (e) {
+    // ignore errors here to avoid breaking main listing
+    pendingIncomingLikes = [];
   }
 
   const squads = await Squad.find(query)
@@ -954,12 +1082,16 @@ export const getSquadsService = async (req: any, res: Response) => {
   return {
     success: true,
     message: "Squads retrieved successfully",
-    data: squads,
-    pagination: {
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      pages: Math.ceil(total / Number(limit)),
+    data: {
+      squads,
+      selectedSquadId: user?.selectedSquad ? user.selectedSquad : null,
+      pendingIncomingLikes,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(total / Number(limit)),
+      },
     },
   };
 };
@@ -968,26 +1100,29 @@ export const getSquadsService = async (req: any, res: Response) => {
  * Get squads for the current user
  */
 export const getUserSquadsService = async (req: any, res: Response) => {
+  if (!authenticateUser(req, res)) return;
 
-    if (!authenticateUser(req, res)) return;
+  const { id: userId } = req.user;
 
-    const { id: userId } = req.user;
+  const squads = await Squad.find({
+    "members.user": userId,
+    status: { $ne: SquadStatus.INACTIVE },
+  })
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos")
+    .populate("matchedSquads.squad")
+    .sort({ createdAt: -1 });
 
-    const squads = await Squad.find({
-      "members.user": userId,
-      status: { $ne: SquadStatus.INACTIVE },
-    })
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .populate("matchedSquads.squad")
-      .sort({ createdAt: -1 });
+  const user = await usersModel.findById(userId).select("selectedSquad").exec();
 
-    return {
-      success: true,
-      message: "User Squads retrieved successfully",
-      data: squads,
-    };
-  
+  return {
+    success: true,
+    message: "User Squads retrieved successfully",
+    data: {
+      squads,
+      selectedSquadId: user?.selectedSquad ? user.selectedSquad : null,
+    },
+  };
 };
 
 /**
@@ -1010,22 +1145,45 @@ export const addMemberService = async (req: any, res: Response) => {
   }
 
   if (squad.members.length >= squad.maxMembers) {
-    return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad is full",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
-  const memberIdToCheck = typeof memberId === 'object' && memberId.memberId ? memberId.memberId : memberId;
-  
-  if (squad.members.some((member: any) => member?.user?.toString() === memberIdToCheck)) {
-    return errorResponseHandler("User is already a member of this squad", httpStatusCode.BAD_REQUEST, res);
+  const memberIdToCheck =
+    typeof memberId === "object" && memberId.memberId
+      ? memberId.memberId
+      : memberId;
+
+  if (
+    squad.members.some(
+      (member: any) => member?.user?.toString() === memberIdToCheck
+    )
+  ) {
+    return errorResponseHandler(
+      "User is already a member of this squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   if (memberIdToCheck === userId) {
-    return errorResponseHandler("You cannot add yourself as a member", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "You cannot add yourself as a member",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   const userExists = await usersModel.findById(memberIdToCheck);
   if (!userExists) {
-    return errorResponseHandler("User does not exist", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "User does not exist",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   squad.members.push({
@@ -1036,12 +1194,12 @@ export const addMemberService = async (req: any, res: Response) => {
 
   await squad.save();
 
-  const sender = await usersModel.findById(userId).select('userName');
+  const sender = await usersModel.findById(userId).select("userName");
   await createNotification(
     memberIdToCheck,
     userId,
     NotificationType.SQUAD_MEMBER_ADDED,
-    `${sender?.userName || 'Someone'} added you to the squad "${squad.title}"!`,
+    `${sender?.userName || "Someone"} added you to the squad "${squad.title}"!`,
     undefined,
     squadId
   );
@@ -1051,7 +1209,11 @@ export const addMemberService = async (req: any, res: Response) => {
     .populate("members.user", "userName photos");
 
   if (!updatedSquad) {
-    return errorResponseHandler("Failed to retrieve updated squad", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+    return errorResponseHandler(
+      "Failed to retrieve updated squad",
+      httpStatusCode.INTERNAL_SERVER_ERROR,
+      res
+    );
   }
 
   return {
@@ -1080,38 +1242,58 @@ export const removeMemberService = async (req: any, res: Response) => {
     );
   }
 
-  const memberIdToCheck = typeof memberId === 'object' && memberId.memberId ? memberId.memberId : memberId;
-  
+  const memberIdToCheck =
+    typeof memberId === "object" && memberId.memberId
+      ? memberId.memberId
+      : memberId;
+
   console.log("Checking for member:", memberIdToCheck);
-  console.log("Squad members:", squad.members.map(m => ({ 
-    id: m?.user?.toString(),
-    role: m.role 
-  })));
-  
+  console.log(
+    "Squad members:",
+    squad.members.map((m) => ({
+      id: m?.user?.toString(),
+      role: m.role,
+    }))
+  );
+
   const memberIndex = squad.members.findIndex(
     (member: any) => member.user.toString() === memberIdToCheck
   );
-  
+
   if (memberIndex === -1) {
-    return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "User is not a member of this squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   if (squad.creator.toString() === memberIdToCheck) {
-    return errorResponseHandler("Cannot remove the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Cannot remove the creator of the squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
   if (userId === memberIdToCheck) {
-    return errorResponseHandler("Cannot remove yourself from the squad", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Cannot remove yourself from the squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   squad.members.splice(memberIndex, 1);
   await squad.save();
 
-  const sender = await usersModel.findById(userId).select('userName');
+  const sender = await usersModel.findById(userId).select("userName");
   await createNotification(
     memberIdToCheck,
     userId,
     NotificationType.SQUAD_MEMBER_REMOVED,
-    `${sender?.userName || 'Someone'} removed you from the squad "${squad.title}"!`,
+    `${sender?.userName || "Someone"} removed you from the squad "${
+      squad.title
+    }"!`,
     undefined,
     squadId
   );
@@ -1127,19 +1309,34 @@ export const removeMemberService = async (req: any, res: Response) => {
  */
 export const changeMemberRoleService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
-  const { squadId, memberId } = req.params as { squadId: string; memberId: string };
+  const { squadId, memberId } = req.params as {
+    squadId: string;
+    memberId: string;
+  };
   const { role } = req.body as { role: "admin" | "member" };
 
   if (!squadId || !memberId || !role) {
-    return errorResponseHandler("Squad ID, member ID, and role are required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID, member ID, and role are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   if (!["admin", "member"].includes(role)) {
-    return errorResponseHandler("Role must be either 'admin' or 'member'", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Role must be either 'admin' or 'member'",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   try {
@@ -1159,15 +1356,25 @@ export const changeMemberRoleService = async (req: any, res: Response) => {
     }
 
     // Check if target user is a member
-    const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === memberId);
+    const memberIndex = squad.members.findIndex(
+      (member) => member?.user?.toString() === memberId
+    );
 
     if (memberIndex === -1) {
-      return errorResponseHandler("User is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "User is not a member of this squad",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
     // Check if trying to demote the creator
     if (squad.creator.toString() === memberId && role === "member") {
-      return errorResponseHandler("Cannot demote the creator of the squad", httpStatusCode.BAD_REQUEST, res);
+      return errorResponseHandler(
+        "Cannot demote the creator of the squad",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
     }
 
     // Update member role
@@ -1184,7 +1391,11 @@ export const changeMemberRoleService = async (req: any, res: Response) => {
       data: updatedSquad,
     };
   } catch (error) {
-    return errorResponseHandler("Failed to change member role", httpStatusCode.INTERNAL_SERVER_ERROR, res);
+    return errorResponseHandler(
+      "Failed to change member role",
+      httpStatusCode.INTERNAL_SERVER_ERROR,
+      res
+    );
   }
 };
 
@@ -1198,17 +1409,31 @@ export const leaveSquadService = async (req: any, res: Response) => {
   const { id: squadId } = req.params;
 
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   const squad = await Squad.findById(squadId);
   if (!squad) {
-    return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
-  const memberIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+  const memberIndex = squad.members.findIndex(
+    (member) => member?.user?.toString() === userId
+  );
   if (memberIndex === -1) {
-    return errorResponseHandler("You are not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "You are not a member of this squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   if (squad.creator.toString() === userId) {
@@ -1222,12 +1447,12 @@ export const leaveSquadService = async (req: any, res: Response) => {
   squad.members.splice(memberIndex, 1);
   await squad.save();
 
-  const sender = await usersModel.findById(userId).select('userName');
+  const sender = await usersModel.findById(userId).select("userName");
   await createNotification(
     squad.creator.toString(),
     userId,
     NotificationType.SQUAD_LEAVE,
-    `${sender?.userName || 'Someone'} left your squad "${squad.title}"!`,
+    `${sender?.userName || "Someone"} left your squad "${squad.title}"!`,
     userId,
     squadId
   );
@@ -1248,7 +1473,11 @@ export const transferOwnershipService = async (req: any, res: Response) => {
   const { newOwnerId } = req.body;
 
   if (!squadId || !newOwnerId) {
-    return errorResponseHandler("Squad ID and new owner ID are required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID and new owner ID are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   const squad = await Squad.findOne({
@@ -1264,13 +1493,21 @@ export const transferOwnershipService = async (req: any, res: Response) => {
     );
   }
 
-  const newOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === newOwnerId);
+  const newOwnerIndex = squad.members.findIndex(
+    (member) => member?.user?.toString() === newOwnerId
+  );
   if (newOwnerIndex === -1) {
-    return errorResponseHandler("New owner is not a member of this squad", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "New owner is not a member of this squad",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   squad.creator = new Types.ObjectId(newOwnerId);
-  const currentOwnerIndex = squad.members.findIndex((member) => member?.user?.toString() === userId);
+  const currentOwnerIndex = squad.members.findIndex(
+    (member) => member?.user?.toString() === userId
+  );
   if (currentOwnerIndex !== -1) {
     squad.members[currentOwnerIndex].role = "member";
   }
@@ -1278,13 +1515,15 @@ export const transferOwnershipService = async (req: any, res: Response) => {
 
   await squad.save();
 
-  const sender = await usersModel.findById(userId).select('userName');
-  const newOwner = await usersModel.findById(newOwnerId).select('userName');
+  const sender = await usersModel.findById(userId).select("userName");
+  const newOwner = await usersModel.findById(newOwnerId).select("userName");
   await createNotification(
     newOwnerId,
     userId,
     NotificationType.SQUAD_OWNERSHIP_TRANSFER,
-    `${sender?.userName || 'Someone'} transferred ownership of the squad "${squad.title}" to you!`,
+    `${sender?.userName || "Someone"} transferred ownership of the squad "${
+      squad.title
+    }" to you!`,
     userId,
     squadId
   );
@@ -1300,7 +1539,6 @@ export const transferOwnershipService = async (req: any, res: Response) => {
   };
 };
 
-
 /**
  * Join a squad
  */
@@ -1311,12 +1549,20 @@ export const joinSquadService = async (req: any, res: Response) => {
   const { id: squadId } = req.params;
 
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   const squad = await Squad.findById(squadId);
   if (!squad) {
-    return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
   }
 
   if (squad.members.some((member: any) => member.user.toString() === userId)) {
@@ -1336,13 +1582,17 @@ export const joinSquadService = async (req: any, res: Response) => {
   }
 
   if (squad.members.length >= squad.maxMembers) {
-    return errorResponseHandler("Squad is full", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad is full",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
   squad.members.push({
     user: new mongoose.Types.ObjectId(userId),
     role: "member",
-    joinedAt: new Date()
+    joinedAt: new Date(),
   });
 
   if (squad.members.length >= squad.maxMembers) {
@@ -1351,12 +1601,12 @@ export const joinSquadService = async (req: any, res: Response) => {
 
   await squad.save();
 
-  const sender = await usersModel.findById(userId).select('userName');
+  const sender = await usersModel.findById(userId).select("userName");
   await createNotification(
     squad.creator.toString(),
     userId,
     NotificationType.SQUAD_JOIN,
-    `${sender?.userName || 'Someone'} joined your squad "${squad.title}"!`,
+    `${sender?.userName || "Someone"} joined your squad "${squad.title}"!`,
     userId,
     squadId
   );
@@ -1368,7 +1618,7 @@ export const joinSquadService = async (req: any, res: Response) => {
   return {
     success: true,
     message: "You have joined the squad successfully",
-    data: updatedSquad
+    data: updatedSquad,
   };
 };
 
@@ -1376,193 +1626,220 @@ export const joinSquadService = async (req: any, res: Response) => {
  * Match with another squad
  */
 export const matchSquadService = async (req: any, res: Response) => {
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
-    
-    // Validate params
-    const paramsResult = validateRequest(squadIdSchema, req.params);
-    if (paramsResult.error) {
-      return errorResponseHandler(paramsResult.error, httpStatusCode.BAD_REQUEST, res);
-    }
+  const { id: userId } = req.user;
 
-    // Validate body
-    const bodyResult = validateRequest(targetSquadSchema, req.body);
-    if (bodyResult.error) {
-      return errorResponseHandler(bodyResult.error, httpStatusCode.BAD_REQUEST, res);
-    }
-
-    const { squadId } = paramsResult.value;
-    const { targetSquadId } = bodyResult.value;
-
-    // Validate squadId and targetSquadId are different
-    if (squadId === targetSquadId) {
-      return errorResponseHandler(
-        "Squad cannot match with itself",
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
-
-    // Check if user is admin of the squad
-    const sourceSquad = await isSquadAdmin(squadId, userId);
-    if (!sourceSquad) {
-      return errorResponseHandler(
-        "You don't have permission to match this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Check if target squad exists and is active
-    const targetSquad = await Squad.findOne({ 
-      _id: targetSquadId,
-      status: { $or: [SquadStatus.ACTIVE, SquadStatus.FULL]}
-    });
-    
-    if (!targetSquad) {
-      return errorResponseHandler("Target squad not found or inactive", httpStatusCode.NOT_FOUND, res);
-    }
-
-    // Check if already matched
-    const alreadyMatched = sourceSquad.matchedSquads.some(
-      (match : any) => match?.squad?.toString() === targetSquadId
+  // Validate params
+  const paramsResult = validateRequest(squadIdSchema, req.params);
+  if (paramsResult.error) {
+    return errorResponseHandler(
+      paramsResult.error,
+      httpStatusCode.BAD_REQUEST,
+      res
     );
-    
-    if (alreadyMatched) {
-      return errorResponseHandler("Squads are already matched", httpStatusCode.BAD_REQUEST, res);
-    }
+  }
 
-    // Add match to source squad
-    sourceSquad.matchedSquads.push({
-      squad: new Types.ObjectId(targetSquadId),
+  // Validate body
+  const bodyResult = validateRequest(targetSquadSchema, req.body);
+  if (bodyResult.error) {
+    return errorResponseHandler(
+      bodyResult.error,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const { squadId } = paramsResult.value;
+  const { targetSquadId } = bodyResult.value;
+
+  // Validate squadId and targetSquadId are different
+  if (squadId === targetSquadId) {
+    return errorResponseHandler(
+      "Squad cannot match with itself",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Check if user is admin of the squad
+  const sourceSquad = await isSquadAdmin(squadId, userId);
+  if (!sourceSquad) {
+    return errorResponseHandler(
+      "You don't have permission to match this squad",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
+
+  // Check if target squad exists and is active
+  const targetSquad = await Squad.findOne({
+    _id: targetSquadId,
+    status: { $or: [SquadStatus.ACTIVE, SquadStatus.FULL] },
+  });
+
+  if (!targetSquad) {
+    return errorResponseHandler(
+      "Target squad not found or inactive",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  // Check if already matched
+  const alreadyMatched = sourceSquad.matchedSquads.some(
+    (match: any) => match?.squad?.toString() === targetSquadId
+  );
+
+  if (alreadyMatched) {
+    return errorResponseHandler(
+      "Squads are already matched",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Add match to source squad
+  sourceSquad.matchedSquads.push({
+    squad: new Types.ObjectId(targetSquadId),
+    matchedAt: new Date(),
+  });
+  await sourceSquad.save();
+
+  // Add match to target squad (mutual matching)
+  if (
+    !targetSquad.matchedSquads.some(
+      (match) => match?.squad?.toString() === squadId
+    )
+  ) {
+    targetSquad.matchedSquads.push({
+      squad: new Types.ObjectId(squadId),
       matchedAt: new Date(),
     });
-    await sourceSquad.save();
+    await targetSquad.save();
+  }
 
-    // Add match to target squad (mutual matching)
-    if (!targetSquad.matchedSquads.some((match) => match?.squad?.toString() === squadId)) {
-      targetSquad.matchedSquads.push({
-        squad: new Types.ObjectId(squadId),
-        matchedAt: new Date(),
-      });
-      await targetSquad.save();
-    }
-
-    return{
-      success: true,
-      message: "Squads matched successfully",
-    };
+  return {
+    success: true,
+    message: "Squads matched successfully",
+  };
 };
 
 /**
  * Unmatch from another squad
  */
 export const unmatchSquadService = async (req: any, res: Response) => {
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
-    
-    // Validate squadId and targetSquadId
-    const { error, value } = validateRequest(
-      Joi.object({
-        squadId: squadIdSchema.extract('squadId'),
-        targetSquadId: targetSquadSchema.extract('targetSquadId')
-      }),
-      req.params
+  const { id: userId } = req.user;
+
+  // Validate squadId and targetSquadId
+  const { error, value } = validateRequest(
+    Joi.object({
+      squadId: squadIdSchema.extract("squadId"),
+      targetSquadId: targetSquadSchema.extract("targetSquadId"),
+    }),
+    req.params
+  );
+
+  if (error) {
+    return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+  }
+
+  const { squadId, targetSquadId } = value;
+
+  // Check if user is admin of the squad
+  const sourceSquad = await isSquadAdmin(squadId, userId);
+  if (!sourceSquad) {
+    return errorResponseHandler(
+      "You don't have permission to unmatch this squad",
+      httpStatusCode.FORBIDDEN,
+      res
     );
-    
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
+  }
 
-    const { squadId, targetSquadId } = value;
+  // Remove match from source squad
+  const matchIndex = sourceSquad.matchedSquads.findIndex(
+    (match: any) => match?.squad?.toString() === targetSquadId
+  );
 
-    // Check if user is admin of the squad
-    const sourceSquad = await isSquadAdmin(squadId, userId);
-    if (!sourceSquad) {
-      return errorResponseHandler(
-        "You don't have permission to unmatch this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
-
-    // Remove match from source squad
-    const matchIndex = sourceSquad.matchedSquads.findIndex(
-      (match : any) => match?.squad?.toString() === targetSquadId
+  if (matchIndex === -1) {
+    return errorResponseHandler(
+      "Squads are not matched",
+      httpStatusCode.BAD_REQUEST,
+      res
     );
+  }
 
-    if (matchIndex === -1) {
-      return errorResponseHandler("Squads are not matched", httpStatusCode.BAD_REQUEST, res);
+  sourceSquad.matchedSquads.splice(matchIndex, 1);
+  await sourceSquad.save();
+
+  // Remove match from target squad (mutual unmatching)
+  const targetSquad = await Squad.findById(targetSquadId);
+  if (targetSquad) {
+    const targetMatchIndex = targetSquad.matchedSquads.findIndex(
+      (match) => match?.squad?.toString() === squadId
+    );
+    if (targetMatchIndex !== -1) {
+      targetSquad.matchedSquads.splice(targetMatchIndex, 1);
+      await targetSquad.save();
     }
+  }
 
-    sourceSquad.matchedSquads.splice(matchIndex, 1);
-    await sourceSquad.save();
-
-    // Remove match from target squad (mutual unmatching)
-    const targetSquad = await Squad.findById(targetSquadId);
-    if (targetSquad) {
-      const targetMatchIndex = targetSquad.matchedSquads.findIndex(
-        (match) => match?.squad?.toString() === squadId
-      );
-      if (targetMatchIndex !== -1) {
-        targetSquad.matchedSquads.splice(targetMatchIndex, 1);
-        await targetSquad.save();
-      }
-    }
-
-    return{
-      success: true,
-      message: "Squads unmatched successfully",
-    };
-
+  return {
+    success: true,
+    message: "Squads unmatched successfully",
+  };
 };
 
 /**
  * Get matched squads
  */
 export const getMatchedSquadsService = async (req: any, res: Response) => {
-    if (!authenticateUser(req, res)) return;
+  if (!authenticateUser(req, res)) return;
 
-    const { id: userId } = req.user;
-    
-    // Validate params
-    const { error, value } = validateRequest(squadIdSchema, req.params);
-    if (error) {
-      return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
-    }
+  const { id: userId } = req.user;
 
-    const { squadId } = value;
+  // Validate params
+  const { error, value } = validateRequest(squadIdSchema, req.params);
+  if (error) {
+    return errorResponseHandler(error, httpStatusCode.BAD_REQUEST, res);
+  }
 
-    // Check if user is a member of the squad
-    const squad = await isSquadMember(squadId, userId);
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to view this squad's matches",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  const { squadId } = value;
 
-    // Get matched squads with details
-    const populatedSquad = await Squad.findById(squadId).populate({
-      path: "matchedSquads.squad",
-      populate: {
-        path: "members.user",
-        select: "userName photos",
-      },
-    });
+  // Check if user is a member of the squad
+  const squad = await isSquadMember(squadId, userId);
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to view this squad's matches",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    if (!populatedSquad) {
-      return errorResponseHandler("Squad not found", httpStatusCode.NOT_FOUND, res);
-    }
+  // Get matched squads with details
+  const populatedSquad = await Squad.findById(squadId).populate({
+    path: "matchedSquads.squad",
+    populate: {
+      path: "members.user",
+      select: "userName photos",
+    },
+  });
 
-    return{
-      success: true,
-      message: "Matched squads retrieved successfully",
-      data: populatedSquad.matchedSquads,
-    };
+  if (!populatedSquad) {
+    return errorResponseHandler(
+      "Squad not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  return {
+    success: true,
+    message: "Matched squads retrieved successfully",
+    data: populatedSquad.matchedSquads,
+  };
 };
 
 /**
@@ -1570,62 +1847,73 @@ export const getMatchedSquadsService = async (req: any, res: Response) => {
  */
 export const findPotentialMatchesService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
   const { squadId } = req.params as { squadId: string };
-  const { page = "1", limit = "10" } = req.query as { page?: string; limit?: string };
+  const { page = "1", limit = "10" } = req.query as {
+    page?: string;
+    limit?: string;
+  };
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   if (!squadId) {
-    return errorResponseHandler("Squad ID is required", httpStatusCode.BAD_REQUEST, res);
+    return errorResponseHandler(
+      "Squad ID is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
   }
 
-    // Check if user is a member of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-    });
+  // Check if user is a member of the squad
+  const squad = await Squad.findOne({
+    _id: squadId,
+    "members.user": userId,
+  });
 
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to find matches for this squad",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to find matches for this squad",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    // Get already matched squad IDs to exclude them
-    const matchedSquadIds = squad.matchedSquads.map((match) => match.squad);
+  // Get already matched squad IDs to exclude them
+  const matchedSquadIds = squad.matchedSquads.map((match) => match.squad);
 
-    // Find squads with similar interests
-    const query = {
-      _id: { $ne: squadId, $nin: matchedSquadIds },
-      status: SquadStatus.ACTIVE,
-      squadInterest: { $in: squad.squadInterest },
-    };
+  // Find squads with similar interests
+  const query = {
+    _id: { $ne: squadId, $nin: matchedSquadIds },
+    status: SquadStatus.ACTIVE,
+    squadInterest: { $in: squad.squadInterest },
+  };
 
-    const potentialMatches = await Squad.find(query)
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+  const potentialMatches = await Squad.find(query)
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
 
-    const total = await Squad.countDocuments(query);
+  const total = await Squad.countDocuments(query);
 
-    return{
-      success: true,
-      message: "Potential matches found successfully",
-      data:potentialMatches,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    };
+  return {
+    success: true,
+    message: "Potential matches found successfully",
+    data: potentialMatches,
+    pagination: {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages: Math.ceil(total / parseInt(limit)),
+    },
+  };
 };
 
 /**
@@ -1633,7 +1921,11 @@ export const findPotentialMatchesService = async (req: any, res: Response) => {
  */
 export const updateSquadInterestsService = async (req: any, res: Response) => {
   if (!req.user) {
-    return errorResponseHandler("Authentication failed", httpStatusCode.UNAUTHORIZED, res);
+    return errorResponseHandler(
+      "Authentication failed",
+      httpStatusCode.UNAUTHORIZED,
+      res
+    );
   }
 
   const { id: userId } = req.user;
@@ -1648,45 +1940,46 @@ export const updateSquadInterestsService = async (req: any, res: Response) => {
     );
   }
 
-    // Check if user is admin of the squad
-    const squad = await Squad.findOne({
-      _id: squadId,
-      "members.user": userId,
-      "members.role": "admin",
-    });
+  // Check if user is admin of the squad
+  const squad = await Squad.findOne({
+    _id: squadId,
+    "members.user": userId,
+    "members.role": "admin",
+  });
 
-    if (!squad) {
-      return errorResponseHandler(
-        "You don't have permission to update this squad's interests",
-        httpStatusCode.FORBIDDEN,
-        res
-      );
-    }
+  if (!squad) {
+    return errorResponseHandler(
+      "You don't have permission to update this squad's interests",
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
 
-    // Validate interests
-    const validInterests = Object.values(InterestCategory);
-    const invalidInterests = squadInterest.filter((interest) => !validInterests.includes(interest as InterestCategory));
-    if (invalidInterests.length > 0) {
-      return errorResponseHandler(
-        `Invalid interests: ${invalidInterests.join(", ")}`,
-        httpStatusCode.BAD_REQUEST,
-        res
-      );
-    }
+  // Validate interests
+  const validInterests = Object.values(InterestCategory);
+  const invalidInterests = squadInterest.filter(
+    (interest) => !validInterests.includes(interest as InterestCategory)
+  );
+  if (invalidInterests.length > 0) {
+    return errorResponseHandler(
+      `Invalid interests: ${invalidInterests.join(", ")}`,
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
-    // Update squad interests
-    const updatedSquad = await Squad.findByIdAndUpdate(
-      squadId,
-      { $set: { squadInterest } },
-      { new: true }
-    )
-      .populate("creator", "userName photos")
-      .populate("members.user", "userName photos");
+  // Update squad interests
+  const updatedSquad = await Squad.findByIdAndUpdate(
+    squadId,
+    { $set: { squadInterest } },
+    { new: true }
+  )
+    .populate("creator", "userName photos")
+    .populate("members.user", "userName photos");
 
-    return {
-      success: true,
-      message: "Squad interests updated successfully",
-      data: updatedSquad,
-    };
-
+  return {
+    success: true,
+    message: "Squad interests updated successfully",
+    data: updatedSquad,
+  };
 };

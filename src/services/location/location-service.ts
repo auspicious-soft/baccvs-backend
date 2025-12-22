@@ -1,9 +1,9 @@
-import { Request, Response } from 'express';
-import { JwtPayload } from 'jsonwebtoken';
-import { httpStatusCode } from 'src/lib/constant';
-import { errorResponseHandler } from 'src/lib/errors/error-response-handler';
-import { eventModel } from 'src/models/event/event-schema';
-import { usersModel } from 'src/models/user/user-schema';
+import { Request, Response } from "express";
+import { JwtPayload } from "jsonwebtoken";
+import { httpStatusCode } from "src/lib/constant";
+import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import { eventModel } from "src/models/event/event-schema";
+import { usersModel } from "src/models/user/user-schema";
 
 interface LocationQuery {
   longitude: number;
@@ -18,12 +18,12 @@ export const getNearbyUsersService = async (req: Request, res: Response) => {
     longitude,
     latitude,
     maxDistance = 10, // default 10km
-    minDistance = 0
+    minDistance = 0,
   } = req.query as unknown as LocationQuery;
 
   if (!longitude || !latitude) {
     return errorResponseHandler(
-      'Longitude and latitude are required',
+      "Longitude and latitude are required",
       httpStatusCode.BAD_REQUEST,
       res
     );
@@ -33,18 +33,21 @@ export const getNearbyUsersService = async (req: Request, res: Response) => {
     {
       $geoNear: {
         near: {
-          type: 'Point',
-          coordinates: [parseFloat(longitude.toString()), parseFloat(latitude.toString())]
+          type: "Point",
+          coordinates: [
+            parseFloat(longitude.toString()),
+            parseFloat(latitude.toString()),
+          ],
         },
-        distanceField: 'distance', // in meters
+        distanceField: "distance", // in meters
         maxDistance: maxDistance * 1000, // convert km to meters
         minDistance: minDistance * 1000,
         spherical: true,
         query: {
           _id: { $ne: currentUserId }, // Exclude current user
-          isEmailVerified: true // Only verified users
-        }
-      }
+          isEmailVerified: true, // Only verified users
+        },
+      },
     },
     {
       $project: {
@@ -58,25 +61,119 @@ export const getNearbyUsersService = async (req: Request, res: Response) => {
         gender: 1,
         interestedIn: 1,
         photos: 1,
-        dob: 1
-      }
+        dob: 1,
+      },
     },
     {
       $addFields: {
-        distanceInKm: { $round: [{ $divide: ['$distance', 1000] }, 2] }
-      }
-    }
+        distanceInKm: { $round: [{ $divide: ["$distance", 1000] }, 2] },
+      },
+    },
   ];
 
   const nearbyUsers = await usersModel.aggregate(pipeline as any);
 
+  // Fetch current user preferences to compute suggested users
+  const currentUser = await usersModel
+    .findById(currentUserId)
+    .select(
+      "interestedIn interestCategories musicStyles eventTypes atmosphereVibes location isEmailVerified"
+    )
+    .lean();
+
+  let suggestedUsers: any[] = [];
+  if (currentUser) {
+    // Build suggested users pipeline based on overlapping interests
+    const suggestedPipeline: any[] = [
+      {
+        $match: {
+          _id: { $ne: currentUser._id },
+          isEmailVerified: true,
+          $or: [
+            {
+              interestCategories: { $in: currentUser.interestCategories || [] },
+            },
+            { musicStyles: { $in: currentUser.musicStyles || [] } },
+            { eventTypes: { $in: currentUser.eventTypes || [] } },
+            { atmosphereVibes: { $in: currentUser.atmosphereVibes || [] } },
+            { interestedIn: currentUser.interestedIn },
+          ],
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          userName: 1,
+          email: 1,
+          phoneNumber: 1,
+          profilePicture: 1,
+          location: 1,
+          gender: 1,
+          interestedIn: 1,
+          photos: 1,
+          dob: 1,
+          // compute a simple relevance score by counting intersections
+          score: {
+            $add: [
+              {
+                $size: {
+                  $setIntersection: [
+                    "$interestCategories",
+                    currentUser.interestCategories || [],
+                  ],
+                },
+              },
+              {
+                $size: {
+                  $setIntersection: [
+                    "$musicStyles",
+                    currentUser.musicStyles || [],
+                  ],
+                },
+              },
+              {
+                $size: {
+                  $setIntersection: [
+                    "$eventTypes",
+                    currentUser.eventTypes || [],
+                  ],
+                },
+              },
+              {
+                $size: {
+                  $setIntersection: [
+                    "$atmosphereVibes",
+                    currentUser.atmosphereVibes || [],
+                  ],
+                },
+              },
+              {
+                $cond: [
+                  { $eq: ["$interestedIn", currentUser.interestedIn] },
+                  1,
+                  0,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $sort: { score: -1 } },
+      { $limit: 20 },
+    ];
+
+    suggestedUsers = await usersModel.aggregate(suggestedPipeline as any);
+  }
+
   return {
     success: true,
-    message: 'Nearby users retrieved successfully',
+    message: "Nearby users retrieved successfully",
     data: {
       users: nearbyUsers,
-      count: nearbyUsers.length
-    }
+      count: nearbyUsers.length,
+      suggestedUsers,
+      suggestedCount: suggestedUsers.length,
+    },
   };
 };
 
@@ -85,12 +182,12 @@ export const getNearbyEventsService = async (req: Request, res: Response) => {
     longitude,
     latitude,
     maxDistance = 10,
-    minDistance = 0
+    minDistance = 0,
   } = req.query as unknown as LocationQuery;
 
   if (!longitude || !latitude) {
     return errorResponseHandler(
-      'Longitude and latitude are required',
+      "Longitude and latitude are required",
       httpStatusCode.BAD_REQUEST,
       res
     );
@@ -104,38 +201,41 @@ export const getNearbyEventsService = async (req: Request, res: Response) => {
     {
       $geoNear: {
         near: {
-          type: 'Point',
-          coordinates: [parseFloat(longitude.toString()), parseFloat(latitude.toString())]
+          type: "Point",
+          coordinates: [
+            parseFloat(longitude.toString()),
+            parseFloat(latitude.toString()),
+          ],
         },
-        distanceField: 'distance',
+        distanceField: "distance",
         maxDistance: maxDistance * 1000,
         minDistance: minDistance * 1000,
         spherical: true,
         query: {
-          date: { $gte: new Date() } // Changed from startDate to date to match schema
-        }
-      }
+          utcDateTime: { $gte: new Date() },
+        },
+      },
     },
     // Debug stage to see what documents pass the geo query
     {
       $addFields: {
         debug_info: {
-          original_location: '$location',
-          distance_meters: '$distance',
-          distance_km: { $divide: ['$distance', 1000] }
-        }
-      }
+          original_location: "$location",
+          distance_meters: "$distance",
+          distance_km: { $divide: ["$distance", 1000] },
+        },
+      },
     },
     {
       $lookup: {
-        from: 'users',
-        localField: 'creator',
-        foreignField: '_id',
-        as: 'creator'
-      }
+        from: "users",
+        localField: "creator",
+        foreignField: "_id",
+        as: "creator",
+      },
     },
     {
-      $unwind: '$creator'
+      $unwind: "$creator",
     },
     {
       $project: {
@@ -149,21 +249,21 @@ export const getNearbyEventsService = async (req: Request, res: Response) => {
         distance: 1,
         debug_info: 1, // Keep debug info
         media: 1, // Added this field
-        'creator._id': 1,
-        'creator.userName': 1,
-        'creator.profilePicture': 1,
+        "creator._id": 1,
+        "creator.userName": 1,
+        "creator.profilePicture": 1,
         eventPreferences: 1, // Added this field
-        capacity: 1 // Added this field
-      }
+        capacity: 1, // Added this field
+      },
     },
     {
       $addFields: {
-        distanceInKm: { $round: [{ $divide: ['$distance', 1000] }, 2] }
-      }
+        distanceInKm: { $round: [{ $divide: ["$distance", 1000] }, 2] },
+      },
     },
     {
-      $sort: { date: 1 }
-    }
+      $sort: { date: 1 },
+    },
   ];
 
   const nearbyEvents = await eventModel.aggregate(pipeline as any);
@@ -176,47 +276,127 @@ export const getNearbyEventsService = async (req: Request, res: Response) => {
     // console.log('Total events in database:', totalEvents);
   }
 
+  // Fetch current user to compute suggested events
+  const { id: currentUserId } = req.user as JwtPayload;
+  const currentUser = await usersModel
+    .findById(currentUserId)
+    .select("interestCategories musicStyles eventTypes atmosphereVibes")
+    .lean();
+
+  let suggestedEvents: any[] = [];
+  if (currentUser) {
+    const now = new Date();
+    const suggestedPipeline = [
+      {
+        $match: {
+          utcDateTime: { $gte: now },
+          $or: [
+            {
+              "eventPreferences.eventType": {
+                $in: currentUser.eventTypes ?? [],
+              },
+            },
+            {
+              "eventPreferences.musicType": {
+                $in: currentUser.musicStyles ?? [],
+              },
+            },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          score: {
+            $add: [
+              {
+                $size: {
+                  $setIntersection: [
+                    "$eventPreferences.eventType",
+                    currentUser.eventTypes ?? [],
+                  ],
+                },
+              },
+              {
+                $size: {
+                  $setIntersection: [
+                    "$eventPreferences.musicType",
+                    currentUser.musicStyles ?? [],
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $project: {
+          title: 1,
+          aboutEvent: 1,
+          date: 1,
+          startTime: 1,
+          endTime: 1,
+          venue: 1,
+          location: 1,
+          media: 1,
+          capacity: 1,
+          score: 1,
+        },
+      },
+      { $sort: { score: -1, utcDateTime: 1 } },
+      { $limit: 20 },
+    ];
+
+    suggestedEvents = await eventModel.aggregate(suggestedPipeline as any);
+  }
+
   return {
     success: true,
-    message: 'Nearby events retrieved successfully',
+    message: "Nearby events retrieved successfully",
     data: {
       events: nearbyEvents,
       count: nearbyEvents.length,
+      suggestedEvents,
+      suggestedCount: suggestedEvents.length,
       searchParams: {
         coordinates: [longitude, latitude],
         maxDistance,
-        minDistance
-      }
-    }
+        minDistance,
+      },
+    },
   };
 };
 
-export const updateUserLocationService = async (req: Request, res: Response) => {
+export const updateUserLocationService = async (
+  req: Request,
+  res: Response
+) => {
   const { id: userId } = req.user as JwtPayload;
   const { longitude, latitude } = req.body;
 
   if (!longitude || !latitude) {
     return errorResponseHandler(
-      'Longitude and latitude are required',
+      "Longitude and latitude are required",
       httpStatusCode.BAD_REQUEST,
       res
     );
   }
 
-  const updatedUser = await usersModel.findByIdAndUpdate(
-    userId,
-    {
-      location: {
-        type: 'Point',
-        coordinates: [longitude, latitude]
-      }
-    },
-    { new: true }
-  ).select('-password -fcmToken');
+  const updatedUser = await usersModel
+    .findByIdAndUpdate(
+      userId,
+      {
+        location: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+        },
+      },
+      { new: true }
+    )
+    .select("-password -fcmToken");
 
   if (!updatedUser) {
     return errorResponseHandler(
-      'User not found',
+      "User not found",
       httpStatusCode.NOT_FOUND,
       res
     );
@@ -224,16 +404,7 @@ export const updateUserLocationService = async (req: Request, res: Response) => 
 
   return {
     success: true,
-    message: 'Location updated successfully',
-    data: updatedUser
+    message: "Location updated successfully",
+    data: updatedUser,
   };
 };
-
-
-
-
-
-
-
-
-

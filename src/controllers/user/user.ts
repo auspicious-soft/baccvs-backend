@@ -74,7 +74,15 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 export const signup = async (req: Request, res: Response) => {
   try {
     const userData = req.body;
-    console.log('userData:', userData);
+    if(userData.authType !== "Email"){
+      if(!userData.fcmToken){
+        return errorResponseHandler(
+          "FCM token is required",
+          httpStatusCode.BAD_REQUEST,
+          res
+        )
+      }
+    }
     const response: any = await signUpService(
       req,
       userData,
@@ -378,10 +386,7 @@ export const notificationSetting = async (req: Request, res: Response) => {
       .json({ success: false, message: message || "An error occurred" });
   }
 };
-export const toggleTwoFactorAuthentication = async (
-  req: Request,
-  res: Response
-) => {
+export const toggleTwoFactorAuthentication = async (req: Request,res: Response) => {
   try {
     const response = await toggleTwoFactorAuthenticationService(req, res);
     return res.status(httpStatusCode.OK).json(response);
