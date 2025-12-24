@@ -25,10 +25,6 @@ const PackageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
   },
   { timestamps: true }
 );
@@ -131,14 +127,6 @@ const ProfessionalProfileSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
-    },
-    isVerified: {
-      type: Boolean,
-      default: true,
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
     },
   },
   { timestamps: true }

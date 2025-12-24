@@ -50,7 +50,7 @@ const TransactionSchema = new Schema(
     reference: {
       model: {
         type: String,
-        enum: ['DatingSubscription', 'purchase', 'resale', 'promotion','likeProduct'],
+        enum: ['DatingSubscription', 'purchase', 'resale', 'promotion','likeProduct','promotion'],
         required: true
       },
       id: {

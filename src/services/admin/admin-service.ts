@@ -2,6 +2,8 @@ import { Response } from "express";
 import { httpStatusCode } from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
+import { PromotionPlanModel } from "src/models/promotion/promotionPlan-schema";
+import mongoose from "mongoose";
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -243,5 +245,70 @@ export const getLikeProductByIdService = async (req: any, res: Response) => {
     success: true,
     message: "Like product fetched successfully",
     data: product,
+  };
+};
+
+export const createPromotionPlanService = async (req: any, res: Response) => {
+  const { title, price, durationDays } = req.body;
+
+  if (!title || !price || !durationDays) {
+    return errorResponseHandler(
+      "title, price & durationDays are required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  // Save plan to DB (no Stripe product/price created)
+  const plan = await PromotionPlanModel.create({
+    title,
+    price,
+    priceInCents: price * 100,
+    durationDays,
+  });
+
+  return {
+    success: true,
+    message: "Promotion plan created successfully",
+    data: plan,
+  };
+};
+
+export const updatePromotionPlanService = async (req: any, res: Response) => {
+  const { planId } = req.params;
+  const { title, price, durationDays } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(planId)) {
+    return errorResponseHandler(
+      "Invalid plan ID",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
+
+  const existing = await PromotionPlanModel.findById(planId);
+  if (!existing) {
+    return errorResponseHandler(
+      "Promotion plan not found",
+      httpStatusCode.NOT_FOUND,
+      res
+    );
+  }
+
+  const updated = await PromotionPlanModel.findByIdAndUpdate(
+    planId,
+    {
+      title: title ?? existing.title,
+      price: price ?? existing.price,
+      durationDays: durationDays ?? existing.durationDays,
+      priceInCents: price ? price * 100 : existing.priceInCents,
+    },
+    { new: true }
+  );
+
+  return {
+    success: true,
+    message: "Promotion plan updated successfully",
+    data: updated,
   };
 };

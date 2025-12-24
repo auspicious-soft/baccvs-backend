@@ -6,6 +6,8 @@ import {
   getLikeProductsService,
   updateLikeProductService,
   getLikeProductByIdService,
+  createPromotionPlanService,
+  updatePromotionPlanService,
 } from "src/services/admin/admin-service";
 
 export const createLikeProduct = async (req: Request, res: Response) => {
@@ -52,6 +54,30 @@ export const getLikeProductById = async (req: Request, res: Response) => {
     const response = await getLikeProductByIdService(req, res);
     const statusCode = response.status || httpStatusCode.OK;
     return res.status(statusCode).json(response);
+  } catch (error: any) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "Error fetching like product",
+    });
+  }
+};
+export const createPromotionPlan = async (req: Request, res: Response) => {
+  try {
+    const response = await createPromotionPlanService(req, res);
+    return res.status(httpStatusCode.CREATED).json(response);
+  } catch (error: any) {
+    const { code, message } = errorParser(error);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "Error fetching like product",
+    });
+  }
+};
+export const updatePromotionPlan = async (req: Request, res: Response) => {
+  try {
+    const response = await updatePromotionPlanService(req, res);
+    return res.status(httpStatusCode.CREATED).json(response);
   } catch (error: any) {
     const { code, message } = errorParser(error);
     return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({

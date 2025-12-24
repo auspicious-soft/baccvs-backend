@@ -4,48 +4,68 @@ import { MusicType, VenueType } from "src/lib/constant";
 const promotionSchema = new Schema({
   user: {
     type: Schema.Types.ObjectId,
-    ref: 'professionalProfiles',
+    ref: "professionalProfiles",
     required: true,
   },
-  customNotification:{
+  customNotification: {
     type: String,
     required: true,
   },
-  date:{
+  date: {
     type: Date,
     required: true,
   },
-  time:{
+  time: {
     type: String,
     required: true,
   },
-  priorityPlacement:{
+  utcDateTime: {
+    type: Date,
+    required: true,
+  },
+  localDateTime: {
+    type: Date,
+  },
+  durationDays: {
+    type: Number,
+    required: true,
+  },
+  expiryDate: {
+    type: Date,
+    required: true,
+  },
+  priorityPlacement: {
     type: String,
     enum: ["topBanner", "Event"],
     required: true,
   },
-  price:{
-    type: Number,
+  priceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "promotionPlan",
     required: true,
   },
-  genderToReach:{
+  genderToReach: {
     type: String,
-    enum: ["male", "female","everyone"],
+    enum: ["male", "female", "everyone"],
     required: true,
+  },
+  timeZone: {
+    type: String,
+    default: null,
   },
   ageRange: {
     min: {
       type: Number,
       required: true,
       min: 18,
-      default: 18
+      default: 18,
     },
     max: {
       type: Number,
       required: true,
       max: 65,
-      default: 65
-    }
+      default: 65,
+    },
   },
   preferences: {
     musicTypes: [
@@ -61,24 +81,35 @@ const promotionSchema = new Schema({
       },
     ],
   },
-  preferredEventTime:[{
-    type: String,
-    enum: ["Weekends", "During the week", "Afternoon", "Night"],
-    required: true,
-  }],
-  Subscription:{
+  preferredEventTime: [
+    {
+      type: String,
+      enum: ["Weekends", "During the week", "Afternoon", "Night"],
+      required: true,
+    },
+  ],
+  Subscription: {
     type: String,
     enum: ["Basic", "Elite", "Prestige"],
     required: true,
   },
-  status:{
+  status: {
     type: String,
-    enum: ["active", "inactive"],
+    enum: ["active", "inactive", "expired", "pending"],
     default: "active",
   },
-  customTags:[{
-    type: String,
-  }]
-})
+  customTags: [
+    {
+      type: String,
+    },
+  ],
+  paidAt: {
+    type: Date,
+  },
+  transactionId: {
+    type: Schema.Types.ObjectId,
+    ref: "Transaction",
+  },
+});
 
-export const promotionModel = mongoose.model('promotion', promotionSchema)
+export const promotionModel = mongoose.model("promotion", promotionSchema);

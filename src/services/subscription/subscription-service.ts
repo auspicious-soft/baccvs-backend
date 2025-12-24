@@ -29,12 +29,13 @@ import { usersModel } from "src/models/user/user-schema";
 import { purchaseModel } from "src/models/purchase/purchase-schema";
 import { eventModel } from "src/models/event/event-schema";
 import { ticketModel } from "src/models/ticket/ticket-schema";
+import { promotionModel } from "src/models/promotion/promotion-schema";
 import mongoose from "mongoose";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
 import { resellModel } from "src/models/resell/resell-schema";
 import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2025-02-24.acacia",
 });
 
@@ -1226,6 +1227,41 @@ export const handleStripeWebhookService = async (
           purchase.purchaseType = "purchase";
           purchase.metaData = undefined;
           await purchase.save({ session });
+        } else if (transaction.type === TransactionType.EVENT_PROMOTION) {
+          // Activate the promotion associated with this transaction
+          const promotionId = transaction.reference?.id;
+          if (!promotionId) {
+            return errorResponseHandler(
+              "Promotion reference id missing in transaction",
+              400,
+              res
+            );
+          }
+
+          const promotion = await promotionModel
+            .findById(promotionId)
+            .session(session);
+          if (!promotion) {
+            return errorResponseHandler("Promotion not found", 404, res);
+          }
+          // count day from date in promotion  with 
+
+          promotion.status = "active";
+          promotion.paidAt = new Date();
+          promotion.transactionId = transaction._id;
+          await promotion.save({ session });
+
+          // Update transaction with additional payment info
+          transaction.metadata = {
+            ...transaction.metadata,
+            promotionActivatedAt: new Date(),
+            promotionId: promotion._id.toString(),
+          };
+          if (paymentIntent && (paymentIntent as any).customer) {
+            transaction.stripeCustomerId = (paymentIntent as any).customer as string;
+          }
+          transaction.status = TransactionStatus.SUCCESS;
+          await transaction.save({ session });
         } else if (transaction.type === TransactionType.PURCHASE_LIKE) {
           // // Handle like product purchase success. Prefer transaction metadata
           // const tx = transaction;

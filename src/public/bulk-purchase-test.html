@@ -135,6 +135,7 @@
         <div class="tab active" data-tab="bulk">Bulk Purchase</div>
         <div class="tab" data-tab="resale">Resale Purchase</div>
         <div class="tab" data-tab="like">Purchase Like</div>
+        <div class="tab" data-tab="promotion">Promotion</div>
       </div>
 
       <div id="bulk-form" class="form-container active">
@@ -259,6 +260,125 @@
         </button>
       </div>
 
+      <div id="promotion-form" class="form-container">
+        <div class="form-group">
+          <label for="promo-professional-id">Professional Profile ID:</label>
+          <input
+            type="text"
+            id="promo-professional-id"
+            placeholder="Enter professional profile id"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-custom-notification">Custom Notification:</label>
+          <input
+            type="text"
+            id="promo-custom-notification"
+            placeholder="Notification text shown to users"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-date">Date:</label>
+          <input type="date" id="promo-date" />
+        </div>
+        <div class="form-group">
+          <label for="promo-time">Time:</label>
+          <input type="time" id="promo-time" />
+        </div>
+        <div class="form-group">
+          <label for="promo-timezone">Time Zone (optional):</label>
+          <input
+            type="text"
+            id="promo-timezone"
+            placeholder="e.g. UTC, America/New_York"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-priority">Priority Placement:</label>
+          <select id="promo-priority">
+            <option value="topBanner">Top Banner</option>
+            <option value="Event">Event</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="promo-priceid">Promotion Plan ID (priceId):</label>
+          <input
+            type="text"
+            id="promo-priceid"
+            placeholder="Enter promotion plan id"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-gender">Gender To Reach:</label>
+          <select id="promo-gender">
+            <option value="everyone">Everyone</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Age Range:</label>
+          <div style="display: flex; gap: 8px">
+            <input
+              type="number"
+              id="promo-age-min"
+              placeholder="Min (18)"
+              min="18"
+              value="18"
+            />
+            <input
+              type="number"
+              id="promo-age-max"
+              placeholder="Max (65)"
+              min="18"
+              value="65"
+            />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="promo-preferred-time"
+            >Preferred Event Times (comma separated):</label
+          >
+          <input
+            type="text"
+            id="promo-preferred-time"
+            placeholder="e.g. Weekends,Night"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-subscription">Subscription Type:</label>
+          <select id="promo-subscription">
+            <option value="Basic">Basic</option>
+            <option value="Elite">Elite</option>
+            <option value="Prestige">Prestige</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="promo-custom-tags">Custom Tags (comma separated):</label>
+          <input type="text" id="promo-custom-tags" placeholder="tag1,tag2" />
+        </div>
+        <div class="form-group">
+          <label for="promo-music-types">Music Types (comma separated):</label>
+          <input
+            type="text"
+            id="promo-music-types"
+            placeholder="e.g. Rock,Pop"
+          />
+        </div>
+        <div class="form-group">
+          <label for="promo-venue-types">Venue Types (comma separated):</label>
+          <input
+            type="text"
+            id="promo-venue-types"
+            placeholder="e.g. Club,Bar"
+          />
+        </div>
+
+        <button id="promotion-create" type="button">
+          Create Promotion & Init Payment
+        </button>
+      </div>
+
       <div id="payment-form" style="display: none; margin-top: 20px">
         <h2>Complete Payment</h2>
         <div id="card-element">
@@ -334,6 +454,30 @@
       const likeCreatePaymentButton = document.getElementById(
         "like-create-payment"
       );
+      const promotionForm = document.getElementById("promotion-form");
+      const promoProfessionalIdInput = document.getElementById(
+        "promo-professional-id"
+      );
+      const promoCustomNotificationInput = document.getElementById(
+        "promo-custom-notification"
+      );
+      const promoDateInput = document.getElementById("promo-date");
+      const promoTimeInput = document.getElementById("promo-time");
+      const promoTimeZoneInput = document.getElementById("promo-timezone");
+      const promoPriorityInput = document.getElementById("promo-priority");
+      const promoPriceIdInput = document.getElementById("promo-priceid");
+      const promoGenderInput = document.getElementById("promo-gender");
+      const promoAgeMinInput = document.getElementById("promo-age-min");
+      const promoAgeMaxInput = document.getElementById("promo-age-max");
+      const promoPreferredTimeInput = document.getElementById(
+        "promo-preferred-time"
+      );
+      const promoSubscriptionInput =
+        document.getElementById("promo-subscription");
+      const promoCustomTagsInput = document.getElementById("promo-custom-tags");
+      const promoMusicTypesInput = document.getElementById("promo-music-types");
+      const promoVenueTypesInput = document.getElementById("promo-venue-types");
+      const promoCreateButton = document.getElementById("promotion-create");
       const paymentForm = document.getElementById("payment-form");
       const submitPaymentButton = document.getElementById("submit-payment");
       const cardErrors = document.getElementById("card-errors");
@@ -358,6 +502,7 @@
           bulkForm.classList.toggle("active", tabName === "bulk");
           resaleForm.classList.toggle("active", tabName === "resale");
           likeForm.classList.toggle("active", tabName === "like");
+          promotionForm.classList.toggle("active", tabName === "promotion");
 
           // Reset forms and UI
           resetForm();
@@ -497,6 +642,122 @@
           },
           likeCreatePaymentButton
         );
+      });
+
+      // Create Promotion and initialize payment via createPromotionService
+      promoCreateButton.addEventListener("click", async () => {
+        const ProfessionalId = promoProfessionalIdInput.value.trim();
+        const customNotification = promoCustomNotificationInput.value.trim();
+        const date = promoDateInput.value;
+        const time = promoTimeInput.value;
+        const timeZone = promoTimeZoneInput.value || "UTC";
+        const priorityPlacement = promoPriorityInput.value;
+        const priceId = promoPriceIdInput.value.trim();
+        const genderToReach = promoGenderInput.value;
+        const ageMin = parseInt(promoAgeMinInput.value) || 18;
+        const ageMax = parseInt(promoAgeMaxInput.value) || 65;
+        const preferredEventTime = promoPreferredTimeInput.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const Subscription = promoSubscriptionInput.value;
+        const customTags = promoCustomTagsInput.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const preferences = {
+          musicTypes: promoMusicTypesInput.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          venueTypes: promoVenueTypesInput.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
+
+        if (!ProfessionalId) return showError("Professional ID is required");
+        if (!customNotification)
+          return showError("Custom notification is required");
+        if (!date) return showError("Date is required");
+        if (!time) return showError("Time is required");
+        if (!priorityPlacement)
+          return showError("Priority placement is required");
+        if (!priceId) return showError("priceId is required");
+        if (!genderToReach) return showError("Gender to reach is required");
+        if (!preferredEventTime || preferredEventTime.length === 0)
+          return showError("Preferred event time is required");
+        if (!Subscription) return showError("Subscription type is required");
+        if (!customTags || customTags.length === 0)
+          return showError("Custom tags are required");
+
+        try {
+          setLoading(promoCreateButton, true);
+
+          const payload = {
+            ProfessionalId,
+            customNotification,
+            date,
+            time,
+            timeZone,
+            priorityPlacement,
+            priceId,
+            genderToReach,
+            ageRange: { min: ageMin, max: ageMax },
+            preferences,
+            preferredEventTime,
+            Subscription,
+            customTags,
+          };
+
+          const response = await fetch("/api/user/create/promotion", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5MDQ4ZmFmOTRmNjZlYmU2M2NhMjhkZSIsImVtYWlsIjoia2FydGlrQHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI4NTQ0NzM3OTY0IiwiaWF0IjoxNzY2NTU0MzY5fQ.lQDS_VFBJeuxf5fm_HtjgdIVcW4ztpFqleOGbPwyi84",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const result = await response.json();
+          console.log("Create promotion response:", result);
+
+          if (!result.success) {
+            throw new Error(result.message || "Failed to create promotion");
+          }
+
+          // Use returned client secret to mount payment form
+          clientSecret = result.data.clientSecret;
+          paymentIntentId =
+            result.data.stripePaymentIntentId || result.data.paymentIntentId;
+
+          // Display minimal promotion info
+          eventNameSpan.textContent =
+            result.data.promotion?.customNotification || "Promotion";
+          ticketNameSpan.textContent = "Promotion Payment";
+          displayQuantitySpan.textContent = "1";
+          pricePerTicketSpan.textContent = "N/A";
+          totalAmountSpan.textContent = "N/A";
+          paymentDetails.style.display = "block";
+
+          if (!elements) {
+            elements = stripe.elements();
+            cardElement = elements.create("card");
+            cardElement.mount("#card-element");
+
+            cardElement.on("change", (event) => {
+              cardErrors.textContent = event.error ? event.error.message : "";
+            });
+          }
+
+          paymentForm.style.display = "block";
+          setLoading(promoCreateButton, false);
+        } catch (err) {
+          console.error(err);
+          setLoading(promoCreateButton, false);
+          showError(err.message || "Promotion creation failed");
+        }
       });
 
       // Submit Payment
