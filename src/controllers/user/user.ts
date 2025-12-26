@@ -74,15 +74,6 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 export const signup = async (req: Request, res: Response) => {
   try {
     const userData = req.body;
-    if(userData.authType !== "Email"){
-      if(!userData.fcmToken){
-        return errorResponseHandler(
-          "FCM token is required",
-          httpStatusCode.BAD_REQUEST,
-          res
-        )
-      }
-    }
     const response: any = await signUpService(
       req,
       userData,
