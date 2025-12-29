@@ -153,6 +153,13 @@ export const createPromotionService = async (req: any, res: Response) => {
       res
     );
   }
+  if(!timeZone){
+    return errorResponseHandler(
+      "Time zone is required",
+      httpStatusCode.BAD_REQUEST,
+      res
+    );
+  }
 
   let customerstripeId = "";
 

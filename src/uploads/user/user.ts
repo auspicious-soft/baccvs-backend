@@ -478,6 +478,13 @@ export const loginUserService = async (
       res
     );
   }
+  if (user.status === 'deleted') {
+    return errorResponseHandler(
+      "User account has been deleted",  
+      httpStatusCode.FORBIDDEN,
+      res
+    );
+  }
   // if (!user && (authType === 'Google' || authType === 'Apple' || authType === 'Facebook' || authType === 'Twitter')) {
   //     user = await createNewUser(userData, authType); // You should implement the createNewUser function as per your needs
   // }
