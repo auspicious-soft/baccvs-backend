@@ -261,7 +261,7 @@ export const getProfessionalProfileByIdService = async (req:any, res:any) => {
   return {
     success: true,
     message: "Profile retrieved successfully",
-    profile,
+    data:profile,
   };
 }
 
@@ -445,7 +445,7 @@ export const updateProfessionalProfileService = async (req:any, res:any) => {
  return {
     success: true,
     message: "Profile updated successfully",
-    profile,
+    data:profile,
   };
 }
 
