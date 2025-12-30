@@ -124,6 +124,7 @@ import {
   updateTicketController,
 } from "src/controllers/ticket/ticket-controller";
 import { transferTicketController } from "src/controllers/transfer/transfer-controller";
+import { getPromotionPlans } from "src/controllers/admin/admin-controller";
 
 const router = Router();
 
@@ -164,6 +165,7 @@ router.patch("/toggle/privacy", togglePrivacyPreference);
 router.delete("/delete", deleteUser);
 router.delete("/delete/professional/profile/:id", deleteProfessionalProfile);
 router.delete("/delete/ticket/:id", deleteTicketController);
+router.get("/promotion/plans", getPromotionPlans);
 
 // create api to get all user
 router.get("/get/all/followedUser", getAllFollowedUsers);

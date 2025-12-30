@@ -312,3 +312,12 @@ export const updatePromotionPlanService = async (req: any, res: Response) => {
     data: updated,
   };
 };
+export const getPromotionPlansService = async (req: any, res: Response) => {
+  const plans = await PromotionPlanModel.find().sort({ price: 1 });
+
+  return {
+    success: true,
+    message: "Promotion plans fetched successfully",
+    data: plans,
+  };
+}
