@@ -25,6 +25,10 @@ const PostSchema = new Schema(
       enum: Object.values(PostVisibility),
       default: PostVisibility.FOLLOWERS
     },
+    isAutoPost: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     timestamps: true

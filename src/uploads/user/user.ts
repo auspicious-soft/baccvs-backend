@@ -441,6 +441,23 @@ const processUserData = async (
   user = await user.populate("referredBy");
   await user.save();
 
+  // If user uploaded photos during signup, create an automatic post using the first photo
+  try {
+    const savedPhotos = (user as any).photos;
+    if (Array.isArray(savedPhotos) && savedPhotos.length > 0) {
+      const firstPhoto = savedPhotos[0];
+      const autoPost = new postModels({
+        user: user._id,
+        content: "",
+        photos: [firstPhoto],
+        isAutoPost: true,
+      });
+      await autoPost.save();
+    }
+  } catch (err) {
+    console.warn("Failed to create auto post for new user:", err);
+  }
+
   return {
     success: true,
     message:
@@ -479,9 +496,9 @@ export const loginUserService = async (
       res
     );
   }
-  if (user.status === 'deleted') {
+  if (user.status === "deleted") {
     return errorResponseHandler(
-      "User account has been deleted",  
+      "User account has been deleted",
       httpStatusCode.FORBIDDEN,
       res
     );
@@ -859,8 +876,6 @@ export const getUserInfoService = async (req: any, res: Response) => {
     user: targetUserId,
   });
 
-
-
   return {
     success: true,
     message: "User retrieved successfully",
@@ -873,7 +888,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
       isFollowingCurrentUser: !!isFollowingCurrentUser,
       conversationId: conversationId ? conversationId._id : null,
       isBlockedByOtherUser,
-      professionalProfiles
+      professionalProfiles,
     },
   };
 };
@@ -1288,7 +1303,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     const coordinates = [parseFloat(long), parseFloat(lat)];
 
     // Check if user has posted any content
-    const hasUserPostedContent = await postModels.exists({ user: userId });
+    const hasUserPostedContent = await postModels.exists({ user: userId,isAutoPost: { $ne: true } });
 
     // === NEW: Get blocked users ===
     // Users who blocked the current user
@@ -3280,6 +3295,7 @@ export const deleteUserService = async (req: any, res: Response) => {
       userId,
       {
         status: "deleted",
+        token: null,
       },
       { new: true }
     )
