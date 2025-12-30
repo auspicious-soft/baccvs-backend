@@ -64,6 +64,7 @@ import { Community } from "src/models/community/community-schema";
 import { calculateDistanceInKm } from "src/utils/distanceCalculator";
 import { parse } from "path";
 import { json } from "body-parser";
+import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
 configDotenv();
 
 const sanitizeUser = (user: any) => {
@@ -854,6 +855,12 @@ export const getUserInfoService = async (req: any, res: Response) => {
     participants: { $all: [currentUserId, targetUserId] },
   }).select("_id");
 
+  let professionalProfiles = await ProfessionalProfileModel.find({
+    user: targetUserId,
+  });
+
+
+
   return {
     success: true,
     message: "User retrieved successfully",
@@ -866,6 +873,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
       isFollowingCurrentUser: !!isFollowingCurrentUser,
       conversationId: conversationId ? conversationId._id : null,
       isBlockedByOtherUser,
+      professionalProfiles
     },
   };
 };

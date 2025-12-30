@@ -1,9 +1,19 @@
 import e from "express";
 import mongoose from "mongoose";
-import { EventType, httpStatusCode, MusicType, VenueType } from "src/lib/constant";
+import {
+  EventType,
+  httpStatusCode,
+  MusicType,
+  VenueType,
+} from "src/lib/constant";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
-import { ProfessionalProfileModel, ProfileType } from "src/models/professional/professional-schema";
+import {
+  ProfessionalProfileModel,
+  ProfileType,
+} from "src/models/professional/professional-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { followModel } from "src/models/follow/follow-schema";
+import { eventModel } from "src/models/event/event-schema";
 
 // Interface for ProfessionalProfile (for type safety)
 interface ProfessionalProfile {
@@ -37,13 +47,23 @@ interface ProfessionalProfile {
   };
 }
 
-
-
-export const createProfessionalProfileService = async (req:any, res:any) => {
+export const createProfessionalProfileService = async (req: any, res: any) => {
   const { id: user } = req.user;
- 
-  const {role,stageName,about,contactPhoneNumber,siretNumber,location,photoUrl,videosUrl,packages,preferences,isVerified,isActive,
-} = req.body;
+
+  const {
+    role,
+    stageName,
+    about,
+    contactPhoneNumber,
+    siretNumber,
+    location,
+    photoUrl,
+    videosUrl,
+    packages,
+    preferences,
+    isVerified,
+    isActive,
+  } = req.body;
 
   // Validate required fields
   if (!user || !mongoose.Types.ObjectId.isValid(user)) {
@@ -51,21 +71,21 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
       "Valid user ID is required",
       httpStatusCode.BAD_REQUEST,
       res
-    )
+    );
   }
   if (!role || !Object.values(ProfileType).includes(role)) {
     return errorResponseHandler(
-      "Role is required " ,
+      "Role is required ",
       httpStatusCode.BAD_REQUEST,
       res
-    )
+    );
   }
   if (!location?.address) {
     return errorResponseHandler(
       "Location address is required",
       httpStatusCode.BAD_REQUEST,
       res
-    )
+    );
   }
 
   // Validate enums in preferences
@@ -80,7 +100,7 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
         "Invalid music type",
         httpStatusCode.BAD_REQUEST,
         res
-      )
+      );
     }
     if (
       preferences.eventTypes &&
@@ -92,7 +112,7 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
         "Invalid event type",
         httpStatusCode.BAD_REQUEST,
         res
-      )
+      );
     }
     if (
       preferences.venueTypes &&
@@ -104,7 +124,7 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
         "Invalid venue type",
         httpStatusCode.BAD_REQUEST,
         res
-      )
+      );
     }
   }
 
@@ -132,7 +152,8 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res)
+      res
+    );
   }
 
   // Check for existing profile for the user and role
@@ -175,13 +196,12 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
   });
 
   await profile.save();
-  return { 
-      success: true,
+  return {
+    success: true,
     message: "Profile created successfully",
-     profile
-
-   };
-}
+    profile,
+  };
+};
 
 // export const getAllProfessionalProfilesService = async (req:any, res:any) => {
 //   const { role, musicType, eventType, venueType, near } = req.query;
@@ -239,8 +259,8 @@ export const createProfessionalProfileService = async (req:any, res:any) => {
 //   }
 // }
 
-export const getProfessionalProfileByIdService = async (req:any, res:any) => {
-  const {id} = req.params
+export const getProfessionalProfileByIdService = async (req: any, res: any) => {
+  const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return errorResponseHandler(
       "Invalid profile ID",
@@ -249,7 +269,10 @@ export const getProfessionalProfileByIdService = async (req:any, res:any) => {
     );
   }
 
-  const profile = await ProfessionalProfileModel.findById(id).populate("user","-token -password -__v -createdAt -updatedAt");
+  const profile = await ProfessionalProfileModel.findById(id).populate(
+    "user",
+    "-token -password -__v -createdAt -updatedAt"
+  );
   if (!profile) {
     return errorResponseHandler(
       "Profile not found",
@@ -258,15 +281,47 @@ export const getProfessionalProfileByIdService = async (req:any, res:any) => {
     );
   }
 
+  // Determine user id (populate returns user object)
+  const userId =
+    (profile as any).user && (profile as any).user._id
+      ? (profile as any).user._id
+      : (profile as any).user;
+
+  // Counts: followers (people who follow this user), following (people this user follows), and events created by this user
+  const followerCount = await followModel.countDocuments({
+    following_id: userId,
+    unfollowed_at: null,
+  });
+  const followingCount = await followModel.countDocuments({
+    follower_id: userId,
+    unfollowed_at: null,
+  });
+  const eventCount = await eventModel.countDocuments({ creator: userId });
+
+  const pastEvents: any = [];
+  const upcomingEvents: any = [];
+  const review: any = [];
+
   return {
     success: true,
     message: "Profile retrieved successfully",
-    data:profile,
+    data: {
+      profile,
+      followerCount,
+      followingCount,
+      eventCount,
+      pastEvents,
+      upcomingEvents,
+      review,
+    },
   };
-}
+};
 
-export const getUserAllprofessionalProfilesService = async (req:any, res:any) => {
-  const {id} = req.user
+export const getUserAllprofessionalProfilesService = async (
+  req: any,
+  res: any
+) => {
+  const { id } = req.user;
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return errorResponseHandler(
       "Invalid profile ID",
@@ -274,7 +329,9 @@ export const getUserAllprofessionalProfilesService = async (req:any, res:any) =>
       res
     );
   }
-  const profile  = await ProfessionalProfileModel.find({user:id}).populate("user");
+  const profile = await ProfessionalProfileModel.find({ user: id }).populate(
+    "user"
+  );
   if (!profile) {
     return errorResponseHandler(
       "Profile not found",
@@ -285,9 +342,9 @@ export const getUserAllprofessionalProfilesService = async (req:any, res:any) =>
   return {
     success: true,
     message: "Profile retrieved successfully",
-    data:profile,
+    data: profile,
   };
-}
+};
 
 export const getAllProfessionalProfilesService = async (req: any, res: any) => {
   const { id } = req.user;
@@ -300,7 +357,9 @@ export const getAllProfessionalProfilesService = async (req: any, res: any) => {
     );
   }
 
-  const profiles = await ProfessionalProfileModel.find({ user: { $ne: id } }).populate("user");
+  const profiles = await ProfessionalProfileModel.find({
+    user: { $ne: id },
+  }).populate("user");
 
   if (!profiles || profiles.length === 0) {
     return errorResponseHandler(
@@ -313,11 +372,11 @@ export const getAllProfessionalProfilesService = async (req: any, res: any) => {
   return {
     success: true,
     message: "Profiles retrieved successfully",
-    data:profiles,
+    data: profiles,
   };
 };
 
-export const updateProfessionalProfileService = async (req:any, res:any) => {
+export const updateProfessionalProfileService = async (req: any, res: any) => {
   const { id: user } = req.user;
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -337,7 +396,7 @@ export const updateProfessionalProfileService = async (req:any, res:any) => {
     photoUrl,
     videosUrl,
     packages,
-    preferences
+    preferences,
   } = req.body;
 
   const validUser = await ProfessionalProfileModel.findById(id);
@@ -442,14 +501,14 @@ export const updateProfessionalProfileService = async (req:any, res:any) => {
     );
   }
 
- return {
+  return {
     success: true,
     message: "Profile updated successfully",
-    data:profile,
+    data: profile,
   };
-}
+};
 
-export const deleteProfessionalProfileService = async (req:any, res:any) => {
+export const deleteProfessionalProfileService = async (req: any, res: any) => {
   const { id: user } = req.user;
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -481,4 +540,4 @@ export const deleteProfessionalProfileService = async (req:any, res:any) => {
     success: true,
     message: "Profile deleted successfully",
   };
-}
+};
