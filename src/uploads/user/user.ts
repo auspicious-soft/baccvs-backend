@@ -86,10 +86,6 @@ export const signUpService = async (
       code: httpStatusCode.BAD_REQUEST,
     };
   }
-
-  console.log("signUpService - userData:", userData);
-  console.log("signUpService - authType:", authType);
-
   // Process file uploads if Content-Type is multipart/form-data
   let photos: string[] = [];
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
@@ -111,9 +107,8 @@ export const signUpService = async (
               typeof parsedLocation.coordinates[1] === "number"
             ) {
               parsedData[fieldname] = parsedLocation;
-              console.log(`Busboy - Parsed location:`, parsedLocation);
+
             } else {
-              console.log(`Busboy - Invalid location format:`, value);
               return reject({
                 success: false,
                 message:
@@ -122,11 +117,7 @@ export const signUpService = async (
               });
             }
           } catch (error) {
-            console.log(
-              `Busboy - Failed to parse location:`,
-              (error as any).message
-            );
-            return reject({
+           return reject({
               success: false,
               message: "Failed to parse location. Must be a valid JSON string",
               code: httpStatusCode.BAD_REQUEST,
@@ -135,14 +126,10 @@ export const signUpService = async (
         } else {
           parsedData[fieldname] = value;
         }
-        console.log(`Busboy - Parsed field: ${fieldname}=${value}`);
       });
 
       busboy.on("file", (fieldname: string, fileStream: any, fileInfo: any) => {
-        console.log(
-          `Busboy - File detected: fieldname=${fieldname}, filename=${fileInfo.filename}, mimeType=${fileInfo.mimeType}`
-        );
-
+      
         // Accept 'photos', 'videos', or any field that looks like a file
         const { filename, mimeType } = fileInfo;
 
@@ -151,15 +138,11 @@ export const signUpService = async (
         const isVideo = mimeType.startsWith("video/");
 
         if (!isImage && !isVideo) {
-          console.log(`Busboy - Skipping non-media file: ${filename}`);
           fileStream.resume();
           return;
         }
 
-        console.log(
-          `Busboy - Processing ${isImage ? "image" : "video"}: ${filename}`
-        );
-
+     
         // Collect file chunks
         const chunks: Buffer[] = [];
 
@@ -168,9 +151,6 @@ export const signUpService = async (
         });
 
         fileStream.on("end", () => {
-          console.log(
-            `Busboy - File stream ended for: ${filename}, total chunks: ${chunks.length}`
-          );
         });
 
         fileStream.on("error", (error: any) => {
@@ -190,10 +170,6 @@ export const signUpService = async (
               try {
                 // Combine chunks into single buffer
                 const fileBuffer = Buffer.concat(chunks);
-                console.log(
-                  `Busboy - Uploading file: ${filename}, size: ${fileBuffer.length} bytes`
-                );
-
                 // Create readable stream from buffer
                 const readableStream = new Readable();
                 readableStream.push(fileBuffer);
@@ -208,7 +184,6 @@ export const signUpService = async (
                     `user_${customAlphabet("0123456789", 5)()}`
                 );
 
-                console.log(`Busboy - Upload successful: ${s3Key}`);
                 resolveUpload(s3Key);
               } catch (error) {
                 console.error(`Busboy - Upload failed for ${filename}:`, error);
@@ -228,22 +203,17 @@ export const signUpService = async (
 
       busboy.on("finish", async () => {
         try {
-          console.log(
-            `Busboy - Finish event triggered, waiting for ${uploadPromises.length} uploads`
-          );
-
+         
           // Wait for all file uploads to complete
           if (uploadPromises.length > 0) {
             photos = await Promise.all(uploadPromises);
-            console.log(`Busboy - All uploads completed:`, photos);
           } else {
             console.log("Busboy - No files were uploaded");
           }
 
           // Extract authType from parsedData if not provided
           authType = authType || parsedData.authType;
-          console.log("Busboy - Final authType:", authType);
-
+         
           // Validate auth type
           if (!authType) {
             return reject({
@@ -292,8 +262,7 @@ export const signUpService = async (
   } else {
     // If no multipart/form-data, process userData without file uploads
     authType = authType || userData.authType;
-    console.log("Non-multipart - Final authType:", authType);
-
+    
     // Validate auth type
     if (!authType) {
       return {
@@ -365,8 +334,6 @@ const processUserData = async (
     photos, // Store S3 keys
   };
 
-  console.log("processUserData - Photos to save:", photos);
-
   // Hash password if email auth
   newUserData.password = await hashPasswordIfEmailAuth(userData, authType);
 
@@ -389,9 +356,6 @@ const processUserData = async (
       };
     }
   }
-
-  // Log newUserData before saving
-  console.log("processUserData - newUserData:", newUserData);
 
   // Create user
   let user = await usersModel.create(newUserData);
