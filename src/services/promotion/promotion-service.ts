@@ -319,14 +319,13 @@ export const getPromotionByIdService = async (req: any, res: Response) => {
 };
 
 export const getUserPromotionsService = async (req: any, res: Response) => {
-  // const { id: userId } = req.user;
   const { id: userId } = req.params;
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
 
   const promotions = await promotionModel
-    .find({ user: userId })
+    .find({ user: userId, status: "active" })
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)

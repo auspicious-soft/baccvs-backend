@@ -297,6 +297,12 @@ export const getProfessionalProfileByIdService = async (req: any, res: any) => {
     unfollowed_at: null,
   });
   const eventCount = await eventModel.countDocuments({ creator: userId });
+  const performance = {
+    sale:0,
+    attended : 0,
+    ticketSold: 0,
+    totalRevenue:0
+  }
 
   const pastEvents: any = [];
   const upcomingEvents: any = [];
@@ -313,6 +319,7 @@ export const getProfessionalProfileByIdService = async (req: any, res: any) => {
       pastEvents,
       upcomingEvents,
       review,
+      performance,
     },
   };
 };
