@@ -55,7 +55,7 @@ export async function generateAndSendOtp(
   type: string,
   userType: string
 ) {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
   if (!otpPurpose.includes(purpose) || !["EMAIL", "PHONE"].includes(type)) {
     throw new Error("Invalid Otp Purpose Or Otp Type");
