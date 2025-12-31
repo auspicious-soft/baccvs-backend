@@ -25,6 +25,8 @@ import {
   resell,
   admin,
   notification,
+  adminAuth,
+  adminMain,
 } from "./routes";
 import { Server } from "socket.io";
 import http from "http";
@@ -48,6 +50,7 @@ import { configDotenv } from "dotenv";
 import { checkAuth } from "./middleware/check-auth";
 import { socketAuthMiddleware } from "./middleware/socket-auth";
 import { handleSubscriptionWebhook } from "./controllers/subscription/subscription-controller";
+import { checkAdminAuth } from "./middleware/admin-check-auth";
 
 configDotenv();
 // Create __dirname equivalent for ES modules
@@ -105,7 +108,7 @@ app.use("/uploads", express.static(uploadsDir));
 
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
-
+ 
 // Password reset routes
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "reset-password.html"));
@@ -165,5 +168,14 @@ app.post("/api/verify-email", verifyingEmailOtp);
 app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // First screen - verify password
+
+
+
+
+// Admin Routes
+
+app.use("/api", adminAuth)
+app.use("/api/admin",checkAdminAuth, adminMain)
+
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
