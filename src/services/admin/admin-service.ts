@@ -8,7 +8,12 @@ import Stripe from "stripe";
 import { AdminModel } from "src/models/admin/admin-schema";
 import jwt from "jsonwebtoken";
 
-import { verifyPassword } from "src/utils/admin-utils/helper";
+import {
+  generateAndSendOtp,
+  verifyPassword,
+} from "src/utils/admin-utils/helper";
+import { AdminChangeRequestModel } from "src/models/admin/admin-change-schema";
+import { OtpModel } from "src/models/system/otp-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2023-10-16",
@@ -317,20 +322,19 @@ export const updatePromotionPlanService = async (req: any, res: Response) => {
   };
 };
 
-
 export const adminSettings = {
-  async verifyAdminPassword(payload:any){
-    const {adminId, password} = payload;
+  async verifyAdminPassword(payload: any) {
+    const { adminId, password } = payload;
 
-    if(!password) throw new Error ("Password is Required");
+    if (!password) throw new Error("Password is Required");
 
     const admin = await AdminModel.findOne({
-      _id:adminId,
-      isDeleted:false,
-      isBlocked:false,
+      _id: adminId,
+      isDeleted: false,
+      isBlocked: false,
     }).select("password");
 
- if (!admin || !admin.password) {
+    if (!admin || !admin.password) {
       throw new Error("Admin not found");
     }
 
@@ -338,7 +342,7 @@ export const adminSettings = {
     if (!isValid) {
       throw new Error("Invalid password");
     }
-     const settingsToken = jwt.sign(
+    const settingsToken = jwt.sign(
       {
         adminId: admin._id,
         scope: "SETTINGS",
@@ -349,6 +353,142 @@ export const adminSettings = {
       }
     );
 
-    return { settingsToken }; 
+    return { settingsToken };
   },
-}
+  async submitChangeRequest(payload: any) {
+    const { adminId, oldValue, newValue, type } = payload;
+    const allowedTypes = ["EMAIL", "PHONE"];
+
+    if (!oldValue || !newValue) {
+      throw new Error(
+        `Old ${type.toLowerCase()} and new ${type.toLowerCase()} are required`
+      );
+    }
+
+    if (!type) {
+      if (!allowedTypes.includes(type)) {
+        throw new Error("Invalid Type");
+      }
+    }
+
+    const admin = await AdminModel.findOne({
+      _id: adminId,
+      isDeleted: false,
+      isBlocked: false,
+    });
+
+    if (!admin) throw new Error("Admin not Found");
+
+    if (
+      (type === "EMAIL" && admin.email !== oldValue) ||
+      (type === "PHONE" && admin.phoneNumber.toString() !== oldValue)
+    ) {
+      throw new Error(`Old ${type.toLowerCase()} doesn't match`);
+    }
+    if (type === "EMAIL") {
+      const existing = await AdminModel.findOne({ email: newValue });
+      if (existing) throw new Error("New email already in use");
+    } else if (type === "PHONE") {
+      const existing = await AdminModel.findOne({ phoneNumber: newValue });
+      if (existing) throw new Error("New phone already in use");
+    }
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+    await AdminChangeRequestModel.deleteMany({
+      adminId,
+      type: type,
+      isVerified: false,
+    });
+
+    const changeRequest = await AdminChangeRequestModel.create({
+      adminId,
+      type: type,
+      purpose: "CHANGE_EMAIL",
+      oldValue: oldValue,
+      newValue: newValue,
+      isVerified: false,
+      expiresAt,
+    });
+
+    const otp = await generateAndSendOtp(
+      newValue,
+      type === "EMAIL" ? "VERIFY_EMAIL" : "VERIFY_PHONE",
+      type,
+      "ADMIN"
+    );
+    return {
+      expiresAt,
+      //todo remove otp from here.
+      otp,
+    };
+  },
+  async resendChangeOtp(payload: any) {
+    const { adminId, newValue, type } = payload;
+    if (!adminId || !newValue || !type)
+      throw new Error("Missing required fields");
+
+    const changeRequest = await AdminChangeRequestModel.findOne({
+      adminId,
+      type,
+      newValue,
+      isVerified: false,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!changeRequest)
+      throw new Error(`No pending ${type.toLowerCase()} change request found`);
+
+    const otp = await generateAndSendOtp(
+      newValue,
+      type === "EMAIL" ? "VERIFY_EMAIL" : "VERIFY_PHONE",
+      type,
+      "ADMIN"
+    );
+
+
+
+    return {
+      message: `OTP resent to new ${type.toLowerCase()}`,
+      otp,
+    };
+  },
+
+  async verifyChangeOtp(payload: any) {
+    const { adminId, newValue, otp, type } = payload;
+    if (!adminId || !newValue || !otp || !type)
+      throw new Error("Missing required fields");
+
+    const changeRequest = await AdminChangeRequestModel.findOne({
+      adminId,
+      type,
+      newValue,
+      isVerified: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!changeRequest) {
+      throw new Error("Change request expired or not found");
+    }
+
+    const otpRecord = await OtpModel.findOne({
+      [type === "EMAIL" ? "email" : "phone"]: newValue,
+      code: otp,
+      userType: "ADMIN",
+    });
+
+    if (!otpRecord) {
+      throw new Error("Invalid OTP");
+    }
+    const updateData: any = {};
+    if (type === "EMAIL") updateData.email = newValue;
+    else updateData.phoneNumber = newValue;
+
+    await AdminModel.updateOne({ _id: adminId }, { $set: updateData });
+    await OtpModel.deleteMany({
+      [type === "EMAIL" ? "email" : "phone"]: newValue,
+    });
+    await AdminChangeRequestModel.deleteOne({ _id: changeRequest._id });
+
+    return { message: `${type} updated successfully` };
+  },
+};

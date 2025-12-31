@@ -31,7 +31,7 @@ const otpSchema = new Schema<IOtp>(
     },
     purpose: {
       type: String,
-      enum:["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE"],
+      enum:["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE", "VERIFY_EMAIL"],
       default:"SIGNUP"
     },
     userType:{

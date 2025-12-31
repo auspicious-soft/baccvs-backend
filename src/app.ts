@@ -26,6 +26,7 @@ import {
   admin,
   notification,
   adminAuth,
+  adminMain,
 } from "./routes";
 import { Server } from "socket.io";
 import http from "http";
@@ -49,6 +50,7 @@ import { configDotenv } from "dotenv";
 import { checkAuth } from "./middleware/check-auth";
 import { socketAuthMiddleware } from "./middleware/socket-auth";
 import { handleSubscriptionWebhook } from "./controllers/subscription/subscription-controller";
+import { checkAdminAuth } from "./middleware/admin-check-auth";
 
 configDotenv();
 // Create __dirname equivalent for ES modules
@@ -173,5 +175,7 @@ app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // Admin Routes
 
 app.use("/api", adminAuth)
+app.use("/api/admin",checkAdminAuth, adminMain)
+
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

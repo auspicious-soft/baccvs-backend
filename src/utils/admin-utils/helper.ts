@@ -13,7 +13,7 @@ import { configDotenv } from "dotenv";
 configDotenv();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const otpPurpose = ["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE"];
+const otpPurpose = ["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE","VERIFY_EMAIL"];
 
 export async function hashPassword(password: string) {
   return await bcrypt.hash(password, 10);
