@@ -5,6 +5,10 @@ import { LikeProductsModel } from "src/models/likeProducts/likeProductsModel";
 import { PromotionPlanModel } from "src/models/promotion/promotionPlan-schema";
 import mongoose from "mongoose";
 import Stripe from "stripe";
+import { AdminModel } from "src/models/admin/admin-schema";
+import jwt from "jsonwebtoken";
+
+import { verifyPassword } from "src/utils/admin-utils/helper";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2023-10-16",
@@ -312,3 +316,39 @@ export const updatePromotionPlanService = async (req: any, res: Response) => {
     data: updated,
   };
 };
+
+
+export const adminSettings = {
+  async verifyAdminPassword(payload:any){
+    const {adminId, password} = payload;
+
+    if(!password) throw new Error ("Password is Required");
+
+    const admin = await AdminModel.findOne({
+      _id:adminId,
+      isDeleted:false,
+      isBlocked:false,
+    }).select("password");
+
+ if (!admin || !admin.password) {
+      throw new Error("Admin not found");
+    }
+
+    const isValid = await verifyPassword(password, admin.password);
+    if (!isValid) {
+      throw new Error("Invalid password");
+    }
+     const settingsToken = jwt.sign(
+      {
+        adminId: admin._id,
+        scope: "SETTINGS",
+      },
+      process.env.SETTINGS_JWT_SECRET as string,
+      {
+        expiresIn: "5m",
+      }
+    );
+
+    return { settingsToken };
+  },
+}

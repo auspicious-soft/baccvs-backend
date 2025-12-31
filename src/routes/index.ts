@@ -17,4 +17,6 @@ export { router as subscription } from "./subscription-routes";
 export { router as stripeProduct } from "./stripe-product-routes";
 export { router as resell } from "./resell-routes";
 export { router as admin } from "./admin-routes";
+export { router as adminAuth } from "./admin/admin-atuh";
+
 export { default as notification } from "./notification-routes";

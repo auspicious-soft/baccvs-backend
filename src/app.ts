@@ -25,6 +25,7 @@ import {
   resell,
   admin,
   notification,
+  adminAuth,
 } from "./routes";
 import { Server } from "socket.io";
 import http from "http";
@@ -105,7 +106,7 @@ app.use("/uploads", express.static(uploadsDir));
 
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
-
+ 
 // Password reset routes
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "reset-password.html"));
@@ -165,5 +166,12 @@ app.post("/api/verify-email", verifyingEmailOtp);
 app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // First screen - verify password
+
+
+
+
+// Admin Routes
+
+app.use("/api", adminAuth)
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));
