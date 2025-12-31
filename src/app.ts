@@ -141,7 +141,7 @@ app.get("/", (_, res: any) => {
 });
 app.post("/api/user/reset/password", resetPasswordWithToken);
 app.use("/api/referal", referal);
-app.use("/api/admin", admin);
+app.use("/api/admin",checkAdminAuth, admin);
 app.post("/api/login", login);
 app.post("/api/signup", signup);
 app.post("/api/social/signup", socialSignUp);
