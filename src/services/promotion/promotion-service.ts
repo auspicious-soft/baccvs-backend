@@ -139,13 +139,6 @@ export const createPromotionService = async (req: any, res: Response) => {
       res
     );
   }
-  if (!customTags || customTags.length === 0) {
-    return errorResponseHandler(
-      "Custom tags are required",
-      httpStatusCode.BAD_REQUEST,
-      res
-    );
-  }
   if (!ageRange) {
     return errorResponseHandler(
       "Age range is required",
