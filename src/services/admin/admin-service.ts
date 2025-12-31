@@ -349,6 +349,6 @@ export const adminSettings = {
       }
     );
 
-    return { settingsToken };
+    return { settingsToken }; 
   },
 }
