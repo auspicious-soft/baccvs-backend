@@ -24,6 +24,12 @@ import { convertToUTCAndLocal } from "src/utils/date";
 import { sendPushToToken } from "src/utils/firebase-admin";
 import { EventViewerModel } from "src/models/eventViewers/eventViewers-schema";
 
+type TimeFilter = "today" | "week" | "month" | "year";
+
+interface AnalyticsQuery {
+  timeFilter?: TimeFilter;
+}
+
 // Helper function to send event creation notifications
 const sendEventNotifications = async (
   eventId: string,
@@ -196,13 +202,38 @@ const sendEventNotifications = async (
 };
 
 function getStartOfDayUTC(date = new Date()) {
-  return new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate()
-  ));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
 }
 
+const getDateRange = (filter: TimeFilter = "week") => {
+  const now = new Date();
+  const start = new Date();
+  const end = new Date();
+
+  end.setHours(23, 59, 59, 999);
+
+  switch (filter) {
+    case "today":
+      start.setHours(0, 0, 0, 0);
+      break;
+    case "week":
+      start.setDate(now.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      break;
+    case "month":
+      start.setDate(now.getDate() - 29);
+      start.setHours(0, 0, 0, 0);
+      break;
+    case "year":
+      start.setFullYear(now.getFullYear() - 1);
+      start.setHours(0, 0, 0, 0);
+      break;
+  }
+
+  return { start, end };
+};
 
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
@@ -1609,49 +1640,47 @@ export const getEventsByIdService = async (req: any, res: Response) => {
     );
   }
 
-//   if (event.creator._id.toString() !== currentUserId.toString()) {
-//    await eventModel.updateOne(
-//   {
-//     _id: eventId,
-//     "viewers.user": { $ne: currentUserId },
-//   },
-//   {
-//     $push: {
-//       viewers: {
-//         user: currentUserId,
-//         viewedAt: new Date(),
-//       },
-//     },
-//   }
-// );
+  //   if (event.creator._id.toString() !== currentUserId.toString()) {
+  //    await eventModel.updateOne(
+  //   {
+  //     _id: eventId,
+  //     "viewers.user": { $ne: currentUserId },
+  //   },
+  //   {
+  //     $push: {
+  //       viewers: {
+  //         user: currentUserId,
+  //         viewedAt: new Date(),
+  //       },
+  //     },
+  //   }
+  // );
 
-//   }
+  //   }
 
-const viewDate = getStartOfDayUTC();
+  const viewDate = getStartOfDayUTC();
 
-await EventViewerModel.updateOne(
-  {
-    event: eventId,
-    user: currentUserId,
-    viewDate,
-  },
-  {
-    $setOnInsert: {
-      firstViewedAt: new Date(),
+  await EventViewerModel.updateOne(
+    {
+      event: eventId,
+      user: currentUserId,
+      viewDate,
     },
-    $set: {
-      lastViewedAt: new Date(),
+    {
+      $setOnInsert: {
+        firstViewedAt: new Date(),
+      },
+      $set: {
+        lastViewedAt: new Date(),
+      },
+      $inc: {
+        viewCount: 1,
+      },
     },
-    $inc: {
-      viewCount: 1,
-    },
-  },
-  {
-    upsert: true,
-  }
-);
-
-
+    {
+      upsert: true,
+    }
+  );
 
   // Get tickets for this event
   const tickets = await ticketModel
@@ -1819,6 +1848,335 @@ await EventViewerModel.updateOne(
       },
     },
   };
+};
+
+export const getEventAnalyticsService = async (req: any, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    const { timeFilter = "week" } = req.query;
+
+    if (!isValidObjectId(eventId)) {
+      return errorResponseHandler(
+        "Invalid event ID",
+        httpStatusCode.BAD_REQUEST,
+        res
+      );
+    }
+
+    const event = await eventModel.findById(eventId).lean();
+    if (!event) {
+      return errorResponseHandler(
+        "Event not found",
+        httpStatusCode.NOT_FOUND,
+        res
+      );
+    }
+
+    const { start: startDate, end: endDate } = getDateRange(timeFilter);
+    const ObjectId = mongoose.Types.ObjectId;
+    const eventObjectId = new mongoose.Types.ObjectId(eventId);
+
+    // =====================================================
+    // TICKET BREAKDOWN (ALL tickets, even zero sales)
+    // =====================================================
+    const ticketSalesAgg = await ticketModel.aggregate([
+      {
+        $match: {
+          event: eventObjectId,
+        },
+      },
+      {
+        $lookup: {
+          from: "purchases",
+          let: { ticketId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$ticket", "$$ticketId"] },
+                    { $eq: ["$event", eventObjectId] },
+                    { $eq: ["$purchaseType", "purchase"] },
+                    { $not: [{ $in: ["$status", ["pending", "refunded"]] }] },
+                    { $gte: ["$purchaseDate", startDate] },
+                    { $lte: ["$purchaseDate", endDate] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                ticketsSold: { $sum: "$quantity" },
+                revenue: { $sum: "$totalPrice" },
+              },
+            },
+          ],
+          as: "sales",
+        },
+      },
+      {
+        $unwind: {
+          path: "$sales",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          ticketName: "$name",
+          price: 1,
+          totalQuantity: "$quantity",
+          ticketsSold: { $ifNull: ["$sales.ticketsSold", 0] },
+          revenue: { $ifNull: ["$sales.revenue", 0] },
+        },
+      },
+    ]);
+
+    const ticketBreakdown = ticketSalesAgg.map((t) => ({
+      ticketName: t.ticketName,
+      price: t.price,
+      ticketsSold: t.ticketsSold,
+      revenue: t.revenue,
+      remaining: Math.max(0, t.totalQuantity - t.ticketsSold),
+    }));
+
+    const totalTicketsSold = ticketSalesAgg.reduce(
+      (sum, t) => sum + t.ticketsSold,
+      0
+    );
+
+    const totalRevenue = ticketSalesAgg.reduce((sum, t) => sum + t.revenue, 0);
+
+    const totalTickets = ticketSalesAgg.reduce(
+      (sum, t) => sum + t.totalQuantity,
+      0
+    );
+
+    // =====================================================
+    // REVENUE CHART (Daily)
+    // =====================================================
+    const revenueChartData = await purchaseModel.aggregate([
+      {
+        $match: {
+          event: eventObjectId,
+          status: { $nin: ["pending", "refunded"] },
+          purchaseType: "purchase",
+          purchaseDate: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$purchaseDate" },
+          },
+          revenue: { $sum: "$totalPrice" },
+          tickets: { $sum: "$quantity" },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          date: "$_id",
+          revenue: 1,
+          tickets: 1,
+          _id: 0,
+        },
+      },
+    ]);
+
+    // =====================================================
+    // VIEW ANALYTICS
+    // =====================================================
+    const viewsByDate = await EventViewerModel.aggregate([
+      {
+        $match: {
+          event: eventObjectId,
+          viewDate: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$viewDate" },
+          },
+          views: { $sum: "$viewCount" },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          date: "$_id",
+          views: 1,
+          _id: 0,
+        },
+      },
+    ]);
+
+    const totalViews = viewsByDate.reduce((sum, d) => sum + d.views, 0);
+
+    const uniqueViewsAgg = await EventViewerModel.aggregate([
+      {
+        $match: {
+          event: eventObjectId,
+          viewDate: { $gte: startDate, $lte: endDate },
+        },
+      },
+      { $group: { _id: "$user" } },
+      { $count: "count" },
+    ]);
+
+    const uniqueViews = uniqueViewsAgg[0]?.count || 0;
+
+    // ============ PROFILE TYPE ANALYTICS ============
+    const profileData = await EventViewerModel.aggregate([
+      {
+        $match: {
+          event: eventObjectId,
+          viewDate: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        // unique users only
+        $group: { _id: "$user" },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+      {
+        $project: {
+          gender: { $ifNull: ["$user.gender", "unknown"] },
+          dob: "$user.dob",
+        },
+      },
+      {
+        $addFields: {
+          age: {
+            $cond: [
+              { $ifNull: ["$dob", false] },
+              {
+                $dateDiff: {
+                  startDate: "$dob",
+                  endDate: new Date(),
+                  unit: "year",
+                },
+              },
+              null,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$gender",
+          count: { $sum: 1 },
+          totalAge: {
+            $sum: {
+              $cond: [{ $ifNull: ["$age", false] }, "$age", 0],
+            },
+          },
+          ageCount: {
+            $sum: {
+              $cond: [{ $ifNull: ["$age", false] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const maleData = profileData.find((p) => p._id === "male") || {
+      count: 0,
+      totalAge: 0,
+      ageCount: 0,
+    };
+    const femaleData = profileData.find((p) => p._id === "female") || {
+      count: 0,
+      totalAge: 0,
+      ageCount: 0,
+    };
+
+    const totalUsers = maleData.count + femaleData.count;
+
+    const malePercentage =
+      totalUsers > 0
+        ? Number(((maleData.count / totalUsers) * 100).toFixed(2))
+        : 0;
+
+    const femalePercentage =
+      totalUsers > 0
+        ? Number(((femaleData.count / totalUsers) * 100).toFixed(2))
+        : 0;
+
+    const totalAgeSum = maleData.totalAge + femaleData.totalAge;
+    const totalAgeCount = maleData.ageCount + femaleData.ageCount;
+
+    const averageAge =
+      totalAgeCount > 0 ? Number((totalAgeSum / totalAgeCount).toFixed(1)) : 0;
+
+    // =====================================================
+    // ENGAGEMENT
+    // =====================================================
+    const [likes, comments] = await Promise.all([
+      LikeModel.countDocuments({
+        targetType: "event",
+        target: eventId,
+        createdAt: { $gte: startDate, $lte: endDate },
+      }),
+      Comment.countDocuments({
+        event: eventId,
+        createdAt: { $gte: startDate, $lte: endDate },
+      }),
+    ]);
+
+    // =====================================================
+    // RESPONSE
+    // =====================================================
+    return {
+      success: true,
+      message: "Event analytics fetched successfully",
+      data: {
+        ticket: {
+          ticketsSold: totalTicketsSold,
+          remainingTickets: Math.max(0, totalTickets - totalTicketsSold),
+          totalSale: totalRevenue,
+          revenueChart: revenueChartData,
+          ticketBreakdown,
+        },
+        view: {
+          totalViews,
+          uniqueViews,
+          viewsByDate,
+        },
+        profileType: {
+          male: {
+            count: maleData.count,
+            percentage: malePercentage,
+          },
+          female: {
+            count: femaleData.count,
+            percentage: femalePercentage,
+          },
+          averageAge,
+        },
+        engagement: {
+          likes,
+          comments,
+        },
+      },
+    };
+  } catch (error) {
+    console.error("Event analytics error:", error);
+    return errorResponseHandler(
+      "Failed to fetch analytics",
+      httpStatusCode.INTERNAL_SERVER_ERROR,
+      res
+    );
+  }
 };
 
 export const updateEventService = async (req: Request, res: Response) => {
