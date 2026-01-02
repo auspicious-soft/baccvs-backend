@@ -22,6 +22,7 @@ import { Comment } from "src/models/comment/comment-schema";
 import { NotificationModel } from "src/models/notification/notification-schema";
 import { convertToUTCAndLocal } from "src/utils/date";
 import { sendPushToToken } from "src/utils/firebase-admin";
+import { EventViewerModel } from "src/models/eventViewers/eventViewers-schema";
 
 // Helper function to send event creation notifications
 const sendEventNotifications = async (
@@ -194,38 +195,14 @@ const sendEventNotifications = async (
   }
 };
 
-function getTimezoneOffset(timezone: string, date: Date): number {
-  try {
-    // Create a formatter for the specific timezone
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-
-    // Get the date parts in the target timezone
-    const parts = formatter.formatToParts(date);
-    const getPart = (type: string) =>
-      parts.find((part) => part.type === type)?.value || "0";
-
-    // Reconstruct the date in the target timezone
-    const tzDate = new Date(
-      `${getPart("year")}-${getPart("month")}-${getPart("day")}T${getPart(
-        "hour"
-      )}:${getPart("minute")}:${getPart("second")}`
-    );
-
-    // Calculate offset in minutes
-    return Math.round((date.getTime() - tzDate.getTime()) / 60000);
-  } catch (error) {
-    throw new Error(`Invalid timezone: ${timezone}`);
-  }
+function getStartOfDayUTC(date = new Date()) {
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate()
+  ));
 }
+
 
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
@@ -1632,11 +1609,49 @@ export const getEventsByIdService = async (req: any, res: Response) => {
     );
   }
 
-  if(event.creator._id.toString() !== currentUserId.toString()){
-    await eventModel.findByIdAndUpdate(eventId, {
-     $addToSet: { viewers: currentUserId },
-    });
+//   if (event.creator._id.toString() !== currentUserId.toString()) {
+//    await eventModel.updateOne(
+//   {
+//     _id: eventId,
+//     "viewers.user": { $ne: currentUserId },
+//   },
+//   {
+//     $push: {
+//       viewers: {
+//         user: currentUserId,
+//         viewedAt: new Date(),
+//       },
+//     },
+//   }
+// );
+
+//   }
+
+const viewDate = getStartOfDayUTC();
+
+await EventViewerModel.updateOne(
+  {
+    event: eventId,
+    user: currentUserId,
+    viewDate,
+  },
+  {
+    $setOnInsert: {
+      firstViewedAt: new Date(),
+    },
+    $set: {
+      lastViewedAt: new Date(),
+    },
+    $inc: {
+      viewCount: 1,
+    },
+  },
+  {
+    upsert: true,
   }
+);
+
+
 
   // Get tickets for this event
   const tickets = await ticketModel

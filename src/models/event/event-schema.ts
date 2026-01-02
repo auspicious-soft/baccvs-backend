@@ -127,11 +127,6 @@ const eventSchema = new Schema(
       type: Date,
       required: true,
     },
-    viewers:[{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "users",
-      select: false,
-    }],
     timezone: {
       type: String,
       required: true,
