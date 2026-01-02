@@ -1632,6 +1632,12 @@ export const getEventsByIdService = async (req: any, res: Response) => {
     );
   }
 
+  if(event.creator._id.toString() !== currentUserId.toString()){
+    await eventModel.findByIdAndUpdate(eventId, {
+     $addToSet: { viewers: currentUserId },
+    });
+  }
+
   // Get tickets for this event
   const tickets = await ticketModel
     .find({ event: event._id })
