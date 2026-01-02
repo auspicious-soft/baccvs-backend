@@ -1660,27 +1660,29 @@ export const getEventsByIdService = async (req: any, res: Response) => {
 
   const viewDate = getStartOfDayUTC();
 
-  await EventViewerModel.updateOne(
-    {
-      event: eventId,
-      user: currentUserId,
-      viewDate,
-    },
-    {
-      $setOnInsert: {
-        firstViewedAt: new Date(),
+  if (event.creator._id.toString() !== currentUserId.toString()) {
+    await EventViewerModel.updateOne(
+      {
+        event: eventId,
+        user: currentUserId,
+        viewDate,
       },
-      $set: {
-        lastViewedAt: new Date(),
+      {
+        $setOnInsert: {
+          firstViewedAt: new Date(),
+        },
+        $set: {
+          lastViewedAt: new Date(),
+        },
+        $inc: {
+          viewCount: 1,
+        },
       },
-      $inc: {
-        viewCount: 1,
-      },
-    },
-    {
-      upsert: true,
-    }
-  );
+      {
+        upsert: true,
+      }
+    );
+  }
 
   // Get tickets for this event
   const tickets = await ticketModel
