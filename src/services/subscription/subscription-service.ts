@@ -1037,7 +1037,15 @@ export const handleStripeWebhookService = async (
     switch (event.type) {
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        const chargeId = paymentIntent.latest_charge;
+        const charge = await stripe.charges.retrieve(chargeId as string);
 
+        const balanceTxId = charge.balance_transaction as string;
+
+        const balanceTx = await stripe.balanceTransactions.retrieve(
+          balanceTxId
+        );
+        
         if (paymentIntent.currency.toLowerCase() !== "usd") {
           return errorResponseHandler(
             `Non-USD currency detected: ${paymentIntent.currency}`,
@@ -1079,6 +1087,7 @@ export const handleStripeWebhookService = async (
         transaction.status = TransactionStatus.SUCCESS;
         transaction.metadata = {
           ...transaction.metadata,
+          balanceTx,
           completedAt: new Date(),
         };
         await transaction.save({ session });
@@ -1244,7 +1253,7 @@ export const handleStripeWebhookService = async (
           if (!promotion) {
             return errorResponseHandler("Promotion not found", 404, res);
           }
-          // count day from date in promotion  with 
+          // count day from date in promotion  with
 
           promotion.status = "active";
           promotion.paidAt = new Date();
@@ -1258,7 +1267,8 @@ export const handleStripeWebhookService = async (
             promotionId: promotion._id.toString(),
           };
           if (paymentIntent && (paymentIntent as any).customer) {
-            transaction.stripeCustomerId = (paymentIntent as any).customer as string;
+            transaction.stripeCustomerId = (paymentIntent as any)
+              .customer as string;
           }
           transaction.status = TransactionStatus.SUCCESS;
           await transaction.save({ session });

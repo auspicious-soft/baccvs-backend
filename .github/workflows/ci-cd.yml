@@ -95,6 +95,8 @@ jobs:
               -e AWS_REGION='${{ secrets.AWS_REGION }}' \
               -e AWS_BUCKET_NAME='${{ secrets.AWS_BUCKET_NAME }}' \
               -e FIREBASE_PROJECT_JSON='${{ secrets.FIREBASE_PROJECT_JSON }}' \
+              -e AUTH_SECRET='${{ secrets.AUTH_SECRET }}' \
+              -e SETTINGS_JWT_SECRET='${{ secrets.SETTINGS_JWT_SECRET }}' \
               -e NEXT_PUBLIC_AWS_BUCKET_PATH='${{ secrets.NEXT_PUBLIC_AWS_BUCKET_PATH }}' \
               ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest || { echo 'Docker run failed'; exit 1; }
 
