@@ -2,25 +2,30 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export interface IAdmin extends Document {
   firstName: string;
-  lastName: string;
+  lastName?: string;
   fullName?: string;
   email: string;
   password?: string;
   image?: string;
   role?: "ADMIN" | "SUPERADMIN" | "EMPLOYEE";
-  roleAccess?:
+  roleAccess?: Array<
     | "full"
-    | "users"
-    | "event-tickets"
-    | "revenue-financial"
-    | "referrals"
-    | "marketing-promptions"
-    | "security-compliance"
-    | "customer-support"
-    | "loyalty-gamification";
-  phoneNumber: number;
+    | "Dashboard"
+    | "Users"
+    | "Event&Ticketing"
+    | "Revenue&Financial"
+    | "Referrals"
+    | "Marketing&Promotions"
+    | "Security&Compliance"
+    | "Customer&Support"
+    | "Loyalty&Gamification"
+    | "Staffs"
+    | "Settings"
+  >;
+  inviteStatus?: "INVITED" | "ACTIVE";
+  phoneNumber?: number;
   eventNotification?: boolean;
-  signUpNptification?: boolean;
+  signUpNotification?: boolean;
   complaintsNotification?: boolean;
   paymentsNotification?: boolean;
   twoFA?: "SMS" | "EMAIL" | null;
@@ -40,7 +45,7 @@ const adminSchema = new Schema<IAdmin>(
     },
     lastName: {
       type: String,
-      required: true,
+      default: "",
       trim: true,
     },
     fullName: {
@@ -55,12 +60,12 @@ const adminSchema = new Schema<IAdmin>(
     },
     password: {
       type: String,
-      required: true,
     },
     phoneNumber: {
       type: Number,
-      required: true,
+      default:null,
       unique: true,
+      sparse: true,
     },
     role: {
       type: String,
@@ -68,19 +73,27 @@ const adminSchema = new Schema<IAdmin>(
       enum: ["ADMIN", "SUPERADMIN", "EMPLOYEE", "STAFF"],
     },
     roleAccess: {
-      type: String,
-      default: "full",
+      type: [String],
+      default: ["full"],
       enum: [
         "full",
-        "users",
-        "event-tickets",
-        "revenue-financial",
-        "referrals",
-        "marketing-promptions",
-        "security-compliance",
-        "customer-support",
-        "loyalty-gamification",
+        "Dashboard",
+        "Users",
+        "Event&Ticketing",
+        "Revenue&Financial",
+        "Referrals",
+        "Marketing&Promotions",
+        "Security&Compliance",
+        "Customer&Support",
+        "Loyalty&Gamification",
+        "Staffs",
+        "Settings",
       ],
+    },
+    inviteStatus: {
+      type: String,
+      enum: ["INVITED", "ACTIVE"],
+      default: "ACTIVE",
     },
     image: {
       type: String,
@@ -99,16 +112,16 @@ const adminSchema = new Schema<IAdmin>(
       type: Boolean,
       default: false,
     },
-    signUpNptification: {
-      type: String,
+    signUpNotification: {
+      type: Boolean,
       default: false,
     },
     complaintsNotification: {
-      type: String,
+      type: Boolean,
       default: false,
     },
     paymentsNotification: {
-      type: String,
+      type: Boolean,
       default: false,
     },
     isDeleted: {

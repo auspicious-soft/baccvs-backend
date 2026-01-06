@@ -93,11 +93,11 @@ export const adminAuth = {
     const checkOtp = await OtpModel.findOne({
       $or: [{ email: payload.method }, { phone: payload.method }],
       code: payload.code,
-       purpose: "FORGOT_PASSWORD",
+     purpose: { $in: ["FORGOT_PASSWORD", "RESEND"] },
       userType: payload.userType,
     });
     if (!checkOtp) {
-      throw new Error("invalidOtp");
+      throw new Error("Invalid Otp or wrong email.");
     }
     const tokenPayload = checkOtp.toObject();
     const token = jwt.sign(tokenPayload, process.env.AUTH_SECRET as string, {
@@ -129,7 +129,7 @@ export const adminAuth = {
       const checkExist = await AdminModel.findOne(query);
 
       if (!checkExist) {
-        throw new Error("Register Again");
+        throw new Error("Register Again, Admin Not found.");
       }
     }
 
@@ -139,6 +139,19 @@ export const adminAuth = {
       "EMAIL",
       payload.userType
     );
+
+     const checkOtp = await OtpModel.findOne({
+      $or: [{ email: payload.value }, { phone: payload.value }],
+       purpose: "FORGOT_PASSWORD",
+      userType: payload.userType,
+    });
+    if(checkOtp){
+      await OtpModel.deleteOne({
+      $or: [{ email: payload.value }, { phone: payload.value }],
+       purpose: "FORGOT_PASSWORD",
+      userType: payload.userType,
+    });
+    }
     return { OTP };
   },
 

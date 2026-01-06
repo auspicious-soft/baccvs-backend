@@ -1,6 +1,7 @@
 import { IAdmin } from "src/models/admin/admin-schema";
 import { TokenModel } from "src/models/system/token-schema";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { OtpModel } from "src/models/system/otp-schema";
 import React from "react";
@@ -8,12 +9,29 @@ import { Resend } from "resend";
 import SignupVerification from "./templates/signup-veriication";
 import ForgotPasswordVerification from "./templates/forget-password-verification";
 import { configDotenv } from "dotenv";
+import ResetPasswordEmail from "./templates/reset-password";
+import StaffInvitationEmail from "./templates/staff-invitaion";
 
 
 configDotenv();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const otpPurpose = ["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE","VERIFY_EMAIL"];
+const otpPurpose = ["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE","VERIFY_EMAIL", "STAFF_INVITE"];
+
+
+interface SendResetPasswordEmailProps {
+  to: string;
+  resetLink: string;
+  companyName?: string;
+}
+
+interface SendStaffInvitationEmailProps {
+  to: string;
+  inviteLink: string;
+  staffName: string;
+  invitedBy: string;
+  companyName?: string;
+}
 
 export async function hashPassword(password: string) {
   return await bcrypt.hash(password, 10);
@@ -22,6 +40,11 @@ export async function hashPassword(password: string) {
 export async function verifyPassword(password: string, hashPassword: string) {
   return await bcrypt.compare(password, hashPassword);
 } 
+
+export function sha256(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 
 export async function generateToken(admin: IAdmin) {
   const tokenPayload = {
@@ -106,4 +129,45 @@ export async function generateAndSendOtp(
   }
 
   return otp;
+}
+
+export async function sendResetPasswordEmail({
+  to,
+  resetLink,
+  companyName,
+}: SendResetPasswordEmailProps) {
+  const email = React.createElement(ResetPasswordEmail, {
+    resetLink,
+    companyName,
+  });
+
+  await resend.emails.send({
+    from: process.env.COMPANY_RESEND_GMAIL_ACCOUNT as string,
+    to,
+    subject: "Reset your password",
+    react: email,
+  });
+}
+
+
+export async function sendStaffInvitationEmail({
+  to,
+  inviteLink,
+  staffName,
+  invitedBy,
+  companyName,
+}: SendStaffInvitationEmailProps) {
+  const email = React.createElement(StaffInvitationEmail, {
+    inviteLink,
+    staffName,
+    invitedBy,
+    companyName,
+  });
+
+  await resend.emails.send({
+    from: process.env.COMPANY_RESEND_GMAIL_ACCOUNT as string,
+    to,
+    subject: "You’ve been invited to join the Admin Dashboard",
+    react: email,
+  });
 }

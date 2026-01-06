@@ -7,16 +7,20 @@ import mongoose from "mongoose";
 import Stripe from "stripe";
 import { AdminModel } from "src/models/admin/admin-schema";
 import jwt from "jsonwebtoken";
-
+import crypto from "crypto";
 import {
   generateAndSendOtp,
+  hashPassword,
+  sendResetPasswordEmail,
+  sendStaffInvitationEmail,
+  sha256,
   verifyPassword,
 } from "src/utils/admin-utils/helper";
 import { AdminChangeRequestModel } from "src/models/admin/admin-change-schema";
 import { OtpModel } from "src/models/system/otp-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16",
+  apiVersion: "2025-02-24.acacia",
 });
 
 // export const loginService = async (payload: any, res: Response) => {
@@ -329,7 +333,7 @@ export const getPromotionPlansService = async (req: any, res: Response) => {
     message: "Promotion plans fetched successfully",
     data: plans,
   };
-}
+};
 
 export const adminSettings = {
   async verifyAdminPassword(payload: any) {
@@ -388,12 +392,22 @@ export const adminSettings = {
 
     if (!admin) throw new Error("Admin not Found");
 
-    if (
-      (type === "EMAIL" && admin.email !== oldValue) ||
-      (type === "PHONE" && admin.phoneNumber.toString() !== oldValue)
-    ) {
-      throw new Error(`Old ${type.toLowerCase()} doesn't match`);
+    if (type === "EMAIL") {
+      if (admin.email !== oldValue) {
+        throw new Error("Old email doesn't match");
+      }
     }
+
+    if (type === "PHONE") {
+      if (!admin.phoneNumber) {
+        throw new Error("Phone number not set for this admin");
+      }
+
+      if (admin.phoneNumber.toString() !== oldValue) {
+        throw new Error("Old phone number doesn't match");
+      }
+    }
+
     if (type === "EMAIL") {
       const existing = await AdminModel.findOne({ email: newValue });
       if (existing) throw new Error("New email already in use");
@@ -454,8 +468,6 @@ export const adminSettings = {
       "ADMIN"
     );
 
-
-
     return {
       message: `OTP resent to new ${type.toLowerCase()}`,
       otp,
@@ -499,5 +511,430 @@ export const adminSettings = {
     await AdminChangeRequestModel.deleteOne({ _id: changeRequest._id });
 
     return { message: `${type} updated successfully` };
+  },
+
+  async requestPasswordReset(payload: any) {
+    const { adminId, email } = payload;
+    if (!email) throw new Error("Email is required");
+    const admin = await AdminModel.findOne({
+      _id: adminId,
+      email,
+      isDeleted: false,
+      isBlocked: false,
+    });
+    if (!admin) throw new Error("Admin Not Found.");
+
+    await OtpModel.updateMany(
+      {
+        adminId,
+        purpose: "FORGOT_PASSWORD",
+        tokenType: "RESET",
+        used: false,
+      },
+      { used: true }
+    );
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = sha256(rawToken);
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await OtpModel.create({
+      adminId: admin._id,
+      email,
+      code: hashedToken,
+      tokenType: "RESET",
+      purpose: "FORGOT_PASSWORD",
+      type: "EMAIL",
+      userType: "ADMIN",
+      expiresAt,
+    });
+
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
+
+    await sendResetPasswordEmail({
+      to: email,
+      resetLink: resetLink,
+      companyName: "Baccvs",
+    });
+    return { message: "Password reset link sent", resetLink };
+  },
+
+  async resetPassword(payload: any) {
+    const { token, password, confirmPassword } = payload;
+
+    if (password !== confirmPassword) {
+      throw new Error("Passwords do not match");
+    }
+
+    if (password.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+
+    const hashedToken = sha256(token);
+
+    const resetRecord = await OtpModel.findOne({
+      code: hashedToken,
+      tokenType: "RESET",
+      purpose: "FORGOT_PASSWORD",
+      userType: "ADMIN",
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!resetRecord) {
+      throw new Error("Invalid or expired reset link");
+    }
+
+    await AdminModel.updateOne(
+      { _id: resetRecord.adminId },
+      { password: await hashPassword(password) }
+    );
+
+    await OtpModel.updateOne({ _id: resetRecord._id }, { used: true });
+
+    return {
+      message: "Password reset successful",
+    };
+  },
+  async updateAdminData(payload: any) {
+    const {
+      adminId,
+      fullName,
+      image,
+      eventNotification,
+      signUpNotification,
+      complaintsNotification,
+      paymentsNotification,
+    } = payload;
+
+    const updatePayload: Record<string, any> = {};
+
+    if (fullName !== undefined) {
+      const normalized = fullName.trim().replace(/\s+/g, " ");
+      const parts = normalized.split(" ");
+
+      if (parts.length < 2) {
+        throw new Error("Full name must include first and last name");
+      }
+
+      updatePayload.firstName = parts[0];
+      updatePayload.lastName = parts.slice(1).join(" ");
+      updatePayload.fullName = normalized;
+    }
+    if (image !== undefined) updatePayload.image = image;
+
+    if (typeof eventNotification === "boolean")
+      updatePayload.eventNotification = eventNotification;
+
+    if (typeof signUpNotification === "boolean")
+      updatePayload.signUpNotification = signUpNotification;
+
+    if (typeof complaintsNotification === "boolean")
+      updatePayload.complaintsNotification = complaintsNotification;
+
+    if (typeof paymentsNotification === "boolean")
+      updatePayload.paymentsNotification = paymentsNotification;
+
+    if (Object.keys(updatePayload).length === 0) {
+      throw new Error("No valid fields provided for update");
+    }
+
+    const updatedAdmin = await AdminModel.findOneAndUpdate(
+      { _id: adminId, isDeleted: false, isBlocked: false },
+      { $set: updatePayload },
+      { new: true }
+    ).select("-password");
+
+    if (!updatedAdmin) {
+      throw new Error("Admin not found");
+    }
+
+    return {
+      message: "Profile updated successfully",
+      admin: updatedAdmin,
+    };
+  },
+};
+
+export const StaffServices = {
+  async inviteStaff(payload: any) {
+    const { adminId, email, roleAccess, firstName, lastName, adminName } =
+      payload;
+
+    const existing = await AdminModel.findOne({ email, isDeleted: false });
+    if (existing) throw new Error("User already exists");
+
+    const staff = await AdminModel.create({
+      email,
+      role: "STAFF",
+      roleAccess,
+      inviteStatus: "INVITED",
+      firstName: firstName,
+      lastName: lastName ? lastName : "",
+      fullName: `${firstName} ${`${lastName}` ? `${lastName}` : ""}`,
+      image: "",
+      authType: "EMAIL",
+    });
+    await OtpModel.updateMany(
+      {
+        email,
+        purpose: "STAFF_INVITE",
+        used: false,
+      },
+      { used: true }
+    );
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = sha256(rawToken);
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await OtpModel.create({
+      adminId: staff._id,
+      email,
+      code: hashedToken,
+      purpose: "STAFF_INVITE",
+      tokenType: "INVITE",
+      type: "EMAIL",
+      userType: "STAFF",
+      expiresAt,
+    });
+    const inviteLink = `${process.env.FRONTEND_URL}/staff-invite?token=${rawToken}`;
+
+    await sendStaffInvitationEmail({
+      to: email,
+      inviteLink,
+      staffName: firstName,
+      invitedBy: adminName,
+      companyName: "Baccvs",
+    });
+
+    return { message: "Staff invitation sent", inviteLink };
+  },
+
+  async acceptInvitation(payload: any) {
+    const { token, password } = payload;
+
+    const hashedToken = sha256(token);
+
+    const invite = await OtpModel.findOne({
+      code: hashedToken,
+      purpose: "STAFF_INVITE",
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!invite) throw new Error("Invite link expired or invalid");
+
+    const staff = await AdminModel.findById(invite.adminId);
+    if (!staff) throw new Error("Staff not found");
+
+    staff.password = await hashPassword(password);
+    staff.inviteStatus = "ACTIVE";
+
+    await staff.save();
+
+    invite.used = true;
+    await invite.save();
+
+    return { message: "Staff account activated successfully" };
+  },
+
+  async getAllStaffMembers(payload: any) {
+    const { status, page, limit, access, search } = payload;
+
+    const pageNumber = parseInt(page, 10) || 1;
+    const limitNumber = parseInt(limit, 10) || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter: any = {
+      role: "STAFF",
+      isDeleted: false,
+    };
+
+    if (status) {
+      if (status.toLowerCase() === "active") {
+        filter.isBlocked = false;
+      } else if (status.toLowerCase() === "inactive") {
+        filter.isBlocked = true;
+      } else {
+        throw new Error("Invalid status. Allowed values: active, inactive");
+      }
+    }
+
+    if (search) {
+      filter.email = { $regex: search, $options: "i" };
+    }
+
+    if (access) {
+      filter.roleAccess = { $in: [access] };
+    }
+
+    const totalStaff = await AdminModel.countDocuments(filter);
+
+    const staffList = await AdminModel.aggregate([
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limitNumber },
+      {
+        $project: {
+          _id: 1,
+          firstName: 1,
+          lastName: 1,
+          fullName: 1,
+          email: 1,
+          image: 1,
+          role: 1,
+          roleAccess: 1,
+          isBlocked: 1,
+          isDeleted: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ]);
+
+    return {
+      data: staffList,
+      pagination: {
+        total: totalStaff,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(totalStaff / limitNumber),
+      },
+    };
+  },
+
+  async getSingleStaffMember(payload: any) {
+    const { id, adminId } = payload;
+
+    if (!adminId) throw new Error("Unauthorized");
+
+    if (!id) throw new Error("Id is required");
+
+    const staff = await AdminModel.findOne({
+      _id: id,
+      isDeleted: false,
+    })
+      .select("-password")
+      .lean();
+    if (!staff) throw new Error("Staff Member Not Found");
+
+    return staff;
+  },
+
+  async updateStaffRoleAccess(payload: any) {
+    const { adminId, staffId, roleAccess } = payload;
+
+    const ALLOWED_ROLE_ACCESS = [
+      "full",
+      "Dashboard",
+      "Users",
+      "Event&Ticketing",
+      "Revenue&Financial",
+      "Referrals",
+      "Marketing&Promotions",
+      "Security&Compliance",
+      "Customer&Support",
+      "Loyalty&Gamification",
+      "Staffs",
+      "Settings",
+    ];
+
+    if (!Array.isArray(roleAccess)) {
+      throw new Error("roleAccess must be an array");
+    }
+    if (!adminId) {
+      throw new Error("Unauthorized");
+    }
+
+    if (!staffId) {
+      throw new Error("Staff ID is required");
+    }
+
+    const uniqueRoleAccess = Array.from(
+      new Set(roleAccess.map((r: string) => r.trim()))
+    );
+
+    const invalidRoles = uniqueRoleAccess.filter(
+      (r: string) => !ALLOWED_ROLE_ACCESS.includes(r)
+    );
+
+    if (invalidRoles.length) {
+      throw new Error(`Invalid roleAccess values: ${invalidRoles.join(", ")}`);
+    }
+
+    const admin = await AdminModel.findOne({
+      _id: adminId,
+      isDeleted: false,
+      isBlocked: false,
+      role: { $in: ["SUPERADMIN", "ADMIN"] },
+    });
+    if (!admin) {
+      throw new Error("Not allowed to update staff permissions");
+    }
+    const staff = await AdminModel.findOneAndUpdate(
+      {
+        _id: staffId,
+        role: "STAFF",
+        isDeleted: false,
+      },
+      {
+        $set: { roleAccess: uniqueRoleAccess },
+      },
+      { new: true }
+    );
+
+    if (!staff) {
+      throw new Error("Staff member not found");
+    }
+
+    return {
+      message: "Staff role access updated successfully",
+      roleAccess: staff.roleAccess,
+    };
+  },
+
+  async removeUnRemoveStaff(payload: any) {
+    const { adminId, staffId } = payload;
+
+    if (!adminId) {
+      throw new Error("Unauthorized");
+    }
+
+    if (!staffId) {
+      throw new Error("Staff ID is required");
+    }
+
+     const admin = await AdminModel.findOne({
+    _id: adminId,
+    isDeleted: false,
+    isBlocked: false,
+    role: { $in: ["SUPERADMIN", "ADMIN"] },
+  });
+
+  if (!admin) {
+    throw new Error("Not allowed to manage staff");
+  };
+   const staff = await AdminModel.findOne({
+    _id: staffId,
+    role: "STAFF",
+    isDeleted: false,
+  });
+
+  if (!staff) {
+    throw new Error("Staff member not found");
+  }
+
+  staff.isBlocked = !staff.isBlocked;
+  await staff.save();
+
+  return {
+    message: staff.isBlocked
+      ? "Staff member blocked successfully"
+      : "Staff member unblocked successfully",
+    isBlocked: staff.isBlocked,
+  };
   },
 };

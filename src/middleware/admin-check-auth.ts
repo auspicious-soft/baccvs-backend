@@ -9,6 +9,8 @@ declare global {
       admin?: {
         id: string;
         role?: string;
+        fullName?:string;
+        roleAccess?: Array<string>;
       };
     }
   }
@@ -52,7 +54,7 @@ export const checkAdminAuth = async (
       _id: decoded.id,
       isDeleted: false,
       isBlocked: false,
-    }).select("_id role");
+    }).select("_id role fullName roleAccess");
 
     if (!admin) {
       return res.status(httpStatusCode.UNAUTHORIZED).json({
@@ -64,6 +66,8 @@ export const checkAdminAuth = async (
     req.admin = {
       id: admin.id,
       role: admin.role,
+      fullName: admin.fullName,
+      roleAccess:admin.roleAccess || [],
     };
 
     next();
@@ -74,3 +78,4 @@ export const checkAdminAuth = async (
     });
   }
 };
+
