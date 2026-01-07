@@ -106,3 +106,18 @@ export const yearlyCreditCounts = {
   'intro': 1080,
   'pro': 2160
 }
+
+
+export const ROLE_ACCESS = {
+  DASHBOARD: "Dashboard",
+  USERS: "Users",
+  EVENT_TICKETING: "Event&Ticketing",
+  REVENUE: "Revenue&Financial",
+  REFERRALS: "Referrals",
+  MARKETING: "Marketing&Promotions",
+  SECURITY: "Security&Compliance",
+  SUPPORT: "Customer&Support",
+  LOYALTY: "Loyalty&Gamification",
+  STAFFS: "Staffs",
+  SETTINGS: "Settings",
+};

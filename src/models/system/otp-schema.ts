@@ -1,18 +1,35 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IOtp extends Document {
+  adminId?: mongoose.Types.ObjectId;
+  tokenType: "OTP" | "RESET" | "INVITE";
+  used?: boolean;
   email?: string;
   phone?: string;
   code: string;
   type: "EMAIL" | "PHONE";
-  userType: "USER" | "ADMIN"
-  purpose?: string
+  userType: "USER" | "ADMIN" | "STAFF";
+  purpose?: string;
   expiresAt: Date;
   createdAt: Date;
 }
 
 const otpSchema = new Schema<IOtp>(
   {
+    adminId: {
+      type: Schema.Types.ObjectId,
+      ref: "admin",
+      index: true,
+    },
+    tokenType: {
+      type: String,
+      enum: ["OTP", "RESET", "INVITE"],
+      default: "OTP",
+    },
+    used: {
+      type: Boolean,
+      default: false,
+    },
     email: {
       type: String,
       required: function () {
@@ -31,13 +48,20 @@ const otpSchema = new Schema<IOtp>(
     },
     purpose: {
       type: String,
-      enum:["SIGNUP", "FORGOT_PASSWORD","RESEND", "VERIFY_PHONE", "VERIFY_EMAIL"],
-      default:"SIGNUP"
+      enum: [
+        "SIGNUP",
+        "FORGOT_PASSWORD",
+        "RESEND",
+        "VERIFY_PHONE",
+        "VERIFY_EMAIL",
+        "STAFF_INVITE",
+      ],
+      default: "SIGNUP",
     },
-    userType:{
+    userType: {
       type: String,
-      enum: ["USER", "ADMIN"],
-      default: "USER"
+      enum: ["USER", "ADMIN", "STAFF"],
+      default: "USER",
     },
     type: {
       type: String,
