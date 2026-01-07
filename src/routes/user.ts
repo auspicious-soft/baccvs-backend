@@ -37,6 +37,7 @@ import {
   getUserAllprofessionalProfiles,
   updateProfessionalProfile,
 } from "src/controllers/professional/professional-controller";
+import { createReview } from "src/controllers/review/review-controller";
 import {
   createPromotion,
   getAllPromotions,
@@ -137,6 +138,7 @@ router.post("/forgot-password", forgotPassword);
 // router.post("/reset-password", resetPasswordWithToken)
 router.post("/create/professionalId", createProfessionalProfile);
 router.post("/create/promotion", createPromotion);
+router.post("/create/review", createReview);
 router.post("/change-password", changePassword);
 router.route("/:id").get(getUserInfo);
 router.get("/dashboard/data", getDashboardStats);
