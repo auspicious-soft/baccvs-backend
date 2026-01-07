@@ -15,16 +15,22 @@ export const createReviewService = async (req: any, res: Response) => {
   const { id: userId } = req.user as any;
   const { professionalProfileId, rating, comment } = req.body;
 
-  if (
-    !professionalProfileId ||
-    !mongoose.isValidObjectId(professionalProfileId) ||
-    rating === undefined
-  )
-    return errorResponseHandler(
-      "professionalProfileId  and rating are required fields or invalid professional ID",
-      httpStatusCode.BAD_REQUEST,
-      res
-    );
+  if (!professionalProfileId || !mongoose.isValidObjectId(professionalProfileId)) {
+  return errorResponseHandler(
+    "Invalid or missing professionalProfileId",
+    httpStatusCode.BAD_REQUEST,
+    res
+  );
+}
+
+if (rating === undefined || typeof rating !== "number" || Number.isNaN(rating)) {
+  return errorResponseHandler(
+    "Rating is required and must be a valid number",
+    httpStatusCode.BAD_REQUEST,
+    res
+  );
+}
+
 
   const professional = await ProfessionalProfileModel.findById(
     professionalProfileId
