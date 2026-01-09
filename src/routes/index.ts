@@ -15,10 +15,10 @@ export { router as blockRoutes } from "./block-routes";
 export { router as feedbackRoutes } from "./feedback-routes";
 export { router as subscription } from "./subscription-routes";
 export { router as stripeProduct } from "./stripe-product-routes";
+export { router as stripeConnect } from "./stripe-connect-routes";
 export { router as resell } from "./resell-routes";
 export { router as admin } from "./admin-routes";
 export { router as adminAuth } from "./admin/admin-atuh";
 export { router as adminMain } from "./admin/admin-main-routes";
-
 
 export { default as notification } from "./notification-routes";

@@ -215,6 +215,14 @@ const UserSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    stripeAccountId: {
+      type: String,
+      default: null,
+    },
+    onboardingComplete: {
+      type: Boolean,
+      default: false,
+    },
     interestCategories: [
       {
         type: String,

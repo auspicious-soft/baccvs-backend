@@ -22,6 +22,7 @@ import {
   feedbackRoutes,
   subscription,
   stripeProduct,
+  stripeConnect,
   resell,
   admin,
   notification,
@@ -50,6 +51,7 @@ import { configDotenv } from "dotenv";
 import { checkAuth } from "./middleware/check-auth";
 import { socketAuthMiddleware } from "./middleware/socket-auth";
 import { handleSubscriptionWebhook } from "./controllers/subscription/subscription-controller";
+import { handleStripeConnectWebhook } from "./controllers/stripe/stripe-connect-webhook-controller";
 import { checkAdminAuth } from "./middleware/admin-check-auth";
 
 configDotenv();
@@ -64,6 +66,13 @@ app.post(
   "/api/subscription/webhook",
   bodyParser.raw({ type: "application/json" }),
   handleSubscriptionWebhook
+);
+
+// Stripe Connect webhook for account updates/payouts
+app.post(
+  "/api/stripe/connect/webhook",
+  bodyParser.raw({ type: "application/json" }),
+  handleStripeConnectWebhook
 );
 
 const server = http.createServer(app);
@@ -108,7 +117,7 @@ app.use("/uploads", express.static(uploadsDir));
 
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
- 
+
 // Password reset routes
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "reset-password.html"));
@@ -141,7 +150,7 @@ app.get("/", (_, res: any) => {
 });
 app.post("/api/user/reset/password", resetPasswordWithToken);
 app.use("/api/referal", referal);
-app.use("/api/admin",checkAdminAuth, admin);
+app.use("/api/admin", checkAdminAuth, admin);
 app.post("/api/login", login);
 app.post("/api/signup", signup);
 app.post("/api/social/signup", socialSignUp);
@@ -162,6 +171,7 @@ app.use("/api/block", checkAuth, blockRoutes);
 app.use("/api/feedback", checkAuth, feedbackRoutes);
 app.use("/api/subscription", subscription);
 app.use("/api/stripe-product", stripeProduct);
+app.use("/api/stripe-connect", stripeConnect);
 app.use("/api/notification", checkAuth, notification);
 app.post("/api/email-otp", verifyEmail);
 app.post("/api/verify-email", verifyingEmailOtp);
@@ -169,13 +179,9 @@ app.post("/api/verify-otp", verifyOtpPasswordReset);
 app.patch("/api/new-password-otp-verified", newPassswordAfterOTPVerified);
 // First screen - verify password
 
-
-
-
 // Admin Routes
 
-app.use("/api", adminAuth)
-app.use("/api/admin",checkAdminAuth, adminMain)
-
+app.use("/api", adminAuth);
+app.use("/api/admin", checkAdminAuth, adminMain);
 
 server.listen(PORT, () => console.log(`Server is listening on port ${PORT}`));

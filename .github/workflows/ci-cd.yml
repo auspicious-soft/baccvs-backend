@@ -90,6 +90,8 @@ jobs:
               -e STRIPE_SECRET_KEY='${{ secrets.STRIPE_SECRET_KEY }}' \
               -e STRIPE_PUBLISH_KEY='${{ secrets.STRIPE_PUBLISH_KEY }}' \
               -e STRIPE_WEBHOOK_SECRET='${{ secrets.STRIPE_WEBHOOK_SECRET }}' \
+              -e STRIPE_ACCOUNT_COUNTRY='${{ secrets.STRIPE_ACCOUNT_COUNTRY }}' \
+              -e STRIPE_CONNECT_WEBHOOK_SECRET='${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET }}' \
               -e AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' \
               -e AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
               -e AWS_REGION='${{ secrets.AWS_REGION }}' \
