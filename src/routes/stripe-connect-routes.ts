@@ -5,6 +5,7 @@ import {
   completeOnboarding,
   stripeConnectReturn,
   stripeConnectRefresh,
+  getConnectedAccountBanks,
 } from "src/controllers/stripe/stripe-connect-controller";
 
 const router = Router();
@@ -14,6 +15,8 @@ router.post("/onboard", checkAuth, createOnboardingLink);
 
 // Optional endpoint: mark onboarding complete (client can call after onboarding)
 router.post("/complete", checkAuth, completeOnboarding);
+// Optional endpoint: get connected account banks
+router.get("/bank", checkAuth, getConnectedAccountBanks);
 
 // Public endpoints used by Stripe account links to redirect back to the app
 router.get("/connect/return", stripeConnectReturn);

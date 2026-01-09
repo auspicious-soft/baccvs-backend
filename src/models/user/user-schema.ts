@@ -219,6 +219,10 @@ const UserSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    stripeAccountData: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
     onboardingComplete: {
       type: Boolean,
       default: false,

@@ -3,8 +3,10 @@ import {
   createOrGetConnectedAccount,
   createAccountOnboardingLink,
   markOnboardingComplete,
+  listConnectedAccountBanks,
 } from "src/services/stripe/stripe-connect-service";
 import { errorResponseHandler } from "src/lib/errors/error-response-handler";
+import { usersModel } from "src/models/user/user-schema";
 
 export const createOnboardingLink = async (req: Request, res: Response) => {
   try {
@@ -49,11 +51,43 @@ export const completeOnboarding = async (req: Request, res: Response) => {
 };
 
 export const stripeConnectReturn = (req: Request, res: Response) => {
-  // optional: verify account_id or state params from query: req.query.account_id, req.query.state
   return res.redirect("baccvs://settingspaymentmethod");
 };
 
 export const stripeConnectRefresh = (req: Request, res: Response) => {
-  // optional: handle cancel/refresh actions
   return res.redirect("baccvs://settingspaymentmethod");
 };
+export const getConnectedAccountBanks = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    if (!req.user) {
+      return errorResponseHandler("User not authenticated", 401, res);
+    }
+
+    const user = await usersModel.findById((req.user as any).id);
+
+    if (!user || !user.stripeAccountId) {
+      return errorResponseHandler(
+        "Stripe connected account not found",
+        404,
+        res
+      );
+    }
+
+    const banks = await listConnectedAccountBanks(user.stripeAccountId);
+
+    return res.status(200).json({
+      success: true,
+      data: banks,
+    });
+  } catch (err: any) {
+    return errorResponseHandler(
+      err.message || "Failed to fetch bank accounts",
+      500,
+      res
+    );
+  }
+};
+

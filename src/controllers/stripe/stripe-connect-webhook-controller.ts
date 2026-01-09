@@ -16,11 +16,15 @@ export const handleStripeConnectWebhook = async (
 
   let event;
   try {
-    event = stripe.webhooks.constructEvent(
-      (req as any).rawBody,
-      sig,
-      webhookSecret
-    );
+    const payload = (req as any).rawBody || req.body;
+    if (!payload) {
+      throw new Error("No webhook payload was provided.");
+    }
+    if (!sig) {
+      throw new Error("Missing Stripe signature header");
+    }
+
+    event = stripe.webhooks.constructEvent(payload, sig, webhookSecret);
   } catch (err: any) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
@@ -39,12 +43,34 @@ export const handleStripeConnectWebhook = async (
       });
 
       if (user) {
-        user.onboardingComplete =
+        const prevComplete = Boolean(user.onboardingComplete);
+
+        // Persist the full account object for debugging and future use
+        // user.stripeAccountData = account;
+
+        const newComplete = Boolean(
           account.details_submitted &&
-          account.charges_enabled &&
-          account.payouts_enabled;
+            account.charges_enabled &&
+            account.payouts_enabled
+        );
+
+        user.onboardingComplete = newComplete;
 
         await user.save();
+
+        if (!prevComplete && newComplete) {
+          // Onboarding just completed — log and (optionally) notify
+          console.log(
+            `Stripe onboarding completed for user ${user._id} (account ${connectedAccountId})`
+          );
+          // TODO: create app notification / email to user using existing notification service
+        } else {
+          // Requirements changed — log current requirements for operator visibility
+          console.log(
+            `Stripe account updated for user ${user._id}: currently_due=`,
+            account.requirements?.currently_due
+          );
+        }
       }
     }
 
@@ -53,4 +79,3 @@ export const handleStripeConnectWebhook = async (
     return res.status(500).send("Webhook handling failed");
   }
 };
-

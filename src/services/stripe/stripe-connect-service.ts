@@ -66,3 +66,18 @@ export const createAccountOnboardingLink = async (accountId: string) => {
 export const markOnboardingComplete = async (userId: string) => {
   await usersModel.findByIdAndUpdate(userId, { onboardingComplete: true });
 };
+
+export const listConnectedAccountBanks = async (
+  connectedAccountId: string
+) => {
+  const externalAccounts = await stripe.accounts.listExternalAccounts(
+    connectedAccountId,
+    {
+      object: "bank_account",
+      limit: 10,
+    }
+  );
+
+  return externalAccounts;
+};
+
