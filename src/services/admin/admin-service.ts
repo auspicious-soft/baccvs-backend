@@ -345,7 +345,7 @@ export const adminSettings = {
       _id: adminId,
       isDeleted: false,
       isBlocked: false,
-    }).select("password");
+    }).select("password phoneNumber email");
 
     if (!admin || !admin.password) {
       throw new Error("Admin not found");
