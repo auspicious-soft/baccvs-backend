@@ -366,7 +366,7 @@ export const adminSettings = {
       }
     );
 
-    return { settingsToken };
+    return { settingsToken, phoneNummber:admin.phoneNumber, email:admin.email };
   },
   async submitChangeRequest(payload: any) {
     const { adminId, oldValue, newValue, type } = payload;
