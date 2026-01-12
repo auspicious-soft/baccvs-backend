@@ -57,7 +57,7 @@ configDotenv();
 const __filename = fileURLToPath(import.meta.url); // <-- Define __filename
 const __dirname = path.dirname(__filename); // <-- Define __dirname
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8001;
 const app = express();
 app.set("trust proxy", true);
 app.post(
