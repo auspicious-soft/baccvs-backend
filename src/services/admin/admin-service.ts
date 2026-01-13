@@ -671,7 +671,7 @@ export const adminSettings = {
      if (!checkExist) {
       throw new Error("Admin not Found.");
     };
-    return{checkExist}
+    return{data:checkExist}
   }
 };
 
