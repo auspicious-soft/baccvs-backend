@@ -64,8 +64,6 @@ const adminSchema = new Schema<IAdmin>(
     phoneNumber: {
       type: Number,
       default:null,
-      unique: true,
-      sparse: true,
     },
     role: {
       type: String,

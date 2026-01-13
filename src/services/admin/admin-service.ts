@@ -655,6 +655,24 @@ export const adminSettings = {
       admin: updatedAdmin,
     };
   },
+  async getAdminData(payload:any) {
+    const {adminId} = payload;
+
+    if (!adminId) {
+      throw new Error("Unauthorized");
+    }
+
+    const checkExist = await AdminModel.findOne({
+      _id:adminId,
+      role:"SUPERADMIN",
+      isDeleted:false,
+      isBlocked:false,
+    }).select("-createdAt -updatedAt -__v -password").lean();
+     if (!checkExist) {
+      throw new Error("Admin not Found.");
+    };
+    return{checkExist}
+  }
 };
 
 export const StaffServices = {

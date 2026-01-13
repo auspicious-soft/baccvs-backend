@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { AcceptInvitation, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
+import { AcceptInvitation, getAdminData, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
 import { checkSettingsAuth } from "src/middleware/admin-settings-auth";
 
 
@@ -17,5 +17,6 @@ router.get("/staff", GetAllStaffMembers);
 router.get("/staff-member/:id", GetSingleStaffMember);
 router.put("/staff-role-access", updateStaffMemberData);
 router.post("/remove-staff", removeUnRemoveStaff);
+router.get("/admin-data", getAdminData);
 
 export { router };

@@ -433,3 +433,33 @@ export const removeUnRemoveStaff = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const getAdminData = async (req:Request, res:Response) =>{
+ try {
+    const adminId = req.admin?.id;
+
+    if (!adminId) {
+      throw new Error("Unauthorized");
+    }
+
+    const response = await adminSettings.getAdminData({
+      adminId,
+    });
+    return res.status(httpStatusCode.OK).json({
+      success: true,
+      ...response,
+    });
+  } catch (err: any) {
+    if (err.message) {
+      return res.status(httpStatusCode.BAD_REQUEST).json({
+        success: false,
+        message: err.message,
+      });
+    }
+    const { code, message } = errorParser(err);
+    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: message || "Something went wrong",
+    });
+  }
+};
