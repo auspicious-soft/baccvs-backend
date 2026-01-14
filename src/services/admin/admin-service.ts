@@ -18,10 +18,13 @@ import {
 } from "src/utils/admin-utils/helper";
 import { AdminChangeRequestModel } from "src/models/admin/admin-change-schema";
 import { OtpModel } from "src/models/system/otp-schema";
+import { usersModel } from "src/models/user/user-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-02-24.acacia",
 });
+
+
 
 // export const loginService = async (payload: any, res: Response) => {
 //     const { username, password } = payload;
@@ -955,4 +958,276 @@ export const StaffServices = {
     isBlocked: staff.isBlocked,
   };
   },
+};
+
+
+
+export const UserServices = {
+async getAllUsers(payload: any) {
+  const { status, page, limit, search } = payload;
+
+  const pageNumber = parseInt(page, 10) || 1;
+  const limitNumber = parseInt(limit, 10) || 10;
+  const skip = (pageNumber - 1) * limitNumber;
+
+  const baseFilter: any = { isDeleted: false };
+
+if (status) {
+  if (status === "active") {
+    baseFilter.$and = [
+      {
+        $or: [
+          { isBlocked: false },
+          { isBlocked: { $exists: false } },
+        ],
+      },
+      {
+        $or: [
+          { isBanned: false },
+          { isBanned: { $exists: false } },
+        ],
+      },
+    ];
+  }
+
+  if (status === "inactive") {
+    baseFilter.$and = [
+      {
+        $or: [
+          { isBlocked: true },
+        ],
+      },
+      {
+        $or: [
+          { isBanned: false },
+          { isBanned: { $exists: false } },
+        ],
+      },
+    ];
+  }
+
+  if (status === "banned") {
+    baseFilter.$or = [
+      { isBanned: true }
+    ];
+  }
+}
+
+  // 🔹 Search
+  if (search) {
+    baseFilter.$or = [
+      { fullName: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+    ];
+  }
+
+  const now = new Date();
+  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+  const [result = {}] = await usersModel.aggregate<any>([
+    {
+      $facet: {
+        // 📄 Users list
+        users: [
+          { $match: baseFilter },
+          { $sort: { createdAt: -1 } },
+          { $skip: skip },
+          { $limit: limitNumber },
+          {
+            $project: {
+              userName: 1,
+              email: 1,
+              photos: 1,
+              isBlocked: 1,
+              isBanned: 1,
+              createdAt: 1,
+               phoneNumber: 1,
+              countryCode: 1,
+              dob: 1,
+              gender: 1,
+              location: 1,
+              status: 1,
+               fullName: 1,
+              isDeleted: 1,
+            },
+          },
+        ],
+
+        // 📊 Pagination count
+        paginationCount: [
+          { $match: baseFilter },
+          { $count: "count" },
+        ],
+
+        // 📊 Stats
+        totalUsers: [
+          { $match: { isDeleted: false } },
+          { $count: "count" },
+        ],
+
+        lastMonthTotalUsers: [
+          {
+            $match: {
+              isDeleted: false,
+              createdAt: { $lt: startOfThisMonth },
+            },
+          },
+          { $count: "count" },
+        ],
+
+        newUsersThisMonth: [
+          {
+            $match: {
+              isDeleted: false,
+              createdAt: { $gte: startOfThisMonth },
+            },
+          },
+          { $count: "count" },
+        ],
+
+        newUsersLastMonth: [
+          {
+            $match: {
+              isDeleted: false,
+              createdAt: {
+                $gte: startOfLastMonth,
+                $lte: endOfLastMonth,
+              },
+            },
+          },
+          { $count: "count" },
+        ],
+
+        activeUsers: [
+          {
+            $match: {
+              isDeleted: false,
+              isBlocked: false,
+              isBanned: false,
+            },
+          },
+          { $count: "count" },
+        ],
+
+        activeUsersLastMonth: [
+          {
+            $match: {
+              isDeleted: false,
+              isBlocked: false,
+              isBanned: false,
+              createdAt: { $lt: startOfThisMonth },
+            },
+          },
+          { $count: "count" },
+        ],
+
+        bannedUsers: [
+          {
+            $match: {
+              isDeleted: false,
+              isBanned: true,
+            },
+          },
+          { $count: "count" },
+        ],
+
+        bannedUsersLastMonth: [
+          {
+            $match: {
+              isDeleted: false,
+              isBanned: true,
+              createdAt: { $lt: startOfThisMonth },
+            },
+          },
+          { $count: "count" },
+        ],
+      },
+    },
+  ]);
+
+  const getCount = (arr: any[]) => arr?.[0]?.count ?? 0;
+
+  const percentage = (current: number, previous: number) =>
+    previous === 0 ? 100 : Number((((current - previous) / previous) * 100).toFixed(2));
+
+  return {
+    data: result.users ?? [],
+    stats: {
+      totalUsers: {
+        count: getCount(result.totalUsers),
+        percentage: percentage(
+          getCount(result.totalUsers),
+          getCount(result.lastMonthTotalUsers)
+        ),
+      },
+      newUsers: {
+        count: getCount(result.newUsersThisMonth),
+        percentage: percentage(
+          getCount(result.newUsersThisMonth),
+          getCount(result.newUsersLastMonth)
+        ),
+      },
+      activeUsers: {
+        count: getCount(result.activeUsers),
+        percentage: percentage(
+          getCount(result.activeUsers),
+          getCount(result.activeUsersLastMonth)
+        ),
+      },
+      bannedUsers: {
+        count: getCount(result.bannedUsers),
+        percentage: percentage(
+          getCount(result.bannedUsers),
+          getCount(result.bannedUsersLastMonth)
+        ),
+      },
+    },
+    pagination: {
+      total: getCount(result.paginationCount),
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages: Math.ceil(getCount(result.paginationCount) / limitNumber),
+    },
+  };
+},
+async updateUsersBanStatus(payload: any) {
+  const { admin, userIds, isBanned } = payload;
+
+  if (!admin) {
+    throw new Error("Unauthorized");
+  }
+
+  const updatePayload: any = {
+    isBanned,
+    updatedAt: new Date(),
+  };
+
+  if (isBanned) {
+    updatePayload.status = "banned";
+    updatePayload.isBlocked = true;
+  } else {
+    updatePayload.status = "active";
+    updatePayload.isBlocked = false;
+  }
+
+  const result = await usersModel.updateMany(
+    {
+      _id: { $in: userIds },
+      isDeleted: false,
+    },
+    {
+      $set: updatePayload,
+    }
+  );
+
+  return {
+    affectedCount: result.modifiedCount,
+    isBanned,
+    message: isBanned
+      ? "Users banned successfully"
+      : "Users unbanned successfully",
+  };
+}
 };

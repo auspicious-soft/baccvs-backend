@@ -273,8 +273,25 @@ const UserSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["active", "deleted"],
+      enum: ["active", "deleted", "inactive", "banned"],
       default: "active",
+    },
+     isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    isBlocked: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    isBanned: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
   },
   {

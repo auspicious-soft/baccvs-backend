@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { httpStatusCode } from "src/lib/constant";
 import { errorParser } from "src/lib/errors/error-response-handler";
-import { admin } from "src/routes";
 import { adminSettings, StaffServices } from "src/services/admin/admin-service";
 
 export const VerifyAdminPassword = async (req: Request, res: Response) => {
