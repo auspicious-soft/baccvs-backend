@@ -1206,10 +1206,10 @@ async updateUsersBanStatus(payload: any) {
 
   if (isBanned) {
     updatePayload.status = "banned";
-    updatePayload.isBlocked = true;
+    // updatePayload.isBlocked = true;
   } else {
     updatePayload.status = "active";
-    updatePayload.isBlocked = false;
+    // updatePayload.isBlocked = false;
   }
 
   const result = await usersModel.updateMany(
@@ -1229,5 +1229,5 @@ async updateUsersBanStatus(payload: any) {
       ? "Users banned successfully"
       : "Users unbanned successfully",
   };
-}
+},
 };
