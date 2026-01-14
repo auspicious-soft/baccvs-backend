@@ -75,3 +75,69 @@ export const updateUsersBanStatus = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const deleteMultipleUsers = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { userIds } = req.body;
+
+    if (!admin) throw new Error("Unauthorized");
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      throw new Error("userIds must be a non-empty array");
+    }
+
+    const response = await UserServices.deleteMultipleUsers({
+      admin,
+      userIds,
+    });
+
+    return res.status(httpStatusCode.OK).json({
+      success: true,
+      ...response,
+    });
+  } catch (err: any) {
+    if (err.message) {
+      return res.status(httpStatusCode.BAD_REQUEST).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    return res.status(httpStatusCode.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+
+export const getSingleUserDetails = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { userId } = req.query;
+
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+    if (!userId) {
+      throw new Error("User ID is required");
+    }
+
+    const response = await UserServices.getSingleUserDetails({
+      admin,
+      userId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};

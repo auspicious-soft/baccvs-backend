@@ -19,6 +19,9 @@ import {
 import { AdminChangeRequestModel } from "src/models/admin/admin-change-schema";
 import { OtpModel } from "src/models/system/otp-schema";
 import { usersModel } from "src/models/user/user-schema";
+import { reportModel } from "src/models/report/report-schema";
+import { followModel } from "src/models/follow/follow-schema";
+import { eventModel } from "src/models/event/event-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-02-24.acacia",
@@ -1230,4 +1233,106 @@ async updateUsersBanStatus(payload: any) {
       : "Users unbanned successfully",
   };
 },
+async deleteMultipleUsers(payload: any) {
+  const { admin, userIds } = payload;
+
+  if (!admin) {
+    throw new Error("Unauthorized");
+  }
+
+  const result = await usersModel.updateMany(
+    {
+      _id: { $in: userIds },
+      isDeleted: false,
+    },
+    {
+      $set: {
+        isDeleted: true,
+        status: "deleted",
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  return {
+    affectedCount: result.modifiedCount,
+    message: "Users deleted successfully",
+  };
+},
+async getSingleUserDetails(payload: any) {
+  const { admin, userId } = payload;
+
+  if (!admin) {
+    throw new Error("Unauthorized");
+  }
+
+  const user = await usersModel.findOne({
+    _id: userId,
+    isDeleted: false,
+  }).select("-password -fcmToken -createdAt -updatedAt -__v -token -stripeAccountId -stripeAccountData")
+    .lean();
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const followersCount = await followModel.countDocuments({
+    following_id: userId,
+    relationship_status: "FOLLOWING",
+  });
+
+  const followingCount = await followModel.countDocuments({
+    follower_id: userId,
+    relationship_status: "FOLLOWING",
+  });
+
+  const totalEvents = await eventModel.countDocuments({
+    creator: userId,
+  });
+
+  const reports = await reportModel.aggregate([
+    {
+      $match: {
+        target: new mongoose.Types.ObjectId(userId),
+        targetType: "users",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "reporter",
+        foreignField: "_id",
+        as: "reporter",
+      },
+    },
+    { $unwind: "$reporter" },
+    {
+      $project: {
+        _id: 1,
+        reason: 1,
+        details: 1,
+        status: 1,
+        createdAt: 1,
+        reporter: {
+          _id: "$reporter._id",
+          userName: "$reporter.userName",
+          email: "$reporter.email",
+        },
+      },
+    },
+    { $sort: { createdAt: -1 } },
+  ]);
+
+  return {
+    user,
+    stats: {
+      followersCount,
+      followingCount,
+      totalEvents,
+      reportsCount: reports.length,
+    },
+    reports,
+  };
+}
+
 };
