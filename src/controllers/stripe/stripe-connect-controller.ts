@@ -3,10 +3,9 @@ import {
   createOrGetConnectedAccount,
   createAccountOnboardingLink,
   markOnboardingComplete,
-  listConnectedAccountBanks,
+  getConnectedAccountBanksService,
 } from "src/services/stripe/stripe-connect-service";
-import { errorResponseHandler } from "src/lib/errors/error-response-handler";
-import { usersModel } from "src/models/user/user-schema";
+import { errorParser, errorResponseHandler } from "src/lib/errors/error-response-handler";
 
 export const createOnboardingLink = async (req: Request, res: Response) => {
   try {
@@ -57,37 +56,15 @@ export const stripeConnectReturn = (req: Request, res: Response) => {
 export const stripeConnectRefresh = (req: Request, res: Response) => {
   return res.redirect("baccvs://settingspaymentmethod");
 };
-export const getConnectedAccountBanks = async (
-  req: Request,
-  res: Response
-) => {
+export const getConnectedAccountBanks = async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return errorResponseHandler("User not authenticated", 401, res);
-    }
-
-    const user = await usersModel.findById((req.user as any).id);
-
-    if (!user || !user.stripeAccountId) {
-      return errorResponseHandler(
-        "Stripe connected account not found",
-        404,
-        res
-      );
-    }
-
-    const banks = await listConnectedAccountBanks(user.stripeAccountId);
-
-    return res.status(200).json({
-      success: true,
-      data: banks,
-    });
-  } catch (err: any) {
-    return errorResponseHandler(
-      err.message || "Failed to fetch bank accounts",
-      500,
-      res
-    );
+    const response = await getConnectedAccountBanksService(req, res);
+    return res.status(200).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || 500)
+      .json({ success: false, message: message || "Failed to fetch bank accounts" });
   }
 };
 

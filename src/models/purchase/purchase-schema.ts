@@ -70,7 +70,6 @@ const purchaseSchema = new mongoose.Schema(
       },
       transferDate: {
         type: mongoose.Schema.Types.Mixed,
-        default: null,
       },
       balanceTx:{
         type: mongoose.Schema.Types.Mixed,

@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import dotenv from "dotenv";
 import { usersModel } from "src/models/user/user-schema";
+import { Request, Response } from "express";
 
 dotenv.config();
 
@@ -67,17 +68,39 @@ export const markOnboardingComplete = async (userId: string) => {
   await usersModel.findByIdAndUpdate(userId, { onboardingComplete: true });
 };
 
-export const listConnectedAccountBanks = async (
-  connectedAccountId: string
-) => {
-  const externalAccounts = await stripe.accounts.listExternalAccounts(
-    connectedAccountId,
-    {
-      object: "bank_account",
-      limit: 10,
-    }
-  );
-
-  return externalAccounts;
+export const listConnectedAccountBanks = async (connectedAccountId: string) => {
+  try {
+    const externalAccounts = await stripe.accounts.listExternalAccounts(
+      connectedAccountId,
+      {
+        object: "bank_account",
+        limit: 10,
+      }
+    );
+    return externalAccounts;
+  } catch (err: any) {
+    throw { code: 500, message: err.message || "Failed to list connected bank accounts" };
+  }
 };
+export const getConnectedAccountBanksService = async (req: Request, res: Response) => {
+  // Check if user is authenticated
+  if (!req.user) {
+    throw { code: 401, message: "User not authenticated" };
+  }
 
+  const user = await usersModel.findById((req.user as any).id);
+  if (!user || !user.stripeAccountId) {
+    throw { code: 404, message: "Stripe connected account not found" };
+  }
+
+  const banks = await listConnectedAccountBanks(user.stripeAccountId);
+  if (!banks || banks.data.length === 0) {
+    throw { code: 404, message: "No bank accounts found for this Stripe account" };
+  }
+
+  return {
+    success: true,
+    message: "Connected bank accounts retrieved successfully",
+    data: banks,
+  };
+};
