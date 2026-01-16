@@ -1234,7 +1234,8 @@ export const handleStripeWebhookService = async (
           purchase.qrCode = qrCode;
           purchase.status = "active";
           purchase.purchaseType = "purchase";
-          purchase.metaData = undefined;
+          if (!purchase.metaData) purchase.metaData = {} as any;
+          (purchase.metaData as any).balanceTx = balanceTx;
           await purchase.save({ session });
         } else if (transaction.type === TransactionType.EVENT_PROMOTION) {
           // Activate the promotion associated with this transaction
@@ -1424,6 +1425,7 @@ export const handleStripeWebhookService = async (
             resaleListingId: resaleListing._id,
             originalPurchaseId: originalPurchase?._id,
             transferDate: null,
+            balanceTx,
           };
           await purchase.save({ session });
         }

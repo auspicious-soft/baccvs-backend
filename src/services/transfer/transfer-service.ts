@@ -17,6 +17,9 @@ export const transferTicketService = async (req: Request, res: Response) => {
     quantity,
   } = req.body;
 
+  // normalize quantity to number when provided
+  const quantityNum = quantity !== undefined ? Number(quantity) : undefined;
+
   // Validation
   if (!purchaseId || !receiverUserId) {
     return errorResponseHandler(
@@ -34,7 +37,7 @@ export const transferTicketService = async (req: Request, res: Response) => {
     );
   }
 
-  if (transferType === "quantity" && (!quantity || quantity < 1)) {
+  if (transferType === "quantity" && (!quantityNum || quantityNum < 1)) {
     return errorResponseHandler(
       "Quantity must be at least 1 when transferType is 'quantity'",
       httpStatusCode.BAD_REQUEST,
@@ -96,7 +99,7 @@ export const transferTicketService = async (req: Request, res: Response) => {
     // Determine transfer quantity
     let transferQuantity = originalPurchase.quantity;
     if (transferType === "quantity") {
-      if (quantity > originalPurchase.quantity) {
+      if ((quantityNum as number) > originalPurchase.quantity) {
         await session.abortTransaction();
         return errorResponseHandler(
           `You only have ${originalPurchase.quantity} tickets available to transfer`,
@@ -104,7 +107,7 @@ export const transferTicketService = async (req: Request, res: Response) => {
           res
         );
       }
-      transferQuantity = quantity;
+      transferQuantity = quantityNum as number;
     }
 
     // Generate QR code for new purchase
@@ -149,11 +152,13 @@ export const transferTicketService = async (req: Request, res: Response) => {
       originalPurchase.status = "transferred";
       originalPurchase.isActive = false;
       originalPurchase.quantity = 0;
+      // quantity 0 violates schema min validation; skip validators when saving
+      await originalPurchase.save({ session, validateBeforeSave: false });
     } else {
       // Partial transfer - reduce quantity
       originalPurchase.quantity -= transferQuantity;
+      await originalPurchase.save({ session });
     }
-    await originalPurchase.save({ session });
 
     // Create transfer record
     const transferRecord = await transferModel.create(

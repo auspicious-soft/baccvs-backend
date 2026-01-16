@@ -20,7 +20,7 @@ const purchaseSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       required: true,
-      min: 1,
+      min: 0,
     },
     totalPrice: {
       type: Number,
@@ -72,6 +72,9 @@ const purchaseSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: null,
       },
+      balanceTx:{
+        type: mongoose.Schema.Types.Mixed,
+      }
     },
   },
   {
