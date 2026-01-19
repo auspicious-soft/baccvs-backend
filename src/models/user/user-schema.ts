@@ -303,7 +303,7 @@ const UserSchema = new mongoose.Schema(
     isBanned: {
       type: Boolean,
       default: false,
-      index: true,
+      index: true, 
     },
   },
   {
