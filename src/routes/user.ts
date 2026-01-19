@@ -37,6 +37,7 @@ import {
   getUserAllprofessionalProfiles,
   updateProfessionalProfile,
 } from "src/controllers/professional/professional-controller";
+import { createReview } from "src/controllers/review/review-controller";
 import {
   createPromotion,
   getAllPromotions,
@@ -125,6 +126,7 @@ import {
 } from "src/controllers/ticket/ticket-controller";
 import { transferTicketController } from "src/controllers/transfer/transfer-controller";
 import { getPromotionPlans } from "src/controllers/admin/admin-controller";
+import { requestWithdrawalController } from "src/controllers/withdraw/withdraw-controller";
 
 const router = Router();
 
@@ -137,6 +139,7 @@ router.post("/forgot-password", forgotPassword);
 // router.post("/reset-password", resetPasswordWithToken)
 router.post("/create/professionalId", createProfessionalProfile);
 router.post("/create/promotion", createPromotion);
+router.post("/create/review", createReview);
 router.post("/change-password", changePassword);
 router.route("/:id").get(getUserInfo);
 router.get("/dashboard/data", getDashboardStats);
@@ -297,5 +300,6 @@ router.post("/message/edit/:id", editMessage);
 
 // Transfer Ticket Route
 router.post("/transfer/ticket", transferTicketController);
+router.post("/withdraw/request", requestWithdrawalController);
 
 export { router };

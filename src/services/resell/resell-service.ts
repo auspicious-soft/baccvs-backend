@@ -242,7 +242,6 @@ export const getAllResellListingsService = async (
         },
         {
           path: "ticket",
-          select:"-benefits"
         },
       ],
     })
