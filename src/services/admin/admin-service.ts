@@ -32,6 +32,9 @@ import {
 import { resellModel } from "src/models/resell/resell-schema";
 import { EventViewerModel } from "src/models/eventViewers/eventViewers-schema";
 import { LikeModel } from "src/models/like/like-schema";
+import { NotificationModel } from "src/models/notification/notification-schema";
+import { Comment } from "src/models/comment/comment-schema";
+import { transferModel } from "src/models/transfer/transfer-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-02-24.acacia",
@@ -2252,4 +2255,99 @@ export const adminEventAndTicketingServices = {
       session.endSession();
     }
   },
+  async deleteEventById(eventId: string) {
+    const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    const eventObjectId = new mongoose.Types.ObjectId(eventId);
+
+    /* ---------------- VALIDATE EVENT ---------------- */
+    const event = await eventModel.findById(eventObjectId).session(session);
+    if (!event) {
+      throw new Error("Event not found");
+    }
+
+    /* ---------------- COMMENTS ---------------- */
+    const comments = await Comment.find({ event: eventObjectId })
+      .select("_id")
+      .session(session);
+
+    const commentIds = comments.map(c => c._id);
+
+    await Comment.deleteMany({ event: eventObjectId }).session(session);
+
+    /* ---------------- LIKES ---------------- */
+    await LikeModel.deleteMany({
+      $or: [
+        { targetType: "event", target: eventObjectId },
+        { targetType: "comments", target: { $in: commentIds } },
+      ],
+    }).session(session);
+
+    /* ---------------- EVENT VIEWERS ---------------- */
+    await EventViewerModel.deleteMany({ event: eventObjectId }).session(session);
+
+    /* ---------------- NOTIFICATIONS ---------------- */
+    await NotificationModel.deleteMany({
+      "reference.model": "events",
+      "reference.id": eventObjectId,
+    }).session(session);
+
+    /* ---------------- TICKETS ---------------- */
+    const tickets = await ticketModel
+      .find({ event: eventObjectId })
+      .select("_id")
+      .session(session);
+
+    const ticketIds = tickets.map(t => t._id);
+
+    await ticketModel.deleteMany({ event: eventObjectId }).session(session);
+
+    /* ---------------- PURCHASES ---------------- */
+    const purchases = await purchaseModel
+      .find({ event: eventObjectId })
+      .select("_id")
+      .session(session);
+
+    const purchaseIds = purchases.map(p => p._id);
+
+    await purchaseModel.deleteMany({ event: eventObjectId }).session(session);
+
+    /* ---------------- RESALES ---------------- */
+    await resellModel.deleteMany({
+      originalPurchase: { $in: purchaseIds },
+    }).session(session);
+
+    /* ---------------- TRANSFERS ---------------- */
+    await transferModel.deleteMany({
+      $or: [
+        { event: eventObjectId },
+        { originalPurchase: { $in: purchaseIds } },
+        { ticket: { $in: ticketIds } },
+      ],
+    }).session(session);
+
+    /* ---------------- DELETE EVENT ---------------- */
+    await eventModel.deleteOne({ _id: eventObjectId }).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return {
+      success: true,
+      message: "Event and all related data deleted successfully",
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
+  },
 };
+export const adminRevenueAndFinancialServices = {
+  async getFinancialOverview(payload: any) {
+    const { adminId, startDate, endDate } = payload;
+  }
+}

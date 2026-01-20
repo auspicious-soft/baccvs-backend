@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { AcceptInvitation, getAdminData, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
-import { deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
+import { deleteEventById, deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
 import { checkSettingsAuth } from "src/middleware/admin-settings-auth";
 
 
@@ -28,6 +28,7 @@ router.get("/get-user",getSingleUserDetails);
 router.get("/event-and-ticketing/stats", getEventStats);
 router.get("/event-and-ticketing/event/:eventId", getEventByIdAdmin);
 router.post("/event-and-ticketing/refund", refundEventAdmin);
+router.delete("/event-and-ticketing/delete-event/:eventId", deleteEventById)
 
 
 export { router };

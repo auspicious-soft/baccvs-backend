@@ -228,3 +228,28 @@ export const refundEventAdmin = async (req: Request, res: Response) => {
     });
   }
 };
+export const deleteEventById = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { eventId } = req.params;
+
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+
+    const response = await adminEventAndTicketingServices.deleteEventById(
+      eventId
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};
