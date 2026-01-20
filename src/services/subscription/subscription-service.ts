@@ -42,7 +42,7 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
 // Create a checkout session for subscription
 export const createCheckoutSessionService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -84,7 +84,7 @@ export const createCheckoutSessionService = async (
       await usersModel.findByIdAndUpdate(
         userId,
         { stripeCustomerId },
-        { session }
+        { session },
       );
     }
 
@@ -102,7 +102,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Product ID is required for subscription",
           400,
-          res
+          res,
         );
       }
 
@@ -115,12 +115,12 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "No price found for this product",
           400,
-          res
+          res,
         );
       }
 
       const priceDetails = await stripe.prices.retrieve(
-        stripeProduct.default_price as string
+        stripeProduct.default_price as string,
       );
       if (priceDetails.currency.toLowerCase() !== "usd") {
         return errorResponseHandler("Only USD currency is supported", 400, res);
@@ -131,7 +131,7 @@ export const createCheckoutSessionService = async (
         const metadataPlan = stripeProduct.metadata.plan_type.toUpperCase();
         if (
           Object.values(DatingSubscriptionPlan).includes(
-            metadataPlan as DatingSubscriptionPlan
+            metadataPlan as DatingSubscriptionPlan,
           )
         ) {
           planType = metadataPlan as DatingSubscriptionPlan;
@@ -152,7 +152,7 @@ export const createCheckoutSessionService = async (
               isActive: false,
             },
           ],
-          { session }
+          { session },
         );
         subscription = createdSubscriptions[0];
       } else if (!subscription.stripeCustomerId) {
@@ -216,7 +216,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Ticket ID, event ID, quantity, and amount are required for bulk purchase",
           400,
-          res
+          res,
         );
       }
 
@@ -234,28 +234,28 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Ticket does not belong to the specified event",
           400,
-          res
+          res,
         );
       }
       if (ticket.available < Number(quantity)) {
         return errorResponseHandler(
           `Only ${ticket.available} tickets available for this event`,
           400,
-          res
+          res,
         );
       }
       if (ticket.price !== amount) {
         return errorResponseHandler(
           "Ticket price does not match the provided amount",
           400,
-          res
+          res,
         );
       }
       if (event.capacity < quantity) {
         return errorResponseHandler(
           `Event capacity is only ${event.capacity} tickets`,
           400,
-          res
+          res,
         );
       }
 
@@ -263,7 +263,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Amount and quantity must be greater than zero",
           400,
-          res
+          res,
         );
       }
 
@@ -298,7 +298,7 @@ export const createCheckoutSessionService = async (
             status: "pending", // Updated in webhook
           },
         ],
-        { session }
+        { session },
       );
       const purchase = purchaseDocs[0];
 
@@ -344,7 +344,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Resale ID, quantity, and amount are required for resale purchase",
           400,
-          res
+          res,
         );
       }
 
@@ -362,7 +362,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Resale listing is not available or been sold or cancelled",
           400,
-          res
+          res,
         );
       }
 
@@ -370,7 +370,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           `Only ${resaleListing.availableQuantity} tickets available for resale`,
           400,
-          res
+          res,
         );
       }
 
@@ -378,7 +378,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Resale price does not match the provided amount",
           400,
-          res
+          res,
         );
       }
 
@@ -388,7 +388,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "You cannot buy your own resale listing",
           400,
-          res
+          res,
         );
       }
 
@@ -396,7 +396,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Amount and quantity must be greater than zero",
           400,
-          res
+          res,
         );
       }
 
@@ -415,7 +415,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Associated ticket or event not found",
           400,
-          res
+          res,
         );
       }
 
@@ -450,7 +450,7 @@ export const createCheckoutSessionService = async (
             status: "pending", // Updated in webhook
           },
         ],
-        { session }
+        { session },
       );
       const purchase = purchaseDocs[0];
 
@@ -500,14 +500,13 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "likeProductId is required for like purchase",
           400,
-          res
+          res,
         );
       }
 
       // Fetch the like product from database
-      const likeProduct: any = await LikeProductsModel.findById(
-        likeProductId
-      ).session(session);
+      const likeProduct: any =
+        await LikeProductsModel.findById(likeProductId).session(session);
 
       if (!likeProduct) {
         return errorResponseHandler("Like product not found", 404, res);
@@ -517,24 +516,24 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Like product is not configured with Stripe",
           400,
-          res
+          res,
         );
       }
 
       // Verify the product exists in Stripe
       const stripeProduct = await stripe.products.retrieve(
-        likeProduct.stripeProductId
+        likeProduct.stripeProductId,
       );
       if (!stripeProduct.active) {
         return errorResponseHandler(
           "Product is not active in Stripe",
           400,
-          res
+          res,
         );
       }
 
       const stripePrice = await stripe.prices.retrieve(
-        likeProduct.stripePriceId
+        likeProduct.stripePriceId,
       );
       if (stripePrice.currency.toLowerCase() !== "usd") {
         return errorResponseHandler("Only USD currency is supported", 400, res);
@@ -626,9 +625,8 @@ export const createCheckoutSessionService = async (
       if (!paymentIntent && stripeSubscription.latest_invoice) {
         const invoiceId = (stripeSubscription.latest_invoice as any).id;
         try {
-          const finalizedInvoice = await stripe.invoices.finalizeInvoice(
-            invoiceId
-          );
+          const finalizedInvoice =
+            await stripe.invoices.finalizeInvoice(invoiceId);
           if (finalizedInvoice.payment_intent) {
             paymentIntent =
               finalizedInvoice.payment_intent as Stripe.PaymentIntent;
@@ -642,7 +640,7 @@ export const createCheckoutSessionService = async (
         return errorResponseHandler(
           "Failed to obtain payment intent for subscription. No invoice payment method available.",
           400,
-          res
+          res,
         );
       }
 
@@ -750,7 +748,7 @@ export const createCheckoutSessionService = async (
     return errorResponseHandler(
       `Failed to create checkout session: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   } finally {
     session.endSession();
@@ -776,7 +774,7 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
     let paymentIntent;
     try {
       paymentIntent = await stripe.paymentIntents.retrieve(
-        payment_intent as string
+        payment_intent as string,
       );
     } catch (error) {
       console.error("Error retrieving payment intent:", error);
@@ -788,7 +786,7 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
       return errorResponseHandler(
         "Payment intent does not belong to this user",
         403,
-        res
+        res,
       );
     }
 
@@ -831,7 +829,7 @@ export const stripeSuccessService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       `Failed to process success: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   }
 };
@@ -854,7 +852,7 @@ export const stripeCancelService = async (req: Request, res: Response) => {
           cancelledAt: new Date(),
           reason: "User cancelled payment",
         },
-      }
+      },
     );
 
     // Cancel the payment intent in Stripe
@@ -868,7 +866,7 @@ export const stripeCancelService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       `Failed to process cancellation: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   }
 };
@@ -928,7 +926,7 @@ export const getStripeProductsService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       `Failed to fetch products: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   }
 };
@@ -936,7 +934,7 @@ export const getStripeProductsService = async (req: Request, res: Response) => {
 // Update product price
 export const updateProductPriceService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     const { productId, newPrice } = req.body;
@@ -945,7 +943,7 @@ export const updateProductPriceService = async (
       return errorResponseHandler(
         "Product ID and new price are required",
         400,
-        res
+        res,
       );
     }
 
@@ -956,7 +954,7 @@ export const updateProductPriceService = async (
       return errorResponseHandler(
         "No valid default price found for the product in Stripe",
         404,
-        res
+        res,
       );
     }
 
@@ -995,7 +993,7 @@ export const updateProductPriceService = async (
     return errorResponseHandler(
       `Failed to update product price: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   }
 };
@@ -1003,7 +1001,7 @@ export const updateProductPriceService = async (
 // Handle Stripe webhook events
 export const handleStripeWebhookService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   const signature = req.headers["stripe-signature"] as string;
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
@@ -1015,7 +1013,7 @@ export const handleStripeWebhookService = async (
       return errorResponseHandler(
         "Stripe signature or endpoint secret missing",
         400,
-        res
+        res,
       );
     }
 
@@ -1025,7 +1023,7 @@ export const handleStripeWebhookService = async (
     return errorResponseHandler(
       `Webhook signature verification failed: ${err.message}`,
       400,
-      res
+      res,
     );
   }
 
@@ -1042,15 +1040,15 @@ export const handleStripeWebhookService = async (
 
         const balanceTxId = charge.balance_transaction as string;
 
-        const balanceTx = await stripe.balanceTransactions.retrieve(
-          balanceTxId
-        );
-        
+        const balanceTx =
+          await stripe.balanceTransactions.retrieve(balanceTxId);
+        let feeUSD = 0;
+
         if (paymentIntent.currency.toLowerCase() !== "usd") {
           return errorResponseHandler(
             `Non-USD currency detected: ${paymentIntent.currency}`,
             400,
-            res
+            res,
           );
         }
         // Try to resolve the owning user and related details from the stored
@@ -1064,7 +1062,7 @@ export const handleStripeWebhookService = async (
           return errorResponseHandler(
             "Transaction not found for payment intent: " + paymentIntent.id,
             404,
-            res
+            res,
           );
         }
 
@@ -1080,7 +1078,7 @@ export const handleStripeWebhookService = async (
           return errorResponseHandler(
             "Missing userId: cannot determine owner of this payment intent",
             400,
-            res
+            res,
           );
         }
 
@@ -1099,7 +1097,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Missing productId or priceId in transaction metadata",
               400,
-              res
+              res,
             );
           }
 
@@ -1169,13 +1167,13 @@ export const handleStripeWebhookService = async (
                   },
                 },
               ],
-              { session }
+              { session },
             );
             const newSubscription = createdSubscriptions[0];
             await Transaction.findOneAndUpdate(
               { stripePaymentIntentId: paymentIntent.id },
               { "reference.id": newSubscription._id },
-              { session }
+              { session },
             );
           }
         } else if (transaction.type === TransactionType.EVENT_TICKET) {
@@ -1186,7 +1184,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Missing ticketId, eventId or quantity in payment intent metadata",
               400,
-              res
+              res,
             );
           }
 
@@ -1195,7 +1193,7 @@ export const handleStripeWebhookService = async (
               "Transaction reference or reference id is missing for transaction: " +
                 transaction._id,
               400,
-              res
+              res,
             );
           }
           const purchase = await purchaseModel
@@ -1205,7 +1203,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Purchase not found for transaction: " + transaction._id,
               404,
-              res
+              res,
             );
           }
 
@@ -1221,7 +1219,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Insufficient ticket availability",
               400,
-              res
+              res,
             );
           }
           await ticket.save({ session });
@@ -1244,7 +1242,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Promotion reference id missing in transaction",
               400,
-              res
+              res,
             );
           }
 
@@ -1347,7 +1345,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Missing resaleId or quantity in payment intent metadata",
               400,
-              res
+              res,
             );
           }
 
@@ -1356,7 +1354,7 @@ export const handleStripeWebhookService = async (
               "Transaction reference or reference id is missing for transaction: " +
                 transaction._id,
               400,
-              res
+              res,
             );
           }
 
@@ -1368,7 +1366,7 @@ export const handleStripeWebhookService = async (
             return errorResponseHandler(
               "Purchase not found for transaction: " + transaction._id,
               404,
-              res
+              res,
             );
           }
 
@@ -1393,7 +1391,7 @@ export const handleStripeWebhookService = async (
 
           // FIX 2: Safely push to arrays
           resaleListing.buyers.push(
-            new mongoose.Types.ObjectId(paymentIntent.metadata.userId)
+            new mongoose.Types.ObjectId(paymentIntent.metadata.userId),
           );
           resaleListing.newPurchase.push(purchase._id);
 
@@ -1447,7 +1445,7 @@ export const handleStripeWebhookService = async (
           return errorResponseHandler(
             "Transaction not found for payment intent: " + paymentIntent.id,
             404,
-            res
+            res,
           );
         }
 
@@ -1464,7 +1462,7 @@ export const handleStripeWebhookService = async (
             "Transaction reference or reference id is missing for transaction: " +
               transaction._id,
             400,
-            res
+            res,
           );
         }
 
@@ -1498,7 +1496,7 @@ export const handleStripeWebhookService = async (
           return errorResponseHandler(
             "Transaction not found for payment intent: " + paymentIntent.id,
             404,
-            res
+            res,
           );
         }
 
@@ -1515,7 +1513,7 @@ export const handleStripeWebhookService = async (
             "Transaction reference or reference id is missing for transaction: " +
               transaction._id,
             400,
-            res
+            res,
           );
         }
 
@@ -1535,6 +1533,211 @@ export const handleStripeWebhookService = async (
         break;
       }
 
+      // Handle direct charge refunds (legacy) and refund object events
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        const refunds = (charge.refunds && (charge.refunds as any).data) || [];
+
+        for (const refund of refunds) {
+          const paymentIntentId = (refund.payment_intent ||
+            charge.payment_intent) as string;
+          if (!paymentIntentId) continue;
+
+          const transaction = await Transaction.findOne({
+            stripePaymentIntentId: paymentIntentId,
+          }).session(session);
+          if (!transaction) continue;
+
+          transaction.status = TransactionStatus.REFUNDED;
+          transaction.metadata = {
+            ...transaction.metadata,
+            refundId: refund.id,
+            refundedAt: new Date(),
+            refundAmount: refund.amount ? refund.amount / 100 : undefined,
+          };
+          await transaction.save({ session });
+
+          // Update purchase if referenced
+          if (
+            transaction.reference &&
+            transaction.reference.model === "purchase"
+          ) {
+            const purchase = await purchaseModel
+              .findById(transaction.reference.id)
+              .session(session);
+            if (purchase) {
+              purchase.status = "refunded";
+              purchase.isActive = false;
+              if (!purchase.metaData) purchase.metaData = {} as any;
+              (purchase.metaData as any).refund = {
+                refundId: refund.id,
+                refundedAt: new Date(),
+                amount: refund.amount ? refund.amount / 100 : undefined,
+              };
+              await purchase.save({ session });
+
+              // Restore inventory for original purchases
+              if (purchase.purchaseType === "purchase") {
+                const ticket = await ticketModel
+                  .findById(purchase.ticket)
+                  .session(session);
+                if (ticket) {
+                  ticket.available =
+                    (ticket.available || 0) + (purchase.quantity || 0);
+                  await ticket.save({ session });
+                }
+              }
+
+              // Restore resale listing and original purchase for resale purchases
+              if (purchase.purchaseType === "resalePurchase") {
+                const resaleListingId = (purchase.metaData as any)
+                  .resaleListingId;
+                if (resaleListingId) {
+                  const resaleListing: any = await resellModel
+                    .findById(resaleListingId)
+                    .session(session);
+                  if (resaleListing) {
+                    resaleListing.availableQuantity =
+                      (resaleListing.availableQuantity || 0) +
+                      (purchase.quantity || 0);
+                    if (Array.isArray(resaleListing.buyers)) {
+                      resaleListing.buyers = resaleListing.buyers.filter(
+                        (b: any) =>
+                          b.toString() !== (purchase.buyer || "").toString(),
+                      );
+                    }
+                    if (Array.isArray(resaleListing.newPurchase)) {
+                      resaleListing.newPurchase =
+                        resaleListing.newPurchase.filter(
+                          (np: any) =>
+                            np.toString() !== purchase._id.toString(),
+                        );
+                    }
+                    if (resaleListing.availableQuantity > 0)
+                      resaleListing.status = "available";
+                    await resaleListing.save({ session });
+                  }
+                }
+
+                const originalPurchaseId = (purchase.metaData as any)
+                  .originalPurchaseId;
+                if (originalPurchaseId) {
+                  const originalPurchase: any = await purchaseModel
+                    .findById(originalPurchaseId)
+                    .session(session);
+                  if (originalPurchase) {
+                    originalPurchase.quantity =
+                      (originalPurchase.quantity || 0) +
+                      (purchase.quantity || 0);
+                    await originalPurchase.save({ session });
+                  }
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
+
+      case "refund.updated":
+      case "refund.created": {
+        const refund = event.data.object as Stripe.Refund;
+        const paymentIntentId = refund.payment_intent as string;
+        if (!paymentIntentId) break;
+
+        const transaction = await Transaction.findOne({
+          stripePaymentIntentId: paymentIntentId,
+        }).session(session);
+        if (!transaction) break;
+
+        transaction.status = TransactionStatus.REFUNDED;
+        transaction.metadata = {
+          ...transaction.metadata,
+          refundId: refund.id,
+          refundedAt: new Date(),
+          refundAmount: refund.amount ? refund.amount / 100 : undefined,
+        };
+        await transaction.save({ session });
+
+        if (
+          transaction.reference &&
+          transaction.reference.model === "purchase"
+        ) {
+          const purchase = await purchaseModel
+            .findById(transaction.reference.id)
+            .session(session);
+          if (purchase) {
+            purchase.status = "refunded";
+            purchase.isActive = false;
+            if (!purchase.metaData) purchase.metaData = {} as any;
+            (purchase.metaData as any).refund = {
+              refundId: refund.id,
+              refundedAt: new Date(),
+              amount: refund.amount ? refund.amount / 100 : undefined,
+            };
+            await purchase.save({ session });
+
+            // Restore inventory for original purchases
+            if (purchase.purchaseType === "purchase") {
+              const ticket = await ticketModel
+                .findById(purchase.ticket)
+                .session(session);
+              if (ticket) {
+                ticket.available =
+                  (ticket.available || 0) + (purchase.quantity || 0);
+                await ticket.save({ session });
+              }
+            }
+
+            // Restore resale listing and original purchase for resale purchases
+            if (purchase.purchaseType === "resalePurchase") {
+              const resaleListingId = (purchase.metaData as any)
+                .resaleListingId;
+              if (resaleListingId) {
+                const resaleListing: any = await resellModel
+                  .findById(resaleListingId)
+                  .session(session);
+                if (resaleListing) {
+                  resaleListing.availableQuantity =
+                    (resaleListing.availableQuantity || 0) +
+                    (purchase.quantity || 0);
+                  if (Array.isArray(resaleListing.buyers)) {
+                    resaleListing.buyers = resaleListing.buyers.filter(
+                      (b: any) =>
+                        b.toString() !== (purchase.buyer || "").toString(),
+                    );
+                  }
+                  if (Array.isArray(resaleListing.newPurchase)) {
+                    resaleListing.newPurchase =
+                      resaleListing.newPurchase.filter(
+                        (np: any) => np.toString() !== purchase._id.toString(),
+                      );
+                  }
+                  if (resaleListing.availableQuantity > 0)
+                    resaleListing.status = "available";
+                  await resaleListing.save({ session });
+                }
+              }
+
+              const originalPurchaseId = (purchase.metaData as any)
+                .originalPurchaseId;
+              if (originalPurchaseId) {
+                const originalPurchase: any = await purchaseModel
+                  .findById(originalPurchaseId)
+                  .session(session);
+                if (originalPurchase) {
+                  originalPurchase.quantity =
+                    (originalPurchase.quantity || 0) + (purchase.quantity || 0);
+                  await originalPurchase.save({ session });
+                }
+              }
+            }
+          }
+        }
+
+        break;
+      }
+
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
         console.log("subscription:", subscription);
@@ -1548,12 +1751,11 @@ export const handleStripeWebhookService = async (
           const userId = subscription.metadata.userId;
 
           // Fetch the like product
-          const likeProduct: any = await LikeProductsModel.findById(
-            likeProductId
-          ).session(session);
+          const likeProduct: any =
+            await LikeProductsModel.findById(likeProductId).session(session);
           if (!likeProduct) {
             console.warn(
-              `Like product ${likeProductId} not found for subscription renewal`
+              `Like product ${likeProductId} not found for subscription renewal`,
             );
             break;
           }
@@ -1626,7 +1828,7 @@ export const handleStripeWebhookService = async (
           const user = await usersModel.findById(userId).session(session);
           if (!user) {
             console.warn(
-              `User ${userId} not found for subscription cancellation`
+              `User ${userId} not found for subscription cancellation`,
             );
             break;
           }
@@ -1662,7 +1864,7 @@ export const handleStripeWebhookService = async (
     return errorResponseHandler(
       `Failed to process webhook: ${(error as Error).message}`,
       500,
-      res
+      res,
     );
   } finally {
     session.endSession();
@@ -1846,7 +2048,7 @@ export const handleStripeWebhookService = async (
 // Cancel subscription
 export const cancelSubscriptionService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     if (!req.user) {
@@ -1890,7 +2092,7 @@ export const cancelSubscriptionService = async (
 // Get plan ID from product ID
 export const getPlanIdFromProductIdService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     const { productId } = req.params;
@@ -1926,7 +2128,7 @@ export const getPlanIdFromProductIdService = async (
 // Get user subscription details
 export const getUserSubscriptionService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     if (!req.user) {
@@ -1981,10 +2183,203 @@ export const getUserSubscriptionService = async (
   }
 };
 
+// Refund an event ticket purchase
+export const refundEventPurchaseService = async (
+  req: Request,
+  res: Response,
+) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!req.user) {
+      return errorResponseHandler("User data not found in request", 400, res);
+    }
+    const { id: userId } = req.user as JwtPayload;
+
+    const { purchaseId, transactionId, reason } = req.body as any;
+
+    if (!purchaseId && !transactionId) {
+      return errorResponseHandler(
+        "purchaseId or transactionId is required to process refund",
+        400,
+        res,
+      );
+    }
+
+    let purchase: any = null;
+    if (purchaseId) {
+      purchase = await purchaseModel.findById(purchaseId).session(session);
+      if (!purchase) {
+        return errorResponseHandler("Purchase not found", 404, res);
+      }
+
+      // Only the buyer (or an admin) may request refund here
+      if (purchase.buyer.toString() !== (userId as string)) {
+        return errorResponseHandler(
+          "You are not authorized to refund this purchase",
+          403,
+          res,
+        );
+      }
+
+      if (purchase.status === "refunded") {
+        return errorResponseHandler("Purchase already refunded", 400, res);
+      }
+    }
+
+    // Resolve transaction
+    let transaction: any = null;
+    if (transactionId) {
+      transaction = await Transaction.findById(transactionId).session(session);
+    } else {
+      transaction = await Transaction.findOne({
+        "reference.model": "purchase",
+        "reference.id": purchase?._id,
+      }).session(session);
+    }
+
+    if (!transaction) {
+      return errorResponseHandler(
+        "Transaction not found for purchase",
+        404,
+        res,
+      );
+    }
+
+    if (
+      transaction.type !== TransactionType.EVENT_TICKET &&
+      transaction.type !== TransactionType.TICKET_RESALE
+    ) {
+      return errorResponseHandler(
+        "Transaction is not an event ticket purchase",
+        400,
+        res,
+      );
+    }
+
+    if (transaction.status !== TransactionStatus.SUCCESS) {
+      return errorResponseHandler(
+        "Only successful purchases can be refunded",
+        400,
+        res,
+      );
+    }
+
+    const paymentIntentId = transaction.stripePaymentIntentId;
+    if (!paymentIntentId) {
+      return errorResponseHandler(
+        "No payment intent found for this transaction",
+        400,
+        res,
+      );
+    }
+
+    // Create refund via Stripe (full refund)
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      reason: reason || "requested_by_customer",
+    });
+
+    // Update transaction
+    transaction.status = TransactionStatus.REFUNDED;
+    transaction.metadata = {
+      ...transaction.metadata,
+      refundId: refund.id,
+      refundedAt: new Date(),
+      refundAmount: refund.amount ? refund.amount / 100 : undefined,
+    };
+    await transaction.save({ session });
+
+    // Update purchase record(s)
+    let purchaseDoc = purchase;
+    if (!purchaseDoc) {
+      purchaseDoc = await purchaseModel
+        .findById(transaction.reference.id)
+        .session(session);
+    }
+
+    if (purchaseDoc) {
+      purchaseDoc.status = "refunded";
+      purchaseDoc.isActive = false;
+      if (!purchaseDoc.metaData) purchaseDoc.metaData = {} as any;
+      (purchaseDoc.metaData as any).refund = {
+        refundId: refund.id,
+        refundedAt: new Date(),
+        amount: refund.amount ? refund.amount / 100 : undefined,
+      };
+      await purchaseDoc.save({ session });
+
+      // If this was a resale purchase, restore resale listing and original purchase quantity
+      if (purchaseDoc.purchaseType === "resalePurchase") {
+        const resaleListingId = (purchaseDoc.metaData as any).resaleListingId;
+        if (resaleListingId) {
+          const resaleListing: any = await resellModel
+            .findById(resaleListingId)
+            .session(session);
+          if (resaleListing) {
+            // restore available quantity
+            resaleListing.availableQuantity =
+              (resaleListing.availableQuantity || 0) +
+              (purchaseDoc.quantity || 0);
+            // remove buyer/newPurchase entries if present
+            if (Array.isArray(resaleListing.buyers)) {
+              resaleListing.buyers = resaleListing.buyers.filter(
+                (b: any) => b.toString() !== userId.toString(),
+              );
+            }
+            if (Array.isArray(resaleListing.newPurchase)) {
+              resaleListing.newPurchase = resaleListing.newPurchase.filter(
+                (p: any) => p.toString() !== purchaseDoc._id.toString(),
+              );
+            }
+            // mark available if tickets exist
+            if (resaleListing.availableQuantity > 0)
+              resaleListing.status = "available";
+            await resaleListing.save({ session });
+          }
+
+          // Restore original purchase quantity
+          const originalPurchaseId = (purchaseDoc.metaData as any)
+            .originalPurchaseId;
+          if (originalPurchaseId) {
+            const originalPurchase: any = await purchaseModel
+              .findById(originalPurchaseId)
+              .session(session);
+            if (originalPurchase) {
+              originalPurchase.quantity =
+                (originalPurchase.quantity || 0) + (purchaseDoc.quantity || 0);
+              await originalPurchase.save({ session });
+            }
+          }
+        }
+      }
+    }
+
+    await session.commitTransaction();
+
+    return {
+      success: true,
+      message: "Refund initiated successfully",
+      data: { refundId: refund.id },
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Refund error:", error);
+    return errorResponseHandler(
+      `Failed to process refund: ${(error as Error).message}`,
+      500,
+      res,
+    );
+  } finally {
+    session.endSession();
+  }
+};
+
 // Create payment intent for mobile
 export const createPaymentIntentService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     // Extract userId from the authenticated user in the request

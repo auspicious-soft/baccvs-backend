@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { httpStatusCode } from "src/lib/constant";
 import { errorParser } from "src/lib/errors/error-response-handler";
-import { UserServices } from "src/services/admin/admin-service";
+import { adminEventAndTicketingServices, UserServices } from "src/services/admin/admin-service";
 
 export const GetAllUsers = async (req: Request, res: Response) => {
   try {
@@ -128,6 +128,93 @@ export const getSingleUserDetails = async (req: Request, res: Response) => {
     const response = await UserServices.getSingleUserDetails({
       admin,
       userId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};
+export const getEventStats = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { startDate,endDate,revenueFilter,search,eventFilter, } = req.query;
+
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+
+    const response = await adminEventAndTicketingServices.getEventStats({
+      admin,
+      startDate,
+      endDate,
+      revenueFilter,
+      search,
+      eventFilter,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};
+export const getEventByIdAdmin = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { eventId } = req.params;
+    const {  revenueFilter, startDate, endDate } = req.query;
+
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+
+    const response = await adminEventAndTicketingServices.getEventById({
+      admin,
+      eventId,
+      startDate,
+      endDate,
+      revenueFilter,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};
+export const refundEventAdmin = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    const { eventId,reason } = req.body;
+
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+
+    const response = await adminEventAndTicketingServices.refundAllEventPurchases({
+      admin,
+      eventId,
+      reason
     });
 
     return res.status(200).json({
