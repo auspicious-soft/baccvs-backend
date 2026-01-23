@@ -36,7 +36,7 @@ const sendEventNotifications = async (
   creatorId: string,
   invitedGuestIds: string[],
   coHostIds: string[],
-  eventTitle: string
+  eventTitle: string,
 ) => {
   try {
     const creator = await usersModel
@@ -54,7 +54,7 @@ const sendEventNotifications = async (
     // Prepare invited guests notifications
     if (invitedGuestIds && invitedGuestIds.length > 0) {
       validInvitedGuests = invitedGuestIds.filter(
-        (id) => id.toString() !== creatorId
+        (id) => id.toString() !== creatorId,
       );
 
       validInvitedGuests.forEach((guestId) => {
@@ -160,7 +160,7 @@ const sendEventNotifications = async (
     // Send push notifications for all created notifications (non-blocking)
     try {
       const recipientIds = Array.from(
-        new Set(notificationsToCreate.map((n: any) => n.recipient.toString()))
+        new Set(notificationsToCreate.map((n: any) => n.recipient.toString())),
       );
 
       // Avoid double-sending to invited guests (we'll send here as well but if you prefer single place, remove earlier block)
@@ -184,7 +184,7 @@ const sendEventNotifications = async (
             type: notif.type,
             eventId,
           }).catch((err) =>
-            console.warn("sendPushToToken error for event notification:", err)
+            console.warn("sendPushToToken error for event notification:", err),
           );
           sent.add(rid);
         }
@@ -192,7 +192,7 @@ const sendEventNotifications = async (
     } catch (err) {
       console.warn(
         "Failed to send push notifications for event notifications:",
-        err
+        err,
       );
     }
   } catch (error) {
@@ -203,7 +203,7 @@ const sendEventNotifications = async (
 
 function getStartOfDayUTC(date = new Date()) {
   return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
   );
 }
 
@@ -235,184 +235,230 @@ const getDateRange = (filter: TimeFilter = "week") => {
   return { start, end };
 };
 
+// export const createEventService = async (req: Request, res: Response) => {
+//   if (!req.user) {
+//     return errorResponseHandler(
+//       "Authentication failed while creating event",
+//       httpStatusCode.UNAUTHORIZED,
+//       res
+//     );
+//   }
+
+//   const { id: creatorId } = req.user as JwtPayload;
+//   let parsedData: any = {};
+//   let coverPhoto: string | null = null;
+//   let videos: string[] = [];
+
+//   // Handle multipart/form-data for file uploads
+//   if (req.headers["content-type"]?.includes("multipart/form-data")) {
+//     return new Promise((resolve, reject) => {
+//       const busboy = Busboy({ headers: req.headers });
+//       const uploadPromises: Array<{
+//         promise: Promise<string>;
+//         fieldname: string;
+//       }> = [];
+
+//       busboy.on("field", (fieldname: string, value: string) => {
+//         if (
+//           [
+//             "location",
+//             "tickets",
+//             "lineup",
+//             "invitedGuests",
+//             "coHosts",
+//             "eventPreferences",
+//           ].includes(fieldname)
+//         ) {
+//           try {
+//             parsedData[fieldname] = JSON.parse(value);
+//           } catch (error) {
+//             return reject({
+//               success: false,
+//               message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
+//               code: httpStatusCode.BAD_REQUEST,
+//             });
+//           }
+//         } else {
+//           parsedData[fieldname] = value;
+//         }
+//       });
+
+//       busboy.on(
+//         "file",
+//         async (fieldname: string, fileStream: any, fileInfo: any) => {
+//           if (!["coverPhoto", "videos"].includes(fieldname)) {
+//             fileStream.resume();
+//             return;
+//           }
+
+//           const { filename, mimeType } = fileInfo;
+
+//           // Validate file type with fallback for extension
+//           const isImage =
+//             (mimeType.startsWith("image/") ||
+//               /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
+//             fieldname === "coverPhoto";
+//           const isVideo =
+//             mimeType.startsWith("video/") && fieldname === "videos";
+
+//           // if (!isImage && !isVideo) {
+//           //   fileStream.resume();
+//           //   return reject({
+//           //     success: false,
+//           //     message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
+//           //     code: httpStatusCode.BAD_REQUEST,
+//           //   });
+//           // }
+
+//           // Create readable stream
+//           const readableStream = new Readable();
+//           readableStream._read = () => {};
+
+//           fileStream.on("data", (chunk: any) => {
+//             readableStream.push(chunk);
+//           });
+
+//           fileStream.on("end", () => {
+//             readableStream.push(null);
+//           });
+
+//           // Upload to S3 and track which field it belongs to
+//           const uploadPromise = uploadStreamToS3Service(
+//             readableStream,
+//             filename,
+//             mimeType,
+//             parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
+//           ).catch((err) => {
+//             throw err;
+//           });
+
+//           uploadPromises.push({ promise: uploadPromise, fieldname });
+//         }
+//       );
+
+//       busboy.on("finish", async () => {
+//         try {
+//           // Wait for file uploads
+//           if (uploadPromises.length > 0) {
+//             const uploadResults = await Promise.all(
+//               uploadPromises.map((item) => item.promise)
+//             );
+
+//             // Process uploads based on their fieldname
+//             uploadResults.forEach((url, index) => {
+//               const fieldname = uploadPromises[index].fieldname;
+//               if (fieldname === "coverPhoto") {
+//                 coverPhoto = url;
+//               } else if (fieldname === "videos") {
+//                 videos.push(url);
+//               }
+//             });
+//           } else {
+//           }
+
+//           // Check if we have a coverPhoto from either upload or form field
+//           const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
+//           if (!finalCoverPhoto) {
+//             return reject({
+//               success: false,
+//               message:
+//                 "Cover photo is required but was not provided or failed to upload. Please ensure you're sending a file with fieldname 'coverPhoto'",
+//               code: httpStatusCode.BAD_REQUEST,
+//             });
+//           }
+
+//           // Proceed with event creation
+//           resolve(
+//             await processEventCreation(
+//               parsedData,
+//               creatorId,
+//               coverPhoto,
+//               videos,
+//               res
+//             )
+//           );
+//         } catch (error) {
+//           console.error("Upload error:", error);
+//           reject({
+//             success: false,
+//             message:
+//               (error instanceof Error ? error.message : String(error)) ||
+//               "Failed to upload files",
+//             code: httpStatusCode.INTERNAL_SERVER_ERROR,
+//           });
+//         }
+//       });
+
+//       busboy.on("error", (error: any) => {
+//         console.error("Busboy error:", error);
+//         reject({
+//           success: false,
+//           message: error.message || "Error processing file uploads",
+//           code: httpStatusCode.INTERNAL_SERVER_ERROR,
+//         });
+//       });
+
+//       req.pipe(busboy);
+//     });
+//   } else {
+//     // Handle JSON request
+//     return processEventCreation(req.body, creatorId, null, [], res);
+//   }
+// };
+
+// Process event creation logic
+
 export const createEventService = async (req: Request, res: Response) => {
   if (!req.user) {
     return errorResponseHandler(
       "Authentication failed while creating event",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
   const { id: creatorId } = req.user as JwtPayload;
-  let parsedData: any = {};
-  let coverPhoto: string | null = null;
-  let videos: string[] = [];
 
-  // Handle multipart/form-data for file uploads
-  if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    return new Promise((resolve, reject) => {
-      const busboy = Busboy({ headers: req.headers });
-      const uploadPromises: Array<{
-        promise: Promise<string>;
-        fieldname: string;
-      }> = [];
+  // Expect JSON body only
+  const { coverPhoto, videos } = req.body;
 
-      busboy.on("field", (fieldname: string, value: string) => {
-        if (
-          [
-            "location",
-            "tickets",
-            "lineup",
-            "invitedGuests",
-            "coHosts",
-            "eventPreferences",
-          ].includes(fieldname)
-        ) {
-          try {
-            parsedData[fieldname] = JSON.parse(value);
-          } catch (error) {
-            return reject({
-              success: false,
-              message: `Failed to parse ${fieldname}. Must be a valid JSON string`,
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
-        } else {
-          parsedData[fieldname] = value;
-        }
-      });
-
-      busboy.on(
-        "file",
-        async (fieldname: string, fileStream: any, fileInfo: any) => {
-          if (!["coverPhoto", "videos"].includes(fieldname)) {
-            fileStream.resume();
-            return;
-          }
-
-          const { filename, mimeType } = fileInfo;
-
-          // Validate file type with fallback for extension
-          const isImage =
-            (mimeType.startsWith("image/") ||
-              /\.(png|jpg|jpeg|gif)$/i.test(filename)) &&
-            fieldname === "coverPhoto";
-          const isVideo =
-            mimeType.startsWith("video/") && fieldname === "videos";
-
-          // if (!isImage && !isVideo) {
-          //   fileStream.resume();
-          //   return reject({
-          //     success: false,
-          //     message: `Invalid file type. Expected image for coverPhoto or video for videos, got ${mimeType}`,
-          //     code: httpStatusCode.BAD_REQUEST,
-          //   });
-          // }
-
-          // Create readable stream
-          const readableStream = new Readable();
-          readableStream._read = () => {};
-
-          fileStream.on("data", (chunk: any) => {
-            readableStream.push(chunk);
-          });
-
-          fileStream.on("end", () => {
-            readableStream.push(null);
-          });
-
-          // Upload to S3 and track which field it belongs to
-          const uploadPromise = uploadStreamToS3Service(
-            readableStream,
-            filename,
-            mimeType,
-            parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
-          ).catch((err) => {
-            throw err;
-          });
-
-          uploadPromises.push({ promise: uploadPromise, fieldname });
-        }
-      );
-
-      busboy.on("finish", async () => {
-        try {
-          // Wait for file uploads
-          if (uploadPromises.length > 0) {
-            const uploadResults = await Promise.all(
-              uploadPromises.map((item) => item.promise)
-            );
-
-            // Process uploads based on their fieldname
-            uploadResults.forEach((url, index) => {
-              const fieldname = uploadPromises[index].fieldname;
-              if (fieldname === "coverPhoto") {
-                coverPhoto = url;
-              } else if (fieldname === "videos") {
-                videos.push(url);
-              }
-            });
-          } else {
-          }
-
-          // Check if we have a coverPhoto from either upload or form field
-          const finalCoverPhoto = coverPhoto || parsedData.coverPhoto;
-          if (!finalCoverPhoto) {
-            return reject({
-              success: false,
-              message:
-                "Cover photo is required but was not provided or failed to upload. Please ensure you're sending a file with fieldname 'coverPhoto'",
-              code: httpStatusCode.BAD_REQUEST,
-            });
-          }
-
-          // Proceed with event creation
-          resolve(
-            await processEventCreation(
-              parsedData,
-              creatorId,
-              coverPhoto,
-              videos,
-              res
-            )
-          );
-        } catch (error) {
-          console.error("Upload error:", error);
-          reject({
-            success: false,
-            message:
-              (error instanceof Error ? error.message : String(error)) ||
-              "Failed to upload files",
-            code: httpStatusCode.INTERNAL_SERVER_ERROR,
-          });
-        }
-      });
-
-      busboy.on("error", (error: any) => {
-        console.error("Busboy error:", error);
-        reject({
-          success: false,
-          message: error.message || "Error processing file uploads",
-          code: httpStatusCode.INTERNAL_SERVER_ERROR,
-        });
-      });
-
-      req.pipe(busboy);
-    });
-  } else {
-    // Handle JSON request
-    return processEventCreation(req.body, creatorId, null, [], res);
+  // Validate cover photo URL
+  if (!coverPhoto || typeof coverPhoto !== "string") {
+    return errorResponseHandler(
+      "Cover photo URL is required",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
   }
+
+  // Validate videos (optional)
+  if (
+    videos &&
+    (!Array.isArray(videos) || !videos.every((v) => typeof v === "string"))
+  ) {
+    return errorResponseHandler(
+      "Videos must be an array of URL strings",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Proceed with existing event creation logic
+  return processEventCreation(
+    req.body,
+    creatorId,
+    coverPhoto,
+    videos || [],
+    res,
+  );
 };
 
-// Process event creation logic
 const processEventCreation = async (
   data: any,
   creatorId: string,
   coverPhoto: string | null,
   videos: string[],
-  res: Response
+  res: Response,
 ) => {
   const {
     title,
@@ -448,7 +494,7 @@ const processEventCreation = async (
     return errorResponseHandler(
       "Missing required fields (title, date, startTime, endTime, venue, capacity, isFreeEvent, timezone)",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -460,7 +506,7 @@ const processEventCreation = async (
     return errorResponseHandler(
       "Tickets are required for creating an event with paid entry",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -469,20 +515,20 @@ const processEventCreation = async (
     return errorResponseHandler(
       "Capacity must be a positive number",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
   if (isFreeEvent === "false") {
     const totalTicketQuantity = tickets.reduce(
       (sum: number, ticket: any) => sum + (ticket.quantity || 0),
-      0
+      0,
     );
     if (totalTicketQuantity > capacity) {
       return errorResponseHandler(
         `Total ticket quantity (${totalTicketQuantity}) exceeds event capacity (${capacity})`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -497,20 +543,20 @@ const processEventCreation = async (
       return errorResponseHandler(
         "Private events must have at least one invited guest",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
 
     const invalidIds = invitedGuests.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidIds.join(
-          ", "
+          ", ",
         )}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -518,13 +564,13 @@ const processEventCreation = async (
   // Validate lineup
   if (lineup && Array.isArray(lineup) && lineup.length > 0) {
     const invalidLineupIds = lineup.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidLineupIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
 
@@ -537,13 +583,13 @@ const processEventCreation = async (
       const missingIds = lineup.filter(
         (id: string) =>
           !existingProfiles.some(
-            (profile: any) => profile._id.toString() === id
-          )
+            (profile: any) => profile._id.toString() === id,
+          ),
       );
       return errorResponseHandler(
         `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -551,15 +597,15 @@ const processEventCreation = async (
   // Validate coHosts
   if (coHosts && Array.isArray(coHosts) && coHosts.length > 0) {
     const invalidCoHostIds = coHosts.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidCoHostIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(
-          ", "
+          ", ",
         )}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -577,7 +623,7 @@ const processEventCreation = async (
       return errorResponseHandler(
         "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -589,7 +635,7 @@ const processEventCreation = async (
     return errorResponseHandler(
       "Invalid date or startTime format",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
   const result = convertToUTCAndLocal(date, startTime, timezone);
@@ -682,7 +728,7 @@ const processEventCreation = async (
     creatorId,
     invitedGuests || [],
     coHosts || [],
-    title
+    title,
   ).catch((err) => console.error("Error in event notifications:", err));
 
   return {
@@ -894,7 +940,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   const buildLocationPipeline = (
     lat?: number,
     lng?: number,
-    maxDistance?: number
+    maxDistance?: number,
   ) => {
     if (lat === undefined || lng === undefined || maxDistance === undefined) {
       return [];
@@ -955,7 +1001,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   const buildEventPipelineWithDistance = (
     matchQuery: any,
     userLocation?: any,
-    includeSpotsLeft: boolean = false
+    includeSpotsLeft: boolean = false,
   ) => {
     const pipeline: any[] = [];
 
@@ -1039,7 +1085,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           foreignField: "_id",
           as: "lineup",
         },
-      }
+      },
     );
 
     // Add tickets lookup if not already added
@@ -1167,7 +1213,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           foreignField: "event",
           as: "tickets",
         },
-      }
+      },
     );
 
     // Add engagement data lookups
@@ -1187,7 +1233,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           userLike: 0,
         },
       },
-      { $sort: { date: 1 } }
+      { $sort: { date: 1 } },
     );
 
     return pipeline;
@@ -1298,7 +1344,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           foreignField: "_id",
           as: "lineup",
         },
-      }
+      },
     );
 
     // Add tickets lookup only if not already added for price filtering
@@ -1357,7 +1403,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           userLike: 0,
         },
       },
-      { $sort: { date: 1 } }
+      { $sort: { date: 1 } },
     );
 
     return pipeline;
@@ -1464,7 +1510,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
           comments: 0,
           userLike: 0,
         },
-      }
+      },
     );
 
     // Execute all queries in parallel
@@ -1489,7 +1535,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
   if (type === "myEvents") {
     const pipeline = buildEventPipelineWithDistance(
       { creator: userObjectId },
-      user.location
+      user.location,
     );
     pipeline.push({ $sort: { date: 1 } });
     const events = await eventModel.aggregate(pipeline);
@@ -1510,7 +1556,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
         creator: userObjectId,
         date: { $lt: baseDate },
       },
-      user.location
+      user.location,
     );
     pipeline.push({ $sort: { date: -1 } }); // Sort descending for past events
 
@@ -1533,7 +1579,7 @@ export const getUserEventFeedService = async (req: any, res: Response) => {
         date: { $gte: baseDate },
       },
       user.location,
-      true
+      true,
     ); // Include spots left for upcoming events
     pipeline.push({ $sort: { date: 1 } });
 
@@ -1559,7 +1605,7 @@ export const getEventOfOtherUserService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Invalid user ID",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -1575,7 +1621,7 @@ export const getEventOfOtherUserService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "No events found for this user",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1591,7 +1637,7 @@ export const getUserEventsService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Authentication failed",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
@@ -1609,7 +1655,7 @@ export const getUserEventsService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "No events found for this user",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1636,7 +1682,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Event not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1680,7 +1726,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
       },
       {
         upsert: true,
-      }
+      },
     );
   }
 
@@ -1693,7 +1739,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
   const purchases = await purchaseModel.find({ event: event._id });
   const totalTicketsSold = purchases.reduce(
     (sum, purchase) => sum + (purchase.quantity || 0),
-    0
+    0,
   );
 
   // Get like count, comment count, and user's like status
@@ -1773,7 +1819,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
         totalEventsCreated: totalEvents,
         totalTicketsSold: ticketsSoldData[0]?.totalTicketsSold || 0,
       };
-    })
+    }),
   );
 
   // Add sold flag and remaining quantity to tickets
@@ -1783,12 +1829,12 @@ export const getEventsByIdService = async (req: any, res: Response) => {
       const ticketPurchases = purchases.filter(
         (purchase) =>
           purchase.ticket &&
-          purchase.ticket.toString() === ticket._id.toString()
+          purchase.ticket.toString() === ticket._id.toString(),
       );
 
       const soldQuantity = ticketPurchases.reduce(
         (sum, purchase) => sum + (purchase.quantity || 0),
-        0
+        0,
       );
       const remainingQuantity = (ticket.quantity || 0) - soldQuantity;
 
@@ -1799,7 +1845,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
         isSoldOut: remainingQuantity <= 0,
         hasSales: soldQuantity > 0,
       };
-    })
+    }),
   );
 
   // Calculate event capacity and spots left
@@ -1837,7 +1883,7 @@ export const getEventsByIdService = async (req: any, res: Response) => {
         totalTicketsSold,
         totalRevenue: purchases.reduce(
           (sum, purchase) => sum + (purchase.totalAmount || 0),
-          0
+          0,
         ),
         totalPurchases: purchases.length,
         spotsLeft,
@@ -1861,7 +1907,7 @@ export const getEventAnalyticsService = async (req: any, res: Response) => {
       return errorResponseHandler(
         "Invalid event ID",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
 
@@ -1870,7 +1916,7 @@ export const getEventAnalyticsService = async (req: any, res: Response) => {
       return errorResponseHandler(
         "Event not found",
         httpStatusCode.NOT_FOUND,
-        res
+        res,
       );
     }
 
@@ -1944,14 +1990,14 @@ export const getEventAnalyticsService = async (req: any, res: Response) => {
 
     const totalTicketsSold = ticketSalesAgg.reduce(
       (sum, t) => sum + t.ticketsSold,
-      0
+      0,
     );
 
     const totalRevenue = ticketSalesAgg.reduce((sum, t) => sum + t.revenue, 0);
 
     const totalTickets = ticketSalesAgg.reduce(
       (sum, t) => sum + t.totalQuantity,
-      0
+      0,
     );
 
     // =====================================================
@@ -2176,7 +2222,7 @@ export const getEventAnalyticsService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Failed to fetch analytics",
       httpStatusCode.INTERNAL_SERVER_ERROR,
-      res
+      res,
     );
   }
 };
@@ -2186,7 +2232,7 @@ export const updateEventService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Authentication failed",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
@@ -2292,11 +2338,11 @@ export const updateEventService = async (req: Request, res: Response) => {
             readableStream,
             filename,
             mimeType,
-            parsedData.title || `event_${customAlphabet("0123456789", 5)()}`
+            parsedData.title || `event_${customAlphabet("0123456789", 5)()}`,
           ).then((url) => ({ url, fieldname })); // Track which field this upload is for
 
           uploadPromises.push(uploadPromise);
-        }
+        },
       );
 
       busboy.on("finish", async () => {
@@ -2321,8 +2367,8 @@ export const updateEventService = async (req: Request, res: Response) => {
               req.params.id,
               newCoverPhoto,
               newVideos,
-              res
-            )
+              res,
+            ),
           );
         } catch (error) {
           console.error("Upload error:", error);
@@ -2359,14 +2405,14 @@ const processEventUpdate = async (
   eventId: string,
   newCoverPhoto: string | null,
   newVideos: string[],
-  res: Response
+  res: Response,
 ) => {
   const event = await eventModel.findById(eventId);
   if (!event) {
     return errorResponseHandler(
       "Event not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2374,7 +2420,7 @@ const processEventUpdate = async (
     return errorResponseHandler(
       "Not authorized to update this event",
       httpStatusCode.FORBIDDEN,
-      res
+      res,
     );
   }
 
@@ -2388,20 +2434,20 @@ const processEventUpdate = async (
     return errorResponseHandler(
       "Cannot update event details. Tickets have already been purchased for this event.",
       httpStatusCode.FORBIDDEN,
-      res
+      res,
     );
   }
 
   // Validate lineup
   if (data.lineup && Array.isArray(data.lineup)) {
     const invalidLineupIds = data.lineup.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidLineupIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in lineup: ${invalidLineupIds.join(", ")}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
 
@@ -2414,13 +2460,13 @@ const processEventUpdate = async (
       const missingIds = data.lineup.filter(
         (id: string) =>
           !existingProfiles.some(
-            (profile: any) => profile._id.toString() === id
-          )
+            (profile: any) => profile._id.toString() === id,
+          ),
       );
       return errorResponseHandler(
         `Professional profile(s) not found for ID(s): ${missingIds.join(", ")}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -2428,15 +2474,15 @@ const processEventUpdate = async (
   // Validate coHosts
   if (data.coHosts && Array.isArray(data.coHosts)) {
     const invalidCoHostIds = data.coHosts.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidCoHostIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in coHosts: ${invalidCoHostIds.join(
-          ", "
+          ", ",
         )}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -2444,15 +2490,15 @@ const processEventUpdate = async (
   // Validate invitedGuests
   if (data.invitedGuests && Array.isArray(data.invitedGuests)) {
     const invalidGuestIds = data.invitedGuests.filter(
-      (id: string) => !isValidObjectId(id)
+      (id: string) => !isValidObjectId(id),
     );
     if (invalidGuestIds.length > 0) {
       return errorResponseHandler(
         `Invalid MongoDB ObjectID(s) in invitedGuests: ${invalidGuestIds.join(
-          ", "
+          ", ",
         )}`,
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -2470,7 +2516,7 @@ const processEventUpdate = async (
       return errorResponseHandler(
         "Invalid location format. Must be a GeoJSON Point with coordinates [longitude, latitude]",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   }
@@ -2509,7 +2555,7 @@ const processEventUpdate = async (
       return errorResponseHandler(
         "Invalid date or startTime format",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
 
@@ -2554,8 +2600,8 @@ const processEventUpdate = async (
   const mediaToDelete = Array.isArray(data.mediaToDelete)
     ? data.mediaToDelete
     : data.mediaToDelete && data.mediaToDelete.length > 0
-    ? [data.mediaToDelete]
-    : [];
+      ? [data.mediaToDelete]
+      : [];
 
   // Handle cover photo
   if (newCoverPhoto) {
@@ -2579,19 +2625,19 @@ const processEventUpdate = async (
   const existingVideosToKeep = Array.isArray(data.existingVideos)
     ? data.existingVideos
     : data.existingVideos && data.existingVideos.length > 0
-    ? [data.existingVideos]
-    : [];
+      ? [data.existingVideos]
+      : [];
 
   if (data.existingVideos !== undefined) {
     // User explicitly specified which videos to keep (filtered to remove deleted ones)
     finalVideos = existingVideosToKeep.filter(
       (videoUrl: string) =>
-        !mediaToDelete.includes(videoUrl) && currentVideos.includes(videoUrl)
+        !mediaToDelete.includes(videoUrl) && currentVideos.includes(videoUrl),
     );
   } else {
     // If no explicit existing videos list, keep all current videos except those to delete
     finalVideos = currentVideos.filter(
-      (videoUrl: string) => !mediaToDelete.includes(videoUrl)
+      (videoUrl: string) => !mediaToDelete.includes(videoUrl),
     );
   }
 
@@ -2628,7 +2674,7 @@ const processEventUpdate = async (
     .findByIdAndUpdate(
       eventId,
       { $set: updateData },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     )
     .populate("creator", "userName")
     .populate("invitedGuests", "userName")
@@ -2647,7 +2693,7 @@ export const deleteEventService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Authentication failed",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
@@ -2658,7 +2704,7 @@ export const deleteEventService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Event not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2666,7 +2712,7 @@ export const deleteEventService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Not authorized to delete this event",
       httpStatusCode.FORBIDDEN,
-      res
+      res,
     );
   }
   const existingPurchases = await purchaseModel.findOne({
@@ -2678,7 +2724,7 @@ export const deleteEventService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Cannot delete event. Tickets have already been purchased for this event.",
       httpStatusCode.FORBIDDEN,
-      res
+      res,
     );
   }
 

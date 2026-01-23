@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-import { nanoid } from "nanoid";
+import { v4 as uuidv4 } from "uuid";
 
 export enum InterestCategory {
   NIGHTLIFE_PARTIES = "Nightlife & Parties",
@@ -305,6 +305,11 @@ const UserSchema = new mongoose.Schema(
       default: false,
       index: true, 
     },
+    uuid:{
+      type: String,
+      default: uuidv4,
+      unique: true,
+    }
   },
   {
     timestamps: true,

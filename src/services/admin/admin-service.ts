@@ -35,6 +35,8 @@ import { LikeModel } from "src/models/like/like-schema";
 import { NotificationModel } from "src/models/notification/notification-schema";
 import { Comment } from "src/models/comment/comment-schema";
 import { transferModel } from "src/models/transfer/transfer-schema";
+import { ReferralCodeModel } from "src/models/referalcode/referal-schema";
+import { ReferralClickModel } from "src/models/referalclick/referal-click-schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-02-24.acacia",
@@ -130,6 +132,22 @@ function getGraphDateFormat(filter?: string) {
   if (filter?.includes("year")) return "%Y-%m";
   return "%Y-%m-%d";
 }
+const calculatePercentageChange = (current: number, previous: number) => {
+  if (previous === 0 && current === 0) {
+    return { percentage: 0, trend: "same" };
+  }
+
+  if (previous === 0) {
+    return { percentage: 100, trend: "up" };
+  }
+
+  const diff = ((current - previous) / previous) * 100;
+
+  return {
+    percentage: Number(diff.toFixed(2)),
+    trend: diff > 0 ? "up" : diff < 0 ? "down" : "same",
+  };
+};
 
 // export const loginService = async (payload: any, res: Response) => {
 //     const { username, password } = payload;
@@ -1455,6 +1473,28 @@ export const adminEventAndTicketingServices = {
     }
 
     const revenueRange = getRevenueDateRange(revenueFilter);
+    let previousMonthRange = null;
+
+    if (revenueFilter === "thisMonth") {
+      const startOfThisMonth = revenueRange.start;
+
+      previousMonthRange = {
+        start: new Date(
+          startOfThisMonth.getFullYear(),
+          startOfThisMonth.getMonth() - 1,
+          1,
+        ),
+        end: new Date(
+          startOfThisMonth.getFullYear(),
+          startOfThisMonth.getMonth(),
+          0,
+          23,
+          59,
+          59,
+          999,
+        ),
+      };
+    }
 
     /* ---------------- TICKET SALES & GRAPH ---------------- */
     let salesAnalytics = {
@@ -1655,15 +1695,89 @@ export const adminEventAndTicketingServices = {
       },
       { $sort: { utcDateTime: -1 } },
     ]);
+    let previousMonthStats = {
+      totalTicketsSold: 0,
+      grossRevenueUSD: 0,
+      netRevenueUSD: 0,
+    };
+
+    if (previousMonthRange) {
+      const prevAgg = await purchaseModel.aggregate([
+        {
+          $match: {
+            purchaseType: "purchase",
+            status: { $in: ["active", "used"] },
+            purchaseDate: {
+              $gte: previousMonthRange.start,
+              $lte: previousMonthRange.end,
+            },
+          },
+        },
+        {
+          $addFields: {
+            stripeFeeUSD: {
+              $cond: [
+                { $ifNull: ["$metaData.balanceTx", false] },
+                {
+                  $divide: [
+                    { $multiply: ["$metaData.balanceTx.fee", 0.01] },
+                    "$metaData.balanceTx.exchange_rate",
+                  ],
+                },
+                0,
+              ],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalTicketsSold: { $sum: "$quantity" },
+            grossRevenueUSD: { $sum: "$totalPrice" },
+            stripeFeeUSD: { $sum: "$stripeFeeUSD" },
+          },
+        },
+      ]);
+
+      if (prevAgg[0]) {
+        previousMonthStats.totalTicketsSold = prevAgg[0].totalTicketsSold;
+        previousMonthStats.grossRevenueUSD = prevAgg[0].grossRevenueUSD;
+        previousMonthStats.netRevenueUSD =
+          prevAgg[0].grossRevenueUSD - prevAgg[0].stripeFeeUSD;
+      }
+    }
+    const ticketSoldChange = calculatePercentageChange(
+      ticketSales.ticketsSold,
+      previousMonthStats.totalTicketsSold,
+    );
+
+    const grossRevenueChange = calculatePercentageChange(
+      ticketSales.grossRevenueUSD,
+      previousMonthStats.grossRevenueUSD,
+    );
+
+    const netRevenueChange = calculatePercentageChange(
+      netRevenueUSD,
+      previousMonthStats.netRevenueUSD,
+    );
 
     /* ---------------- FINAL RESPONSE ---------------- */
     return {
       summary: {
         totalEvents,
-        totalTicketSold: ticketSales.ticketsSold,
-        grossRevenueUSD: ticketSales.grossRevenueUSD,
+        totalTicketSold: {
+          value: ticketSales.ticketsSold,
+          ...ticketSoldChange,
+        },
+        grossRevenueUSD: {
+          value: ticketSales.grossRevenueUSD,
+          ...grossRevenueChange,
+        },
         stripeFeeUSD: ticketSales.stripeFeeUSD,
-        netRevenueUSD,
+        netRevenueUSD: {
+          value: netRevenueUSD,
+          ...netRevenueChange,
+        },
         availableTickets,
       },
       ticketSalesSummary: {
@@ -2110,7 +2224,6 @@ export const adminEventAndTicketingServices = {
   async refundAllEventPurchases(payload: any) {
     const { adminId, eventId, reason } = payload;
 
-
     // const admin = await AdminModel.findOne({
     //   _id: adminId,
     //   isDeleted: false,
@@ -2129,7 +2242,11 @@ export const adminEventAndTicketingServices = {
       if (!event) throw new Error("Event not found");
 
       const purchases = await purchaseModel
-        .find({ event: eventId, status: { $nin: ["refunded", "disabled","pending"] },purchaseType:"purchase" })
+        .find({
+          event: eventId,
+          status: { $nin: ["refunded", "disabled", "pending"] },
+          purchaseType: "purchase",
+        })
         .session(session);
 
       if (!purchases || purchases.length === 0) {
@@ -2258,96 +2375,342 @@ export const adminEventAndTicketingServices = {
   async deleteEventById(eventId: string) {
     const session = await mongoose.startSession();
 
-  try {
-    session.startTransaction();
+    try {
+      session.startTransaction();
 
-    const eventObjectId = new mongoose.Types.ObjectId(eventId);
+      const eventObjectId = new mongoose.Types.ObjectId(eventId);
 
-    /* ---------------- VALIDATE EVENT ---------------- */
-    const event = await eventModel.findById(eventObjectId).session(session);
-    if (!event) {
-      throw new Error("Event not found");
+      /* ---------------- VALIDATE EVENT ---------------- */
+      const event = await eventModel.findById(eventObjectId).session(session);
+      if (!event) {
+        throw new Error("Event not found");
+      }
+
+      /* ---------------- COMMENTS ---------------- */
+      const comments = await Comment.find({ event: eventObjectId })
+        .select("_id")
+        .session(session);
+
+      const commentIds = comments.map((c) => c._id);
+
+      await Comment.deleteMany({ event: eventObjectId }).session(session);
+
+      /* ---------------- LIKES ---------------- */
+      await LikeModel.deleteMany({
+        $or: [
+          { targetType: "event", target: eventObjectId },
+          { targetType: "comments", target: { $in: commentIds } },
+        ],
+      }).session(session);
+
+      /* ---------------- EVENT VIEWERS ---------------- */
+      await EventViewerModel.deleteMany({ event: eventObjectId }).session(
+        session,
+      );
+
+      /* ---------------- NOTIFICATIONS ---------------- */
+      await NotificationModel.deleteMany({
+        "reference.model": "events",
+        "reference.id": eventObjectId,
+      }).session(session);
+
+      /* ---------------- TICKETS ---------------- */
+      const tickets = await ticketModel
+        .find({ event: eventObjectId })
+        .select("_id")
+        .session(session);
+
+      const ticketIds = tickets.map((t) => t._id);
+
+      await ticketModel.deleteMany({ event: eventObjectId }).session(session);
+
+      /* ---------------- PURCHASES ---------------- */
+      const purchases = await purchaseModel
+        .find({ event: eventObjectId })
+        .select("_id")
+        .session(session);
+
+      const purchaseIds = purchases.map((p) => p._id);
+
+      await purchaseModel.deleteMany({ event: eventObjectId }).session(session);
+
+      /* ---------------- RESALES ---------------- */
+      await resellModel
+        .deleteMany({
+          originalPurchase: { $in: purchaseIds },
+        })
+        .session(session);
+
+      /* ---------------- TRANSFERS ---------------- */
+      await transferModel
+        .deleteMany({
+          $or: [
+            { event: eventObjectId },
+            { originalPurchase: { $in: purchaseIds } },
+            { ticket: { $in: ticketIds } },
+          ],
+        })
+        .session(session);
+
+      /* ---------------- DELETE EVENT ---------------- */
+      await eventModel.deleteOne({ _id: eventObjectId }).session(session);
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return {
+        success: true,
+        message: "Event and all related data deleted successfully",
+      };
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
     }
-
-    /* ---------------- COMMENTS ---------------- */
-    const comments = await Comment.find({ event: eventObjectId })
-      .select("_id")
-      .session(session);
-
-    const commentIds = comments.map(c => c._id);
-
-    await Comment.deleteMany({ event: eventObjectId }).session(session);
-
-    /* ---------------- LIKES ---------------- */
-    await LikeModel.deleteMany({
-      $or: [
-        { targetType: "event", target: eventObjectId },
-        { targetType: "comments", target: { $in: commentIds } },
-      ],
-    }).session(session);
-
-    /* ---------------- EVENT VIEWERS ---------------- */
-    await EventViewerModel.deleteMany({ event: eventObjectId }).session(session);
-
-    /* ---------------- NOTIFICATIONS ---------------- */
-    await NotificationModel.deleteMany({
-      "reference.model": "events",
-      "reference.id": eventObjectId,
-    }).session(session);
-
-    /* ---------------- TICKETS ---------------- */
-    const tickets = await ticketModel
-      .find({ event: eventObjectId })
-      .select("_id")
-      .session(session);
-
-    const ticketIds = tickets.map(t => t._id);
-
-    await ticketModel.deleteMany({ event: eventObjectId }).session(session);
-
-    /* ---------------- PURCHASES ---------------- */
-    const purchases = await purchaseModel
-      .find({ event: eventObjectId })
-      .select("_id")
-      .session(session);
-
-    const purchaseIds = purchases.map(p => p._id);
-
-    await purchaseModel.deleteMany({ event: eventObjectId }).session(session);
-
-    /* ---------------- RESALES ---------------- */
-    await resellModel.deleteMany({
-      originalPurchase: { $in: purchaseIds },
-    }).session(session);
-
-    /* ---------------- TRANSFERS ---------------- */
-    await transferModel.deleteMany({
-      $or: [
-        { event: eventObjectId },
-        { originalPurchase: { $in: purchaseIds } },
-        { ticket: { $in: ticketIds } },
-      ],
-    }).session(session);
-
-    /* ---------------- DELETE EVENT ---------------- */
-    await eventModel.deleteOne({ _id: eventObjectId }).session(session);
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return {
-      success: true,
-      message: "Event and all related data deleted successfully",
-    };
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    throw error;
-  }
   },
 };
 export const adminRevenueAndFinancialServices = {
   async getFinancialOverview(payload: any) {
     const { adminId, startDate, endDate } = payload;
-  }
-}
+  },
+};
+export const adminReferalServices = {
+  async getReferalStats(payload: any) {
+    const { search = "", page = 1, limit = 10 } = payload;
+
+    const skip = (page - 1) * limit;
+
+    /* ---------------- SUMMARY COUNTS ---------------- */
+    const [totalReferralCount, usedReferralCount, availableReferralCount] =
+      await Promise.all([
+        ReferralCodeModel.countDocuments(),
+        ReferralCodeModel.countDocuments({ used: true }),
+        ReferralCodeModel.countDocuments({ used: false }),
+      ]);
+
+    /* ---------------- NEW USERS ACQUIRED ---------------- */
+    const newUsers = await usersModel
+      .find({ referredBy: { $ne: null } })
+      .populate({
+        path: "referredBy",
+        select: "code codeCreatedBy",
+        populate: {
+          path: "codeCreatedBy",
+          select: "userName email",
+        },
+      })
+      .select("userName email createdAt")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    /* ---------------- TOP PERFORMING USER ---------------- */
+    const topPerformerAgg = await ReferralCodeModel.aggregate([
+      { $match: { used: true } },
+      {
+        $group: {
+          _id: "$codeCreatedBy",
+          totalReferrals: { $sum: 1 },
+        },
+      },
+      { $sort: { totalReferrals: -1 } },
+      { $limit: 1 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+      {
+        $project: {
+          _id: 0,
+          userId: "$user._id",
+          userName: "$user.userName",
+          email: "$user.email",
+          totalReferrals: 1,
+        },
+      },
+    ]);
+
+    const topPerformingUser = topPerformerAgg[0] || null;
+
+    /* ---------------- SEARCH FILTER ---------------- */
+    const searchMatch: any = {};
+
+    if (search) {
+      searchMatch.$or = [
+        { code: { $regex: search, $options: "i" } },
+        { "creator.userName": { $regex: search, $options: "i" } },
+        { "creator.email": { $regex: search, $options: "i" } },
+        { "referred.userName": { $regex: search, $options: "i" } },
+        { "referred.email": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    /* ---------------- ALL REFERRALS LIST ---------------- */
+    const referralListAgg = await ReferralCodeModel.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "codeCreatedBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      { $unwind: "$creator" },
+      {
+        $lookup: {
+          from: "users",
+          localField: "referredUser",
+          foreignField: "_id",
+          as: "referred",
+        },
+      },
+      {
+        $unwind: {
+          path: "$referred",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      { $match: searchMatch },
+      {
+        $project: {
+          code: 1,
+          used: 1,
+          createdAt: 1,
+          creator: {
+            _id: "$creator._id",
+            userName: "$creator.userName",
+            email: "$creator.email",
+          },
+          referredUser: {
+            _id: "$referred._id",
+            userName: "$referred.userName",
+            email: "$referred.email",
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalFilteredCount = await ReferralCodeModel.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "codeCreatedBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      { $unwind: "$creator" },
+      {
+        $lookup: {
+          from: "users",
+          localField: "referredUser",
+          foreignField: "_id",
+          as: "referred",
+        },
+      },
+      {
+        $unwind: {
+          path: "$referred",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      { $match: searchMatch },
+      { $count: "count" },
+    ]);
+
+    /* ---------------- FINAL RESPONSE ---------------- */
+    // ---------------- CLICK & CONVERSION STATS ----------------
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - 6);
+    weekStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const [
+      clicksToday,
+      clicksWeek,
+      clicksMonth,
+      clicksYear,
+      signupsToday,
+      signupsWeek,
+      signupsMonth,
+      signupsYear,
+    ] = await Promise.all([
+      ReferralClickModel.countDocuments({ createdAt: { $gte: todayStart } }),
+      ReferralClickModel.countDocuments({ createdAt: { $gte: weekStart } }),
+      ReferralClickModel.countDocuments({ createdAt: { $gte: monthStart } }),
+      ReferralClickModel.countDocuments({ createdAt: { $gte: yearStart } }),
+      usersModel.countDocuments({
+        referredBy: { $ne: null },
+        createdAt: { $gte: todayStart },
+      }),
+      usersModel.countDocuments({
+        referredBy: { $ne: null },
+        createdAt: { $gte: weekStart },
+      }),
+      usersModel.countDocuments({
+        referredBy: { $ne: null },
+        createdAt: { $gte: monthStart },
+      }),
+      usersModel.countDocuments({
+        referredBy: { $ne: null },
+        createdAt: { $gte: yearStart },
+      }),
+    ]);
+
+    const calcConversion = (signups: number, clicks: number) =>
+      clicks === 0 ? 0 : Number(((signups / clicks) * 100).toFixed(2));
+
+    const conversionStats = {
+      today: {
+        clicks: clicksToday,
+        signups: signupsToday,
+        conversionRate: calcConversion(signupsToday, clicksToday),
+      },
+      week: {
+        clicks: clicksWeek,
+        signups: signupsWeek,
+        conversionRate: calcConversion(signupsWeek, clicksWeek),
+      },
+      month: {
+        clicks: clicksMonth,
+        signups: signupsMonth,
+        conversionRate: calcConversion(signupsMonth, clicksMonth),
+      },
+      year: {
+        clicks: clicksYear,
+        signups: signupsYear,
+        conversionRate: calcConversion(signupsYear, clicksYear),
+      },
+    };
+
+    return {
+      summary: {
+        totalReferralCount,
+        usedReferralCount,
+        availableReferralCount,
+      },
+      conversionStats,
+      newUsersAcquired: newUsers,
+      topPerformingUser,
+      referrals: {
+        data: referralListAgg,
+        pagination: {
+          page,
+          limit,
+          total: totalFilteredCount[0]?.count || 0,
+        },
+      },
+    };
+  },
+};

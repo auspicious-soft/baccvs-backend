@@ -1,6 +1,5 @@
 import { configDotenv } from "dotenv";
 import mongoose from "mongoose";
-import { dailySubscriptionCron } from "src/utils/cron/cron";
 
 configDotenv(); 
 
@@ -11,7 +10,6 @@ const connectDB = async () => {
   const connectWithRetry = async () => {
     try {
       await mongoose.connect(process.env.MONGO_URL as string);
-      await dailySubscriptionCron.start(); // Start the cron job after successful connection
       console.log("MongoDB connected 🚀");
     } catch (error: any) {
       attempt += 1;

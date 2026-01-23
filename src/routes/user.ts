@@ -1,4 +1,5 @@
 import { Router } from "express";
+import referralClickMiddleware from "src/middleware/referral-click";
 import {
   getDashboardStats,
   getUserInfo,
@@ -28,6 +29,8 @@ import {
   getUnchattedFollowings,
   searchFeedController,
   deleteUser,
+  createAndroidSubscription,
+  validateIosReceipt,
 } from "../controllers/user/user";
 import {
   createProfessionalProfile,
@@ -130,6 +133,9 @@ import { requestWithdrawalController } from "src/controllers/withdraw/withdraw-c
 
 const router = Router();
 
+router.post("/create-subciption", createAndroidSubscription);
+router.post("/validate-ios-receipt", validateIosReceipt);
+
 router.post("/verify-password", verifyCurrentPassword);
 router.post("/change-email/submit", submitNewEmail);
 router.post("/change-phone/submit", submitNewPhone);
@@ -221,11 +227,11 @@ router.post("/conversations/:conversationId/read", markMessagesAsRead);
 router.post("/conversations/:conversationId/pin", togglePinDirectConversation);
 router.post(
   "/conversations/:conversationId/background",
-  updateDirectConversationBackground
+  updateDirectConversationBackground,
 );
 router.post(
   "/conversations/togglemute/:conversationId",
-  toggleMuteDirectConversation
+  toggleMuteDirectConversation,
 );
 router.post("/conversation/delete/chat/:recipientId", deleteChat);
 
@@ -241,19 +247,19 @@ router.post("/squad/:squadId/read", markSquadMessagesAsReadController);
 // Squad conversation routes
 router.post(
   "/squad-conversations/:squadConversationId/pin",
-  togglePinSquadConversation
+  togglePinSquadConversation,
 );
 router.post(
   "/squad-conversations/:squadConversationId/background",
-  updateSquadConversationBackground
+  updateSquadConversationBackground,
 );
 router.post(
   "/squad-conversation/toggle/mute/:squadConversationId",
-  toggleMuteSquadConversation
+  toggleMuteSquadConversation,
 );
 router.post(
   "/squad-conversation/update/permissions/:squadConversationId",
-  updateSquadPermissions
+  updateSquadPermissions,
 );
 
 // Community routes
@@ -269,7 +275,7 @@ router.patch("/add/community/member/:id", addcommunityMember);
 router.patch("/remove/community/member/:id", removeCommunityMember);
 router.patch(
   "/change/community/:communityId/members/:memberId/role",
-  changeCommunityMemberRole
+  changeCommunityMemberRole,
 );
 
 // Community chat routes
@@ -281,19 +287,19 @@ router.get("/community/:communityId/messages", getCommunityMessages);
 router.post("/community/send-message", sendCommunityMessage);
 router.post(
   "/community-conversations/:communityConversationId/pin",
-  togglePinCommunityConversation
+  togglePinCommunityConversation,
 );
 router.post(
   "/community-conversations/:communityConversationId/background",
-  updateCommunityConversationBackground
+  updateCommunityConversationBackground,
 );
 router.post(
   "/community-conversation/toggle/mute/:communityConversationId",
-  toggleMuteCommunityConversation
+  toggleMuteCommunityConversation,
 );
 router.post(
   "/community-conversation/update/setting/:communityConversationId",
-  updateCommunityConversationSettings
+  updateCommunityConversationSettings,
 );
 
 router.post("/message/edit/:id", editMessage);

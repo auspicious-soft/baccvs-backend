@@ -6,17 +6,18 @@ import {
   getLikesByUser,
   getLikesByTarget
 } from "src/controllers/like/like-controller";
+import referralClickMiddleware from "src/middleware/referral-click";
 
 const router = Router();
 
 // Like/Unlike a post or comment
-router.post("/toggle", checkAuth, toggleLike);
+router.post("/toggle", checkAuth,referralClickMiddleware, toggleLike);
 
 // Get all likes (with pagination)
 router.get("/", getLikes);
 
 // Get likes by current user
-router.get("/user", checkAuth, getLikesByUser);
+router.get("/user", checkAuth,referralClickMiddleware, getLikesByUser);
 
 // Get likes for a specific target (post/comment)
 router.get("/:targetType/:targetId", getLikesByTarget);

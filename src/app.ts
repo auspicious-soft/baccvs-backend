@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 // import cookieParser from "cookie-parser";
 import path from "path";
@@ -53,6 +53,18 @@ import { socketAuthMiddleware } from "./middleware/socket-auth";
 import { handleSubscriptionWebhook } from "./controllers/subscription/subscription-controller";
 import { handleStripeConnectWebhook } from "./controllers/stripe/stripe-connect-webhook-controller";
 import { checkAdminAuth } from "./middleware/admin-check-auth";
+import {
+  decodeSignedPayload,
+  planServices,
+  rawBodyMiddleware,
+} from "./utils/ios-iap/iosutils";
+import * as crypto from "crypto";
+import referralClickMiddleware from "./middleware/referral-click";
+
+if (!globalThis.crypto) {
+  // @ts-ignore
+  globalThis.crypto = crypto.webcrypto;
+}
 
 configDotenv();
 // Create __dirname equivalent for ES modules
@@ -65,14 +77,136 @@ app.set("trust proxy", true);
 app.post(
   "/api/subscription/webhook",
   bodyParser.raw({ type: "application/json" }),
-  handleSubscriptionWebhook
+  handleSubscriptionWebhook,
 );
 
 // Stripe Connect webhook for account updates/payouts
 app.post(
   "/api/stripe/connect/webhook",
   bodyParser.raw({ type: "application/json" }),
-  handleStripeConnectWebhook
+  handleStripeConnectWebhook,
+);
+
+app.post("/in-app-android", rawBodyMiddleware, async (req: any, res: any) => {
+  try {
+    const bodyBuffer = req.body as Buffer;
+    if (bodyBuffer.length === 0) return res.status(400).send("Empty body");
+
+    const bodyStr = bodyBuffer.toString("utf8");
+    // console.log("Full body string:", bodyStr);
+
+    let rtdnPayload: any;
+
+    // Parse body as JSON
+    let parsedBody: any;
+    try {
+      parsedBody = JSON.parse(bodyStr);
+    } catch (e) {
+      // console.error("JSON parse error:", e);
+      return res.status(400).send("Invalid JSON");
+    }
+
+    // Check if it's Pub/Sub wrapped (has 'message.data' as base64)
+    if (parsedBody.message && parsedBody.message.data) {
+      // console.log("Pub/Sub wrapped detected");
+      const encodedData = parsedBody.message.data;
+      const rtdnJson = Buffer.from(encodedData, "base64").toString("utf8");
+      rtdnPayload = JSON.parse(rtdnJson);
+    } else {
+      // Direct RTDN (test or direct delivery)
+      // console.log("Direct RTDN detected");
+      rtdnPayload = parsedBody; // Direct use karo
+    }
+
+    // console.log("Final RTDN payload:", rtdnPayload); // {version: '1.0', packageName: '...', subscriptionNotification: {...}}
+
+    // Verification (purchaseDataSignature pe, if present)
+    if (rtdnPayload.subscriptionNotification) {
+      const subNotif = rtdnPayload.subscriptionNotification;
+      if (subNotif.oneoff) {
+        const purchaseData = subNotif.oneoff.purchaseData;
+        const signature = subNotif.oneoff.purchaseDataSignature;
+        if (purchaseData && signature) {
+          const publicKey = `-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8vVipthABb2jstNhGdbZEFl7DA5zoNpN6zSZzE8yShI0xKbN/sl4GkD7L0XAdahYuwCEZ1YGuWMwisMSN8QoVYOCB7JdoNpc7IPvA8Iaox9RUBmwzB77AX88KQCVSI/hpKJMjOe/SL//Zd2Qvrukll7E/6olYrkQleIhbLhvz+B6mO5MLHAzWUv83GFGoXGoUJAgstl2nmclx4HwucuSflcWxpBEx2oaVjaC3lnPjk1L/w+3UJSHQYlSfyzsb2zOGWGoll6+WmZZ/EigqRxbP41B2QybF+cJkhcbmHsAMA9mVHhJwbJ5m/jh2JbhM51FsfYX2hoZKm/mOMSFm6fYHwIDAQAB\n-----END PUBLIC KEY-----`; // Replace with actual
+          const verified = crypto
+            .createVerify("SHA1")
+            .update(purchaseData)
+            .verify(publicKey, signature, "base64");
+          // console.log("Signature verified:", verified ? "Yes" : "No");
+          if (!verified) return res.status(400).send("Invalid signature");
+        }
+      }
+    }
+
+    // Process karo
+    await planServices.handleInAppAndroidWebhook(rtdnPayload, req);
+    if (!res.headersSent) res.status(200).send("OK");
+  } catch (err) {
+    console.error("Error:", err);
+    if (!res.headersSent) res.status(200).send("OK");
+  }
+});
+
+app.post(
+  "/in-app-ios",
+  rawBodyMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const bodyBuffer = req.body as Buffer;
+      if (bodyBuffer.length === 0) return res.status(400).send("Empty body");
+      const bodyStr = bodyBuffer.toString("utf8");
+      let parsedBody: any;
+      try {
+        parsedBody = JSON.parse(bodyStr);
+      } catch (e) {
+        return res.status(400).send("Invalid JSON");
+      }
+      const { signedPayload } = parsedBody;
+      if (!signedPayload) {
+        console.log("⚠️ No signedPayload in request");
+        return res.sendStatus(200);
+      }
+      const decodedOuter = await decodeSignedPayload(signedPayload);
+      await planServices.handleInAppIOSWebhook(decodedOuter, req, res);
+      if (!res.headersSent) res.status(200).send("OK");
+    } catch (err) {
+      console.error("Error:", err);
+      if (!res.headersSent) res.status(200).send("OK");
+    }
+  },
+);
+
+app.post(
+  "/in-app-ios-production",
+  rawBodyMiddleware,
+  async (req: Request, res: Response) => {
+    try {
+      const bodyBuffer = req.body as Buffer;
+      if (bodyBuffer.length === 0) return res.status(400).send("Empty body");
+      const bodyStr = bodyBuffer.toString("utf8");
+      let parsedBody: any;
+      try {
+        parsedBody = JSON.parse(bodyStr);
+      } catch (e) {
+        return res.status(400).send("Invalid JSON");
+      }
+      const { signedPayload } = parsedBody;
+      if (!signedPayload) {
+        console.log("⚠️ No signedPayload in request");
+        return res.sendStatus(200);
+      }
+      const decodedOuter = await decodeSignedPayload(signedPayload);
+      await planServices.handleInAppIOSWebhookProduction(
+        decodedOuter,
+        req,
+        res,
+      );
+      if (!res.headersSent) res.status(200).send("OK");
+    } catch (err) {
+      console.error("Error:", err);
+      if (!res.headersSent) res.status(200).send("OK");
+    }
+  },
 );
 
 const server = http.createServer(app);
@@ -95,7 +229,7 @@ app.use(
     verify: (req: any, res, buf) => {
       req.rawBody = buf.toString();
     },
-  })
+  }),
 );
 // app.use(cookieParser());
 app.use(express.json());
@@ -106,7 +240,7 @@ app.use(
     origin: "*",
     methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
     credentials: true,
-  })
+  }),
 );
 
 var dir = path.join(__dirname, "static");
@@ -154,25 +288,25 @@ app.use("/api/admin", checkAdminAuth, admin);
 app.post("/api/login", login);
 app.post("/api/signup", signup);
 app.post("/api/social/signup", socialSignUp);
-app.use("/api/user", checkAuth, user);
-app.use("/api/follow", checkAuth, follow);
-app.use("/api/post", checkAuth, post);
+app.use("/api/user", checkAuth, referralClickMiddleware, user);
+app.use("/api/follow", checkAuth, referralClickMiddleware, follow);
+app.use("/api/post", checkAuth, referralClickMiddleware, post);
 app.use("/api/comment", comment);
-app.use("/api/event", checkAuth, event);
+app.use("/api/event", checkAuth, referralClickMiddleware, event);
 app.use("/api/like", like);
-app.use("/api/report", checkAuth, report);
-app.use("/api/repost", checkAuth, repost);
-app.use("/api/location", checkAuth, locationRoutes);
-app.use("/api/story", checkAuth, story);
-app.use("/api/resell", checkAuth, resell);
-app.use("/api/purchase", checkAuth, purchase);
-app.use("/api/chat", checkAuth, chatRoutes);
-app.use("/api/block", checkAuth, blockRoutes);
-app.use("/api/feedback", checkAuth, feedbackRoutes);
+app.use("/api/report", checkAuth, referralClickMiddleware, report);
+app.use("/api/repost", checkAuth, referralClickMiddleware, repost);
+app.use("/api/location", checkAuth, referralClickMiddleware, locationRoutes);
+app.use("/api/story", checkAuth, referralClickMiddleware, story);
+app.use("/api/resell", checkAuth, referralClickMiddleware, resell);
+app.use("/api/purchase", checkAuth, referralClickMiddleware, purchase);
+app.use("/api/chat", checkAuth, referralClickMiddleware, chatRoutes);
+app.use("/api/block", checkAuth, referralClickMiddleware, blockRoutes);
+app.use("/api/feedback", checkAuth, referralClickMiddleware, feedbackRoutes);
 app.use("/api/subscription", subscription);
 app.use("/api/stripe-product", stripeProduct);
 app.use("/api/stripe-connect", stripeConnect);
-app.use("/api/notification", checkAuth, notification);
+app.use("/api/notification", checkAuth, referralClickMiddleware, notification);
 app.post("/api/email-otp", verifyEmail);
 app.post("/api/verify-email", verifyingEmailOtp);
 app.post("/api/verify-otp", verifyOtpPasswordReset);

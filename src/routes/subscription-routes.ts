@@ -8,7 +8,6 @@ import {
   getStripeProducts,
   updateProductPrice,
   getPlanIdFromProductId,
-  getUserSubscription,
   createPaymentIntent
 } from "src/controllers/subscription/subscription-controller";
 
@@ -31,9 +30,6 @@ router.get("/product/:productId/plan", getPlanIdFromProductId);
 
 // Update product price (admin only)
 router.put("/product/price", checkAuth, updateProductPrice);
-
-router.get("/", checkAuth, getUserSubscription);
-
 // Cancel subscription
 router.post("/cancel", checkAuth, cancelSubscription);
 

@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { httpStatusCode } from "src/lib/constant";
 import { errorParser } from "src/lib/errors/error-response-handler";
-import { DatingSubscription } from "src/models/subscriptions/dating-subscription-schema";
 import { Transaction, TransactionType } from "src/models/transaction/transaction-schema";
 import { 
   createCheckoutSessionService, 
@@ -137,65 +136,6 @@ export const getPlanIdFromProductId = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Get user subscription details
- */
-export const getUserSubscription = async (req: Request, res: Response) => {
-  try {
-    if (!req.user) {
-      return res.status(httpStatusCode.UNAUTHORIZED)
-        .json({ success: false, message: "User data not found in request" });
-    }
-    
-    const { id: userId } = req.user as JwtPayload;
-    
-    // Get subscription details
-    const subscription = await DatingSubscription.findOne({ user: userId });
-    if (!subscription) {
-      return res.status(httpStatusCode.NOT_FOUND)
-        .json({ success: false, message: "Subscription not found" });
-    }
-    
-    // Get recent transactions
-    const recentTransactions = await Transaction.find({ 
-      user: userId,
-      type: TransactionType.DATING_SUBSCRIPTION
-    })
-    .sort({ createdAt: -1 })
-    .limit(5);
-    
-    return res.status(httpStatusCode.OK).json({
-      success: true,
-      message: "Subscription details retrieved successfully",
-      data: {
-        subscription: {
-          plan: subscription.plan,
-          price: subscription.price,
-          startDate: subscription.startDate,
-          endDate: subscription.endDate,
-          isActive: subscription.isActive,
-          autoRenew: subscription.autoRenew,
-          features: subscription.features
-        },
-        recentTransactions: recentTransactions.map(t => ({
-          id: t._id,
-          status: t.status,
-          amount: t.amount,
-          currency: t.currency,
-          createdAt: t.createdAt
-        }))
-      }
-    });
-  } catch (error) {
-    const { code, message } = errorParser(error);
-    return res.status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
-      .json({ success: false, message: message || "An error occurred" });
-  }
-};
-
-/**
- * Create payment intent for mobile apps
- */
 export const createPaymentIntent = async (req: Request, res: Response) => {
   try {
     const response = await createPaymentIntentService(req, res);

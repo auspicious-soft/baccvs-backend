@@ -17,10 +17,6 @@ declare global {
 }
 import Stripe from "stripe";
 import {
-  DatingSubscription,
-  DatingSubscriptionPlan,
-} from "src/models/subscriptions/dating-subscription-schema";
-import {
   Transaction,
   TransactionType,
   TransactionStatus,
@@ -96,121 +92,7 @@ export const createCheckoutSessionService = async (
       currency: "usd",
     };
 
-    if (paymentType === "SUBSCRIPTION") {
-      // ... existing subscription code remains the same ...
-      if (!productId) {
-        return errorResponseHandler(
-          "Product ID is required for subscription",
-          400,
-          res,
-        );
-      }
-
-      const stripeProduct = await stripe.products.retrieve(productId);
-      if (!stripeProduct.active) {
-        return errorResponseHandler("Product is not active", 400, res);
-      }
-
-      if (!stripeProduct.default_price) {
-        return errorResponseHandler(
-          "No price found for this product",
-          400,
-          res,
-        );
-      }
-
-      const priceDetails = await stripe.prices.retrieve(
-        stripeProduct.default_price as string,
-      );
-      if (priceDetails.currency.toLowerCase() !== "usd") {
-        return errorResponseHandler("Only USD currency is supported", 400, res);
-      }
-
-      let planType = DatingSubscriptionPlan.BASIC;
-      if (stripeProduct.metadata?.plan_type) {
-        const metadataPlan = stripeProduct.metadata.plan_type.toUpperCase();
-        if (
-          Object.values(DatingSubscriptionPlan).includes(
-            metadataPlan as DatingSubscriptionPlan,
-          )
-        ) {
-          planType = metadataPlan as DatingSubscriptionPlan;
-        }
-      }
-
-      // Get or create subscription record
-      let subscription = await DatingSubscription.findOne({
-        user: userId,
-      }).session(session);
-      if (!subscription) {
-        const createdSubscriptions = await DatingSubscription.create(
-          [
-            {
-              user: userId,
-              plan: DatingSubscriptionPlan.FREE,
-              stripeCustomerId,
-              isActive: false,
-            },
-          ],
-          { session },
-        );
-        subscription = createdSubscriptions[0];
-      } else if (!subscription.stripeCustomerId) {
-        subscription.stripeCustomerId = stripeCustomerId;
-        await subscription.save({ session });
-      }
-
-      // Create PaymentIntent for subscription
-      paymentIntent = await stripe.paymentIntents.create({
-        amount: priceDetails.unit_amount ?? 0,
-        currency: "usd",
-        customer: stripeCustomerId,
-        setup_future_usage: "off_session",
-        metadata: {
-          userId,
-          productId,
-          priceId: priceDetails.id,
-          planType,
-        },
-      });
-
-      transactionData = {
-        ...transactionData,
-        type: TransactionType.DATING_SUBSCRIPTION,
-        amount: priceDetails.unit_amount ? priceDetails.unit_amount / 100 : 0,
-        reference: { model: "DatingSubscription", id: subscription._id },
-        stripePaymentIntentId: paymentIntent.id,
-        metadata: {
-          plan: planType,
-          productId,
-          priceId: priceDetails.id,
-          checkoutCreated: new Date(),
-        },
-      };
-
-      await Transaction.create([transactionData], { session });
-
-      await session.commitTransaction();
-
-      return {
-        success: true,
-        message: "PaymentIntent created successfully",
-        data: {
-          clientSecret: paymentIntent.client_secret,
-          paymentIntentId: paymentIntent.id,
-          customer: stripeCustomerId,
-          productDetails: {
-            id: productId,
-            name: stripeProduct.name,
-            description: stripeProduct.description,
-            currency: "usd",
-            unitAmount: priceDetails.unit_amount,
-            type: priceDetails.type,
-            interval: priceDetails.recurring?.interval,
-          },
-        },
-      };
-    } else if (paymentType === "BULK_PURCHASE") {
+    if (paymentType === "BULK_PURCHASE") {
       // ... existing bulk purchase code remains the same ...
       if (!ticketId || !eventId || !quantity || !amount) {
         return errorResponseHandler(

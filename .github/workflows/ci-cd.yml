@@ -100,6 +100,11 @@ jobs:
               -e AUTH_SECRET='${{ secrets.AUTH_SECRET }}' \
               -e SETTINGS_JWT_SECRET='${{ secrets.SETTINGS_JWT_SECRET }}' \
               -e NEXT_PUBLIC_AWS_BUCKET_PATH='${{ secrets.NEXT_PUBLIC_AWS_BUCKET_PATH }}' \
+              -e APPLE_PRIVATE_KEY='${{ secrets.APPLE_PRIVATE_KEY }}' \
+              -e APPLE_KEY_ID='${{ secrets.APPLE_KEY_ID }}' \
+              -e APPLE_ISSUER_ID='${{ secrets.APPLE_ISSUER_ID }}' \
+              -e APP_BUNDLE_ID='${{ secrets.APP_BUNDLE_ID }}' \
+              -e APPLE_BUNDLE_ID='${{ secrets.APPLE_BUNDLE_ID }}' \
               ${{ secrets.DOCKER_USERNAME }}/baccvs-backend:latest || { echo 'Docker run failed'; exit 1; }
 
            

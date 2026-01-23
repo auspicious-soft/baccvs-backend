@@ -1,98 +1,85 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 
-export enum DatingSubscriptionPlan {
-  FREE = "FREE",
-  BASIC = "BASIC",
-  ELITE = "ELITE",
-  PRESTIGE = "PRESTIGE"
+export interface ISubscription extends Document {
+  //Stripe-related
+
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  paymentMethodId: string;
+
+  //Stripe-related
+
+  userId: Types.ObjectId;
+  subscriptionId: string;
+  orderId: string;
+  linkedPurchaseToken: string;
+  deviceType: string;
+  planId: Types.ObjectId | string;
+  status: string;
+  trialStart: Date | null;
+  trialEnd: Date | null;
+  startDate: Date;
+  currentPeriodStart: Date | null;
+  currentPeriodEnd: Date | null;
+  nextBillingDate: Date | null;
+  amount: number;
+  currency: string;
+  nextPlanId: Types.ObjectId;
+  environment: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-const DatingSubscriptionSchema = new Schema(
+const subscriptionSchema = new Schema<ISubscription>(
   {
-    user: {
-      type: Schema.Types.ObjectId,
-      ref: 'users',
+    //Stripe Related Keys
+
+    stripeCustomerId: { type: String },
+    stripeSubscriptionId: { type: String },
+    paymentMethodId: { type: String },
+
+    //Stripe Related Keys
+
+    userId: { type: Schema.Types.ObjectId, ref: "users" },
+    linkedPurchaseToken: { type: String },
+    orderId: { type: String },
+    deviceType: { type: String },
+    subscriptionId: { type: String },
+    planId: { type: Schema.Types.ObjectId, ref: "plan" },
+    status: {
+      type: String,
+      enum: [
+        "trialing",
+        "active",
+        "canceled",
+        "expired",
+        "canceling",
+        "incomplete",
+        "past_due",
+      ],
       required: true,
-      unique: true
-    },
-    plan: {
+    }, // trialing, active, canceled, etc.
+    // trialStart: { type: Date, default: null },
+    // trialEnd: { type: Date, default: null },
+    startDate: { type: Date, default: null },
+    currentPeriodStart: { type: Date, default: null },
+    currentPeriodEnd: { type: Date, default: null },
+    nextBillingDate: { type: Date, default: null },
+    amount: { type: Number },
+    currency: { type: String },
+    environment: {
       type: String,
-      enum: Object.values(DatingSubscriptionPlan),
-      default: DatingSubscriptionPlan.FREE
+      enum: ["Production", "Sandbox", "Xcode"],
+      default: "Production",
     },
-    price: {
-      type: Number,
-      default: 0
-    },
-    startDate: {
-      type: Date,
-      default: null
-    },
-    endDate: {
-      type: Date,
-      default: null
-    },
-    isActive: {
-      type: Boolean,
-      default: false
-    },
-    autoRenew: {
-      type: Boolean,
-      default: false
-    },
-    // We'll keep these IDs for reference but move payment details to Transaction model
-    stripeCustomerId: {
-      type: String,
-      default: null
-    },
-    stripeProductId:{
-      type: String,
-      default: null
-    },
-    stripePriceId: {
-      type: String,
-      default: null
-    },
-    stripeSubscriptionId: {
-      type: String,
-      default: null
-    },
-    features: {
-      dailyLikes: {
-        type: Number,
-        default: 10
-      },
-      superLikesPerDay: {
-        type: Number,
-        default: 0
-      },
-      boostsPerMonth: {
-        type: Number,
-        default: 0
-      },
-      seeWhoLikesYou: {
-        type: Boolean,
-        default: false
-      },
-      advancedFilters: {
-        type: Boolean,
-        default: false
-      }
-    }
+    nextPlanId: { type: Schema.Types.ObjectId, ref: "plan", default: null },
   },
   {
-    timestamps: true
+    timestamps: true, // adds createdAt and updatedAt
   }
 );
 
-// Create indexes for efficient queries
-DatingSubscriptionSchema.index({ user: 1 });
-DatingSubscriptionSchema.index({ plan: 1 });
-DatingSubscriptionSchema.index({ isActive: 1 });
-DatingSubscriptionSchema.index({ stripeCustomerId: 1 });
-DatingSubscriptionSchema.index({ stripeSubscriptionId: 1 });
-
-export const DatingSubscription = mongoose.model("DatingSubscription", DatingSubscriptionSchema);
-
-
-
+export const SubscriptionModel = mongoose.model<ISubscription>(
+  "subscription",
+  subscriptionSchema
+);

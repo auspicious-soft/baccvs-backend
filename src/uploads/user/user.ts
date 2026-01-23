@@ -65,6 +65,16 @@ import { calculateDistanceInKm } from "src/utils/distanceCalculator";
 import { parse } from "path";
 import { json } from "body-parser";
 import { ProfessionalProfileModel } from "src/models/professional/professional-schema";
+import { SubscriptionModel } from "src/models/subscriptions/dating-subscription-schema";
+import {
+  determineBillingPeriod,
+  isPurchaseValidForRestore,
+  mapPurchaseStateToStatus,
+  verifyPurchaseSignature,
+  verifyPurchaseWithGoogle,
+} from "src/utils/android/android";
+import { PlanModel } from "src/models/plan-schema";
+import { create } from "domain";
 configDotenv();
 
 const sanitizeUser = (user: any) => {
@@ -77,7 +87,7 @@ export const signUpService = async (
   req: any,
   userData: any,
   authType: string,
-  res: Response
+  res: Response,
 ) => {
   if (!userData) {
     return {
@@ -107,7 +117,6 @@ export const signUpService = async (
               typeof parsedLocation.coordinates[1] === "number"
             ) {
               parsedData[fieldname] = parsedLocation;
-
             } else {
               return reject({
                 success: false,
@@ -117,7 +126,7 @@ export const signUpService = async (
               });
             }
           } catch (error) {
-           return reject({
+            return reject({
               success: false,
               message: "Failed to parse location. Must be a valid JSON string",
               code: httpStatusCode.BAD_REQUEST,
@@ -129,7 +138,6 @@ export const signUpService = async (
       });
 
       busboy.on("file", (fieldname: string, fileStream: any, fileInfo: any) => {
-      
         // Accept 'photos', 'videos', or any field that looks like a file
         const { filename, mimeType } = fileInfo;
 
@@ -142,7 +150,6 @@ export const signUpService = async (
           return;
         }
 
-     
         // Collect file chunks
         const chunks: Buffer[] = [];
 
@@ -150,8 +157,7 @@ export const signUpService = async (
           chunks.push(chunk);
         });
 
-        fileStream.on("end", () => {
-        });
+        fileStream.on("end", () => {});
 
         fileStream.on("error", (error: any) => {
           console.error(`Busboy - File stream error for ${filename}:`, error);
@@ -181,7 +187,7 @@ export const signUpService = async (
                   filename,
                   mimeType,
                   parsedData.email ||
-                    `user_${customAlphabet("0123456789", 5)()}`
+                    `user_${customAlphabet("0123456789", 5)()}`,
                 );
 
                 resolveUpload(s3Key);
@@ -195,7 +201,7 @@ export const signUpService = async (
               console.error(`Busboy - File stream error:`, error);
               rejectUpload(error);
             });
-          }
+          },
         );
 
         uploadPromises.push(uploadPromise);
@@ -203,7 +209,6 @@ export const signUpService = async (
 
       busboy.on("finish", async () => {
         try {
-         
           // Wait for all file uploads to complete
           if (uploadPromises.length > 0) {
             photos = await Promise.all(uploadPromises);
@@ -213,7 +218,7 @@ export const signUpService = async (
 
           // Extract authType from parsedData if not provided
           authType = authType || parsedData.authType;
-         
+
           // Validate auth type
           if (!authType) {
             return reject({
@@ -225,7 +230,7 @@ export const signUpService = async (
 
           if (
             !["Email", "Google", "Apple", "Facebook", "Twitter"].includes(
-              authType
+              authType,
             )
           ) {
             return reject({
@@ -262,7 +267,7 @@ export const signUpService = async (
   } else {
     // If no multipart/form-data, process userData without file uploads
     authType = authType || userData.authType;
-    
+
     // Validate auth type
     if (!authType) {
       return {
@@ -291,7 +296,7 @@ const processUserData = async (
   userData: any,
   authType: string,
   photos: string[],
-  res: Response
+  res: Response,
 ) => {
   // Check for existing user
   const query = getSignUpQueryByAuthType(userData, authType);
@@ -371,7 +376,7 @@ const processUserData = async (
             referredUser: user._id,
           },
         },
-        { new: true }
+        { new: true },
       ),
       createReferralCodeService(user._id, res),
     ]);
@@ -394,7 +399,7 @@ const processUserData = async (
       return errorResponseHandler(
         "FCM token is required",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
     user.token = generateUserToken(user as any);
@@ -435,36 +440,36 @@ const processUserData = async (
 export const loginUserService = async (
   userData: any,
   authType: string,
-  res: Response
+  res: Response,
 ) => {
   if (!userData)
     return errorResponseHandler(
       "User data is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   if (!authType) {
     return errorResponseHandler(
       "Auth type is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
   let query = getSignUpQueryByAuthType(userData, authType);
-  let user: any = await usersModel.findOne(query);
+  let user: any = await usersModel.findOne(query).populate("referredBy");
   if (!user) {
     errorResponseHandler(
       "Invalid User Credential",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
   if (user.status === "deleted") {
     return errorResponseHandler(
       "User account has been deleted",
       httpStatusCode.FORBIDDEN,
-      res
+      res,
     );
   }
   // if (!user && (authType === 'Google' || authType === 'Apple' || authType === 'Facebook' || authType === 'Twitter')) {
@@ -475,7 +480,7 @@ export const loginUserService = async (
     user,
     authType,
     userData,
-    res
+    res,
   );
   if (validationResponse) return validationResponse;
 
@@ -483,7 +488,7 @@ export const loginUserService = async (
     let passwordValidationResponse = await validatePassword(
       userData,
       user.password,
-      res
+      res,
     );
     if (passwordValidationResponse) return passwordValidationResponse;
   }
@@ -491,10 +496,18 @@ export const loginUserService = async (
   user.token = generateUserToken(user as any);
 
   await user.save();
+  const sanitized = user.toObject();
+  delete sanitized.password;
+
+  const subscription = await SubscriptionModel.findOne({ userId: user._id });
+
   return {
     success: true,
     message: "Logged in successfully",
-    data: sanitizeUser(user),
+    data: {
+      user: sanitized,
+      subscription,
+    },
   };
 };
 
@@ -528,7 +541,7 @@ export const verifyEmailService = async (payload: any, res: Response) => {
     return errorResponseHandler(
       "Email is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
 
   const { email, resend } = payload;
@@ -540,7 +553,7 @@ export const verifyEmailService = async (payload: any, res: Response) => {
       return errorResponseHandler(
         "Email already registered",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
   } else {
@@ -575,7 +588,7 @@ export const verifyEmailService = async (payload: any, res: Response) => {
   return errorResponseHandler(
     "Failed to generate verification code",
     httpStatusCode.INTERNAL_SERVER_ERROR,
-    res
+    res,
   );
 };
 
@@ -584,7 +597,7 @@ export const verifyOtpEmailService = async (payload: any, res: Response) => {
     return errorResponseHandler(
       "Both Field is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   const { otp, email } = payload;
 
@@ -608,14 +621,14 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
 
   // Generate a JWT token for password reset
   const resetToken = jwt.sign(
     { email, type: "password_reset" },
     process.env.JWT_SECRET as string,
-    { expiresIn: "1h" }
+    { expiresIn: "1h" },
   );
 
   // Create reset link with query parameter format
@@ -632,21 +645,21 @@ export const forgotPasswordService = async (payload: any, res: Response) => {
 
 export const resetPasswordWithTokenService = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   const { token, newPassword } = req.body;
 
   // Verify token
   const decoded = jwt.verify(
     token,
-    process.env.JWT_SECRET as string
+    process.env.JWT_SECRET as string,
   ) as JwtPayload;
 
   if (decoded.type !== "password_reset") {
     return errorResponseHandler(
       "Invalid reset token",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -656,7 +669,7 @@ export const resetPasswordWithTokenService = async (
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -679,20 +692,20 @@ export const resetPasswordWithTokenService = async (
 export const verifyOtpPasswordResetService = async (
   token: string,
   email: string,
-  res: Response
+  res: Response,
 ) => {
   if (!token || !email)
     return errorResponseHandler(
       "Both Field is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   const existingToken = await getPasswordResetTokenByToken(email, token);
   if (!existingToken)
     return errorResponseHandler(
       "Invalid Credential",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
 
   const hasExpired = new Date(existingToken.expires) < new Date();
@@ -703,7 +716,7 @@ export const verifyOtpPasswordResetService = async (
 
 export const newPassswordAfterOTPVerifiedService = async (
   payload: any,
-  res: Response
+  res: Response,
 ) => {
   const { password, email } = payload;
 
@@ -711,7 +724,7 @@ export const newPassswordAfterOTPVerifiedService = async (
     return errorResponseHandler(
       "Both Field is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
 
   const existingClient = await usersModel.findOne({ email });
@@ -719,14 +732,14 @@ export const newPassswordAfterOTPVerifiedService = async (
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
 
   const hashedPassword = bcrypt.hashSync(password, 10);
   await usersModel.findByIdAndUpdate(
     existingClient._id,
     { password: hashedPassword },
-    { new: true }
+    { new: true },
   );
 
   return {
@@ -742,7 +755,7 @@ export const passwordResetService = async (req: Request, res: Response) => {
     return errorResponseHandler(
       "Admin not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
 
   // const passwordMatch = bcrypt.compareSync(currentPassword, getAdmin.password)
@@ -763,7 +776,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User ID is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
 
   const { id: currentUserId } = req.user;
@@ -799,7 +812,7 @@ export const getUserInfoService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
 
   const followerCount = await followModel.countDocuments({
@@ -859,14 +872,14 @@ export const getUserInfoService = async (req: any, res: Response) => {
 
 export const getUserInfoByEmailService = async (
   email: string,
-  res: Response
+  res: Response,
 ) => {
   const client = await usersModel.findOne({ email });
   if (!client)
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   return {
     success: true,
@@ -884,7 +897,7 @@ export const editUserInfoService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
 
   // Check content type - expect multipart/form-data for file uploads
@@ -892,7 +905,7 @@ export const editUserInfoService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Content-Type must be multipart/form-data",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -944,8 +957,8 @@ export const editUserInfoService = async (req: any, res: Response) => {
             errorResponseHandler(
               "Only image files are allowed",
               httpStatusCode.BAD_REQUEST,
-              res
-            )
+              res,
+            ),
           );
         }
 
@@ -966,10 +979,10 @@ export const editUserInfoService = async (req: any, res: Response) => {
           readableStream,
           filename,
           mimeType,
-          userEmail
+          userEmail,
         );
         uploadPromises.push(uploadPromise);
-      }
+      },
     );
 
     busboy.on("finish", async () => {
@@ -1209,14 +1222,14 @@ export const editUserInfoService = async (req: any, res: Response) => {
             : [parsedLang];
 
           const invalid = languagesToCheck.find(
-            (l: any) => typeof l !== "string" || !validLanguages.includes(l)
+            (l: any) => typeof l !== "string" || !validLanguages.includes(l),
           );
 
           if (invalid) {
             return reject({
               success: false,
               message: `Invalid language. Supported languages: ${validLanguages.join(
-                ", "
+                ", ",
               )}`,
               code: httpStatusCode.BAD_REQUEST,
             });
@@ -1229,7 +1242,7 @@ export const editUserInfoService = async (req: any, res: Response) => {
         const updatedUser = await usersModel.findByIdAndUpdate(
           userId,
           { $set: updateData },
-          { new: true }
+          { new: true },
         );
 
         resolve({
@@ -1261,13 +1274,16 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
       return errorResponseHandler(
         "Latitude and Longitude are required",
         httpStatusCode.BAD_REQUEST,
-        res
+        res,
       );
     }
     const coordinates = [parseFloat(long), parseFloat(lat)];
 
     // Check if user has posted any content
-    const hasUserPostedContent = await postModels.exists({ user: userId,isAutoPost: { $ne: true } });
+    const hasUserPostedContent = await postModels.exists({
+      user: userId,
+      isAutoPost: { $ne: true },
+    });
 
     // === NEW: Get blocked users ===
     // Users who blocked the current user
@@ -1315,7 +1331,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
       targetType: "reposts",
     }).select("target");
     const likedRepostIds = userLikedRepost.map((like) =>
-      like.target.toString()
+      like.target.toString(),
     );
 
     // ===== STORIES SECTION =====
@@ -1447,7 +1463,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
     const postIds = paginatedPosts.map((post) => post._id);
     const repostIds = paginatedReposts.map((repost) => repost._id);
     const originalPostIds = paginatedReposts.map(
-      (repost) => repost.originalPost._id
+      (repost) => repost.originalPost._id,
     );
 
     // Get likes for posts
@@ -1489,15 +1505,15 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
 
     // Create sets of IDs that the user has liked for quick lookup
     const userLikedPostIds = new Set(
-      userPostLikes.map((like) => like.target.toString())
+      userPostLikes.map((like) => like.target.toString()),
     );
     const userLikedRepostIds = new Set(
-      userRepostLikes.map((like) => like.target.toString())
+      userRepostLikes.map((like) => like.target.toString()),
     );
 
     // Create set of post IDs that user has reposted
     const userRepostedPostIds = new Set(
-      userReposts.map((repost) => repost.originalPost.toString())
+      userReposts.map((repost) => repost.originalPost.toString()),
     );
 
     // Get comments for posts
@@ -1634,7 +1650,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
 
       // Check if this post's author is in the followingIds array
       const isFollowed = followingIds.some(
-        (followingId) => followingId.toString() === postUserId
+        (followingId) => followingId.toString() === postUserId,
       );
 
       // Check if the current user has liked this post
@@ -1677,7 +1693,7 @@ export const getDashboardStatsService = async (req: any, res: Response) => {
 
       // Check if this repost's author is in the followingIds array
       const isFollowed = followingIds.some(
-        (followingId) => followingId.toString() === repostUserId
+        (followingId) => followingId.toString() === repostUserId,
       );
 
       // Check if the current user has liked this repost
@@ -1813,7 +1829,7 @@ export const verifyCurrentPasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1821,7 +1837,7 @@ export const verifyCurrentPasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Password is not set for this user",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
   const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -1829,7 +1845,7 @@ export const verifyCurrentPasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Invalid password",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
@@ -1847,7 +1863,7 @@ export const initiateEmailChangeService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1859,7 +1875,7 @@ export const initiateEmailChangeService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Email already in use",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -1881,7 +1897,7 @@ export const initiateEmailChangeService = async (req: any, res: Response) => {
   return errorResponseHandler(
     "Failed to send verification code",
     httpStatusCode.INTERNAL_SERVER_ERROR,
-    res
+    res,
   );
 };
 
@@ -1893,7 +1909,7 @@ export const verifyAndChangeEmailService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1901,7 +1917,7 @@ export const verifyAndChangeEmailService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "No email change was initiated",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -1935,7 +1951,7 @@ export const initiatePhoneChangeService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1945,7 +1961,7 @@ export const initiatePhoneChangeService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Phone number already in use",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -1955,13 +1971,12 @@ export const initiatePhoneChangeService = async (req: any, res: Response) => {
   });
 
   // Generate and send OTP via SMS
-  const passwordResetToken = await generatePasswordResetTokenByPhone(
-    newPhoneNumber
-  );
+  const passwordResetToken =
+    await generatePasswordResetTokenByPhone(newPhoneNumber);
   if (passwordResetToken) {
     await generatePasswordResetTokenByPhoneWithTwilio(
       newPhoneNumber,
-      passwordResetToken.token
+      passwordResetToken.token,
     );
     return {
       success: true,
@@ -1972,7 +1987,7 @@ export const initiatePhoneChangeService = async (req: any, res: Response) => {
   return errorResponseHandler(
     "Failed to send verification code",
     httpStatusCode.INTERNAL_SERVER_ERROR,
-    res
+    res,
   );
 };
 
@@ -1984,7 +1999,7 @@ export const verifyAndChangePhoneService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -1992,7 +2007,7 @@ export const verifyAndChangePhoneService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "No phone change was initiated",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2031,7 +2046,7 @@ export const notificationSettingService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User ID is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2039,7 +2054,7 @@ export const notificationSettingService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Notification type and value are required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2049,7 +2064,7 @@ export const notificationSettingService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2066,7 +2081,7 @@ export const notificationSettingService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Invalid notification type",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2084,7 +2099,7 @@ export const notificationSettingService = async (req: any, res: Response) => {
 };
 export const toggleTwoFactorAuthenticationService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const { id: userId } = req.user;
   const { enabled } = req.body;
@@ -2094,7 +2109,7 @@ export const toggleTwoFactorAuthenticationService = async (
     return errorResponseHandler(
       "User ID is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2102,7 +2117,7 @@ export const toggleTwoFactorAuthenticationService = async (
     return errorResponseHandler(
       "Two-factor authentication status is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2110,7 +2125,7 @@ export const toggleTwoFactorAuthenticationService = async (
     return errorResponseHandler(
       "Two-factor authentication status must be a boolean",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2120,7 +2135,7 @@ export const toggleTwoFactorAuthenticationService = async (
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2151,7 +2166,7 @@ export const getReferalCodeService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Referral codes not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
   return {
@@ -2170,7 +2185,7 @@ export const changePasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Current password and new password are required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2178,7 +2193,7 @@ export const changePasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "New password must be different from current password",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2188,7 +2203,7 @@ export const changePasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2197,7 +2212,7 @@ export const changePasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Password is not set for this user",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
   const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
@@ -2205,7 +2220,7 @@ export const changePasswordService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Current password is incorrect",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
 
@@ -2228,7 +2243,7 @@ export const getAllFollowedUsersService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
   // check for both user follow each other
@@ -2273,7 +2288,7 @@ export const getAllFollowersService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2315,7 +2330,7 @@ export const getAllFollowersService = async (req: any, res: Response) => {
 
 export const togglePrivacyPreferenceService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const { id: userId } = req.user;
   const { accountType } = req.body;
@@ -2325,7 +2340,7 @@ export const togglePrivacyPreferenceService = async (
     return errorResponseHandler(
       "User ID is required",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
   if (
@@ -2335,7 +2350,7 @@ export const togglePrivacyPreferenceService = async (
     return errorResponseHandler(
       "Invalid or missing accountType. Must be one of: public, matches, follower",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2348,7 +2363,7 @@ export const togglePrivacyPreferenceService = async (
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2363,7 +2378,7 @@ export const togglePrivacyPreferenceService = async (
 
 export const getUserNotificationPreferencesService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const { id: userId } = req.user;
 
@@ -2371,14 +2386,14 @@ export const getUserNotificationPreferencesService = async (
   const user = await usersModel
     .findById(userId)
     .select(
-      "pushNotification newsLetterNotification eventsNotification chatNotification"
+      "pushNotification newsLetterNotification eventsNotification chatNotification",
     );
 
   if (!user) {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2396,7 +2411,7 @@ export const getUserNotificationPreferencesService = async (
 };
 export const getUserPrivacyPreferenceService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const { id: userId } = req.user;
 
@@ -2407,7 +2422,7 @@ export const getUserPrivacyPreferenceService = async (
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2465,19 +2480,20 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User id is required",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
   // Fetch user information
   const user = await usersModel
     .findById(userId)
-    .select("-password -token -stripeCustomerId -tempEmail -tempPhoneNumber");
+    .select("-password -token -stripeCustomerId -tempEmail -tempPhoneNumber")
+    .populate("referredBy");
   if (!user) {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -2496,12 +2512,16 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
       creator: userId,
     }),
   ]);
+  const subscription = await SubscriptionModel.findOne({
+    userId: user._id,
+  }).lean();
 
   const newObject = {
     ...user.toObject(),
     followerCount,
     followingCount,
     eventCount,
+    subscription,
   };
 
   return {
@@ -2513,7 +2533,7 @@ export const getUserInfoByTokenService = async (req: any, res: Response) => {
 
 export const getConversationsByTypeService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const userId = req.user.id;
   const { type = "all" } = req.query; // Type can be: 'all', 'individual', 'squad', 'community'
@@ -2543,7 +2563,8 @@ export const getConversationsByTypeService = async (
 
         // Filter out the current user from participants array
         conversationObj.participants = conversationObj.participants.filter(
-          (participant: any) => participant._id.toString() !== userId.toString()
+          (participant: any) =>
+            participant._id.toString() !== userId.toString(),
         );
 
         // Add user-specific pin status
@@ -2561,7 +2582,7 @@ export const getConversationsByTypeService = async (
           conversationObj.lastMessage &&
           Array.isArray(conversationObj.lastMessage.deletedFor) &&
           conversationObj.lastMessage.deletedFor.some(
-            (id: any) => id.toString() === userId.toString()
+            (id: any) => id.toString() === userId.toString(),
           )
         ) {
           conversationObj.lastMessage = null; // Hide last message
@@ -2579,7 +2600,7 @@ export const getConversationsByTypeService = async (
         conversationObj.conversationType = "individual";
 
         return conversationObj;
-      })
+      }),
     );
   }
 
@@ -2620,7 +2641,7 @@ export const getConversationsByTypeService = async (
       const conversationObj: any = conversation.toObject();
       conversationObj.isPinned = conversation.isPinned.get(userId) || false;
       conversationObj.backgroundSettings = conversation.backgroundSettings.get(
-        userId
+        userId,
       ) || {
         backgroundImage: null,
         backgroundColor: null,
@@ -2709,10 +2730,10 @@ export const getConversationsByTypeService = async (
           },
         }
       : type === "individual"
-      ? individualConversations
-      : type === "squad"
-      ? squadConversations
-      : communityConversations;
+        ? individualConversations
+        : type === "squad"
+          ? squadConversations
+          : communityConversations;
 
   return {
     success: true,
@@ -2725,7 +2746,7 @@ export const getConversationsByTypeService = async (
 
 export const getUnchattedFollowingsService = async (
   req: any,
-  res: Response
+  res: Response,
 ) => {
   const userId = req.user.id;
 
@@ -2778,7 +2799,7 @@ export const getUnchattedFollowingsService = async (
   // 🟩 Step 4: Filter users - remove those who are chatted or blocked
   const filteredIds = followingIds.filter(
     (id) =>
-      !chattedUserIds.has(id.toString()) && !blockedUserIds.has(id.toString())
+      !chattedUserIds.has(id.toString()) && !blockedUserIds.has(id.toString()),
   );
 
   if (!filteredIds.length) {
@@ -2881,7 +2902,7 @@ export const getUserAllDataService = async (userId: any, res: Response) => {
     arr.find((x) => x._id?.toString() === id.toString())?.count || 0;
 
   const userLikedTargets = new Set(
-    likes.map((l) => `${l.targetType}_${l.target.toString()}`)
+    likes.map((l) => `${l.targetType}_${l.target.toString()}`),
   );
 
   // === Enrich Events ===
@@ -2969,14 +2990,14 @@ export const editMessageService = async (req: any, res: Response) => {
     errorResponseHandler(
       "Message ID is required",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
   if (!text || text.trim() === "") {
     return errorResponseHandler(
       "Message text cannot be empty",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -2989,14 +3010,14 @@ export const editMessageService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "Only text message is editable",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
   if (message?.sender.toString() !== userId) {
     errorResponseHandler(
       "You are unauthorized to edit message",
       httpStatusCode.UNAUTHORIZED,
-      res
+      res,
     );
   }
   // Update message text and editedAt timestamp
@@ -3240,7 +3261,7 @@ export const deleteUserService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User not found",
       httpStatusCode.NOT_FOUND,
-      res
+      res,
     );
   }
 
@@ -3249,7 +3270,7 @@ export const deleteUserService = async (req: any, res: Response) => {
     return errorResponseHandler(
       "User account is already deleted",
       httpStatusCode.BAD_REQUEST,
-      res
+      res,
     );
   }
 
@@ -3261,7 +3282,7 @@ export const deleteUserService = async (req: any, res: Response) => {
         status: "deleted",
         token: null,
       },
-      { new: true }
+      { new: true },
     )
     .select("-password -token");
 
@@ -3274,4 +3295,229 @@ export const deleteUserService = async (req: any, res: Response) => {
       deletedAt: new Date(),
     },
   };
+};
+export const createAndroidSubscriptionService = async (
+  userId: string,
+  purchaseData: any,
+) => {
+  try {
+    // 1. VALIDATE INPUT
+    if (!purchaseData.purchaseToken) {
+      throw new Error("purchaseTokenRequired");
+    }
+
+    if (!purchaseData.productId) {
+      throw new Error("productIdRequired");
+    }
+
+    if (!purchaseData.dataAndroid || !purchaseData.signatureAndroid) {
+      throw new Error("invalidPurchaseData");
+    }
+
+    // 2. CHECK USER EXISTS
+    const user = await usersModel.findById(userId);
+    if (!user) {
+      throw new Error("userNotFound");
+    }
+
+    // 3. CHECK FOR EXISTING SUBSCRIPTION WITH SAME PURCHASE TOKEN
+    const existingSubscription = await SubscriptionModel.findOne({
+      linkedPurchaseToken: purchaseData.purchaseToken,
+    });
+
+    if (existingSubscription) {
+      console.log(
+        "Subscription already exists, returning existing subscription",
+      );
+      return {
+        success: true,
+        message: "subscriptionAlreadyExists",
+        subscription: existingSubscription,
+        isNew: false,
+      };
+    }
+
+    // 4. VERIFY SIGNATURE
+    console.log("Verifying purchase signature...");
+    const isSignatureValid = verifyPurchaseSignature(
+      purchaseData.dataAndroid,
+      purchaseData.signatureAndroid,
+    );
+
+    if (!isSignatureValid) {
+      console.error("❌ Invalid purchase signature");
+      throw new Error("invalidSignature");
+    }
+    console.log("✓ Signature verified");
+
+    // 5. PARSE ANDROID DATA
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(purchaseData.dataAndroid);
+    } catch (error) {
+      throw new Error("invalidAndroidData");
+    }
+
+    // 6. VERIFY WITH GOOGLE PLAY
+    console.log("Verifying with Google Play...");
+    let googlePlayData: any;
+    try {
+      googlePlayData = await verifyPurchaseWithGoogle(
+        purchaseData.productId,
+        purchaseData.purchaseToken,
+      );
+      console.log("purchaseToken:", purchaseData.purchaseToken);
+      console.log("googlePlayData:", googlePlayData);
+      console.log("✓ Verified with Google Play");
+    } catch (error: any) {
+      console.error("❌ Google Play verification failed:", error.message);
+      throw error;
+    }
+
+    // 7. Resolve plan
+    const plan = await PlanModel.findOne({
+      androidProductId: purchaseData.productId,
+    });
+    // === COMMON FIELDS TO UPDATE OR CREATE ===
+    const startDate = new Date(parseInt(googlePlayData.startTimeMillis));
+
+    const status = mapPurchaseStateToStatus(
+      parsedData.purchaseState,
+      parsedData.autoRenewing,
+      googlePlayData.expiryTimeMillis,
+      googlePlayData.paymentState,
+      googlePlayData.priceAmountMicros,
+      googlePlayData.introductoryPriceInfo,
+    );
+
+    const priceAmountMicros = parseInt(googlePlayData.priceAmountMicros);
+    const priceAmount = priceAmountMicros / 1_000_000;
+
+    const expiryDate = googlePlayData.expiryTimeMillis
+      ? new Date(parseInt(googlePlayData.expiryTimeMillis))
+      : null;
+    // 8. Upsert subscription (ONE PER USER PER PLATFORM)
+    const subscription = await SubscriptionModel.findOneAndUpdate(
+      { userId, deviceType: "ANDROID" },
+      {
+        userId,
+        deviceType: "ANDROID",
+        subscriptionId: purchaseData.productId,
+        linkedPurchaseToken: purchaseData.purchaseToken,
+        orderId: parsedData.orderId,
+        planId: plan?._id,
+        status,
+        startDate,
+        currentPeriodStart: startDate,
+        currentPeriodEnd: expiryDate,
+        amount: priceAmount,
+        currency: googlePlayData.priceCurrencyCode?.toLowerCase(),
+        environment: "Production",
+      },
+      { upsert: true, new: true },
+    );
+
+    return {
+      success: true,
+      message: "subscriptionCreated",
+      data: subscription,
+    };
+  } catch (error: any) {
+    console.error("❌ Create Android subscription error:", error.message);
+    throw error;
+  }
+};
+export const restorePurchaseService = async (
+  userId: string,
+  purchaseToken: string,
+  packageName: string,
+  productId: string,
+) => {
+  try {
+    if (!userId) throw new Error("userNotFound");
+    if (!purchaseToken) throw new Error("purchaseTokenRequired");
+    if (!productId) throw new Error("productIdRequired");
+
+    // 1. Verify with Google Play
+    console.log("🔍 Verifying purchase with Google Play...");
+    const googlePlayData = await verifyPurchaseWithGoogle(
+      productId,
+      purchaseToken,
+    );
+    console.log("✓ Google Play verification successful");
+
+    const isValid = await isPurchaseValidForRestore(googlePlayData);
+
+    if (!isValid.valid) {
+      return {
+        success: false,
+        canRestore: false,
+        reason: isValid.reason,
+        message: isValid.message,
+      };
+    }
+
+    // 2. Resolve plan
+    const plan = await PlanModel.findOne({
+      androidProductId: productId,
+    });
+
+    // 3. Dates
+    const startDate = googlePlayData.startTimeMillis
+      ? new Date(Number(googlePlayData.startTimeMillis))
+      : null;
+
+    const expiryDate = googlePlayData.expiryTimeMillis
+      ? new Date(Number(googlePlayData.expiryTimeMillis))
+      : null;
+
+    // 4. Determine status
+    let status: any;
+
+    if (googlePlayData.paymentState === 2) {
+      status = "trialing";
+    } else if (googlePlayData.paymentState === 1) {
+      status = "active";
+    }
+
+    if (expiryDate && expiryDate < new Date()) {
+      status = "canceled";
+    }
+
+    // 5. Amount
+    const amount =
+      googlePlayData.paymentState === 1 && googlePlayData.priceAmountMicros
+        ? Number(googlePlayData.priceAmountMicros) / 1_000_000
+        : 0;
+
+    // 6. Upsert subscription (RESTORE = SAME AS PURCHASE)
+    const subscription = await SubscriptionModel.findOneAndUpdate(
+      { linkedPurchaseToken: purchaseToken },
+      {
+        userId,
+        deviceType: "ANDROID",
+        subscriptionId: productId,
+        linkedPurchaseToken: purchaseToken,
+        orderId: googlePlayData.orderId,
+        planId: plan?._id,
+        status,
+        startDate,
+        currentPeriodStart: startDate,
+        currentPeriodEnd: expiryDate,
+        amount,
+        currency: googlePlayData.priceCurrencyCode?.toLowerCase(),
+        environment: "Sandbox",
+      },
+      { upsert: true, new: true },
+    );
+
+    return {
+      success: true,
+      message: "subscriptionRestored",
+      data: subscription,
+    };
+  } catch (error: any) {
+    console.error("❌ Restore purchase service error:", error.message);
+    throw error;
+  }
 };

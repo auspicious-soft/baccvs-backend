@@ -33,6 +33,7 @@
     "typescript": "^5.6.2"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^2.0.0",
     "@aws-sdk/client-s3": "^3.687.0",
     "@aws-sdk/s3-request-presigner": "^3.687.0",
     "@react-email/components": "^0.0.25",
@@ -48,6 +49,7 @@
     "express": "^4.20.0",
     "firebase-admin": "^13.6.0",
     "google-auth-library": "^10.2.1",
+    "googleapis": "^170.1.0",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.3",
     "luxon": "^3.7.2",

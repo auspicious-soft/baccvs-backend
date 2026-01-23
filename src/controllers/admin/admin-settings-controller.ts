@@ -2,6 +2,34 @@ import { Request, Response } from "express";
 import { httpStatusCode } from "src/lib/constant";
 import { errorParser } from "src/lib/errors/error-response-handler";
 import { adminSettings, StaffServices } from "src/services/admin/admin-service";
+import { planServices } from "src/utils/ios-iap/iosutils";
+
+class ValidationError extends Error {
+  statusCode: number;
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+    this.statusCode = 400;
+  }
+}
+
+class NotFoundError extends Error {
+  statusCode: number;
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+    this.statusCode = 404;
+  }
+}
+
+class DuplicateError extends Error {
+  statusCode: number;
+  constructor(message: string) {
+    super(message);
+    this.name = "DuplicateError";
+    this.statusCode = 409;
+  }
+}
 
 export const VerifyAdminPassword = async (req: Request, res: Response) => {
   try {
@@ -42,7 +70,7 @@ export const SubmitChangeRequest = async (req: Request, res: Response) => {
 
     if (!oldValue || !newValue) {
       throw new Error(
-        `Old ${type.toLowerCase()} and new ${type.toLowerCase()} are required`
+        `Old ${type.toLowerCase()} and new ${type.toLowerCase()} are required`,
       );
     }
 
@@ -433,8 +461,8 @@ export const removeUnRemoveStaff = async (req: Request, res: Response) => {
   }
 };
 
-export const getAdminData = async (req:Request, res:Response) =>{
- try {
+export const getAdminData = async (req: Request, res: Response) => {
+  try {
     const adminId = req.admin?.id;
 
     if (!adminId) {
@@ -461,4 +489,151 @@ export const getAdminData = async (req:Request, res:Response) =>{
       message: message || "Something went wrong",
     });
   }
+};
+export const planController = {
+  async createPlan(req: Request, res: Response) {
+    try {
+      const plan = await planServices.create(req.body);
+
+      return res.status(201).json({
+        success: true,
+        message: "Plan created successfully",
+        data: plan,
+      });
+    } catch (error: any) {
+      console.error("Error creating plan:", error);
+
+      // Handle mongoose validation errors (only when `error.errors` exists)
+      if (
+        error &&
+        error.name === "ValidationError" &&
+        error.errors &&
+        typeof error.errors === "object"
+      ) {
+        const messages = Object.values(error.errors).map(
+          (err: any) => err.message,
+        );
+        return res.status(400).json({
+          success: false,
+          error: "Validation Error",
+          messages,
+        });
+      }
+
+      // Handle mongoose duplicate key error
+      if (error && error.code === 11000) {
+        const field = error.keyPattern
+          ? Object.keys(error.keyPattern)[0]
+          : "field";
+        return res.status(409).json({
+          success: false,
+          error: "Duplicate Error",
+          message: `A plan with this ${field} already exists`,
+        });
+      }
+
+      // Handle custom errors thrown by utilities or services (they may not be instances
+      // of the local classes but often include a `statusCode` and `name`).
+      if (
+        error &&
+        (error instanceof ValidationError ||
+          error instanceof DuplicateError ||
+          error instanceof NotFoundError ||
+          (typeof error.statusCode === "number" &&
+            ["ValidationError", "DuplicateError", "NotFoundError"].includes(
+              error.name,
+            )))
+      ) {
+        return res.status(error.statusCode || 400).json({
+          success: false,
+          error: error.name || "Error",
+          message: error.message,
+        });
+      }
+
+      // Fallback unknown errors
+      return res.status(500).json({
+        success: false,
+        error: "Internal Server Error",
+        message:
+          error?.message ||
+          "An unexpected error occurred while creating the plan",
+      });
+    }
+  },
+
+  /**
+   * Update a plan
+   * PATCH /api/plans/:planId
+   */
+  async updatePlan(req: Request, res: Response) {
+    try {
+      const { planId } = req.params;
+      const plan = await planServices.update(planId, req.body);
+
+      return res.status(200).json({
+        success: true,
+        message: "Plan updated successfully",
+        data: plan,
+      });
+    } catch (error: any) {
+      console.error("Error updating plan:", error);
+
+      // Handle mongoose validation errors (only when `error.errors` exists)
+      if (
+        error &&
+        error.name === "ValidationError" &&
+        error.errors &&
+        typeof error.errors === "object"
+      ) {
+        const messages = Object.values(error.errors).map(
+          (err: any) => err.message,
+        );
+        return res.status(400).json({
+          success: false,
+          error: "Validation Error",
+          messages,
+        });
+      }
+
+      // Handle mongoose duplicate key error
+      if (error && error.code === 11000) {
+        const field = error.keyPattern
+          ? Object.keys(error.keyPattern)[0]
+          : "field";
+        return res.status(409).json({
+          success: false,
+          error: "Duplicate Error",
+          message: `A plan with this ${field} already exists`,
+        });
+      }
+
+      // Handle custom errors thrown by utilities or services
+      if (
+        error &&
+        (error instanceof ValidationError ||
+          error instanceof DuplicateError ||
+          error instanceof NotFoundError ||
+          (typeof error.statusCode === "number" &&
+            ["ValidationError", "DuplicateError", "NotFoundError"].includes(
+              error.name,
+            )))
+      ) {
+        return res.status(error.statusCode || 400).json({
+          success: false,
+          error: error.name || "Error",
+          message: error.message,
+        });
+      }
+
+      // Fallback unknown errors
+      return res.status(500).json({
+        success: false,
+        error: "Internal Server Error",
+        message:
+          error?.message ||
+          "An unexpected error occurred while updating the plan",
+      });
+    }
+  },
 };

@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { AcceptInvitation, getAdminData, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
-import { deleteEventById, deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
+import { getAdminData, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, planController, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
+import { deleteEventById, deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getReferalStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
 import { checkSettingsAuth } from "src/middleware/admin-settings-auth";
-
 
 const router = Router();
 
+// admin plan routes
+router.post("/create-plan",planController.createPlan);
 
 router.post("/settings/verify-password",VerifyAdminPassword);
 router.post("/settings/change-initiate",checkSettingsAuth ,SubmitChangeRequest);
@@ -29,6 +30,9 @@ router.get("/event-and-ticketing/stats", getEventStats);
 router.get("/event-and-ticketing/event/:eventId", getEventByIdAdmin);
 router.post("/event-and-ticketing/refund", refundEventAdmin);
 router.delete("/event-and-ticketing/delete-event/:eventId", deleteEventById)
+
+// referal admin routes
+router.get("/referral/stats",getReferalStats);
 
 
 export { router };
