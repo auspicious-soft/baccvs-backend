@@ -1,7 +1,12 @@
 import { Request, Response } from "express";
 import { httpStatusCode } from "src/lib/constant";
 import { errorParser } from "src/lib/errors/error-response-handler";
-import { adminEventAndTicketingServices, adminReferalServices, UserServices } from "src/services/admin/admin-service";
+import {
+  adminEventAndTicketingServices,
+  adminReferalServices,
+  adminRevenueAndFinancialServices,
+  UserServices,
+} from "src/services/admin/admin-service";
 
 export const GetAllUsers = async (req: Request, res: Response) => {
   try {
@@ -57,7 +62,7 @@ export const updateUsersBanStatus = async (req: Request, res: Response) => {
       isBanned,
     });
 
-      return res.status(httpStatusCode.OK).json({
+    return res.status(httpStatusCode.OK).json({
       success: true,
       ...response,
     });
@@ -111,7 +116,6 @@ export const deleteMultipleUsers = async (req: Request, res: Response) => {
   }
 };
 
-
 export const getSingleUserDetails = async (req: Request, res: Response) => {
   try {
     const admin = req.admin;
@@ -144,12 +148,12 @@ export const getSingleUserDetails = async (req: Request, res: Response) => {
 export const getEventStats = async (req: Request, res: Response) => {
   try {
     const admin = req.admin;
-    const { startDate,endDate,revenueFilter,search,eventFilter, } = req.query;
+    const { startDate, endDate, revenueFilter, search, eventFilter } =
+      req.query;
 
     if (!admin) {
       throw new Error("Unauthorized");
     }
-
 
     const response = await adminEventAndTicketingServices.getEventStats({
       admin,
@@ -175,12 +179,11 @@ export const getEventByIdAdmin = async (req: Request, res: Response) => {
   try {
     const admin = req.admin;
     const { eventId } = req.params;
-    const {  revenueFilter, startDate, endDate } = req.query;
+    const { revenueFilter, startDate, endDate } = req.query;
 
     if (!admin) {
       throw new Error("Unauthorized");
     }
-
 
     const response = await adminEventAndTicketingServices.getEventById({
       admin,
@@ -204,18 +207,18 @@ export const getEventByIdAdmin = async (req: Request, res: Response) => {
 export const refundEventAdmin = async (req: Request, res: Response) => {
   try {
     const admin = req.admin;
-    const { eventId,reason } = req.body;
+    const { eventId, reason } = req.body;
 
     if (!admin) {
       throw new Error("Unauthorized");
     }
 
-
-    const response = await adminEventAndTicketingServices.refundAllEventPurchases({
-      admin,
-      eventId,
-      reason
-    });
+    const response =
+      await adminEventAndTicketingServices.refundAllEventPurchases({
+        admin,
+        eventId,
+        reason,
+      });
 
     return res.status(200).json({
       success: true,
@@ -237,10 +240,34 @@ export const deleteEventById = async (req: Request, res: Response) => {
       throw new Error("Unauthorized");
     }
 
+    const response =
+      await adminEventAndTicketingServices.deleteEventById(eventId);
 
-    const response = await adminEventAndTicketingServices.deleteEventById(
-      eventId
-    );
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (error: any) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+};
+export const getFinancialOverview = async (req: Request, res: Response) => {
+  try {
+    const admin = req.admin;
+    if (!admin) {
+      throw new Error("Unauthorized");
+    }
+
+    const payload = {
+      startDate: typeof req.query.startDate === "string" ? req.query.startDate : "",
+      endDate: typeof req.query.endDate === "string" ? req.query.endDate : "",
+      search: typeof req.query.search === "string" ? req.query.search : "",
+      tableType: typeof req.query.tableType === "string" ? req.query.tableType : "all",
+    };
+    const response = await adminRevenueAndFinancialServices.getFinancialOverview(payload);
 
     return res.status(200).json({
       success: true,
@@ -260,10 +287,12 @@ export const getReferalStats = async (req: Request, res: Response) => {
       throw new Error("Unauthorized");
     }
 
-
-    const response = await adminReferalServices.getReferalStats(
-      req.query
-    );
+    const payload = {
+      search: typeof req.query.search === "string" ? req.query.search : "",
+      page: Number(req.query.page) || 1,
+      limit: Number(req.query.limit) || 10,
+    };
+    const response = await adminReferalServices.getReferalStats(payload);
 
     return res.status(200).json({
       success: true,

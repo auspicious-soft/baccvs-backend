@@ -279,9 +279,25 @@ const UserSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    unlimitedSuperLikes:{
+      type: Boolean,
+      default: false,
+    },
+    unlimitedSuperLikesExpiry:{
+      type: Date,
+      default: null,
+    },
     totalBoosts: {
       type: Number,
       default: 0,
+    },
+    unlimitedBoosts:{
+      type: Boolean,
+      default: false,
+    },
+    unlimitedBoostsExpiry:{
+      type: Date,
+      default: null,
     },
     status: {
       type: String,

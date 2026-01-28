@@ -37,6 +37,7 @@ import { Comment } from "src/models/comment/comment-schema";
 import { transferModel } from "src/models/transfer/transfer-schema";
 import { ReferralCodeModel } from "src/models/referalcode/referal-schema";
 import { ReferralClickModel } from "src/models/referalclick/referal-click-schema";
+import { TransactionModel } from "src/models/transaction/subscription-transaction";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-02-24.acacia",
@@ -126,6 +127,42 @@ function getRevenueDateRange(filter?: string) {
 
   return { start, end };
 }
+
+const startOfDay = (d: Date) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+const buildTimeSeries = async ({
+  model,
+  match,
+  groupFormat,
+  labelFormatter,
+}: any) => {
+  return model.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: {
+          $dateToString: {
+            format: groupFormat,
+            date: "$createdAt",
+          },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { _id: 1 } },
+    {
+      $project: {
+        _id: 0,
+        label: "$_id",
+        count: 1,
+      },
+    },
+  ]);
+};
 
 function getGraphDateFormat(filter?: string) {
   if (filter === "today") return "%H:00";
@@ -256,12 +293,20 @@ const calculatePercentageChange = (current: number, previous: number) => {
 // }
 
 export const createLikeProductService = async (req: any, res: Response) => {
-  const { title, credits, price, interval } = req.body;
+  const { title, credits, price, interval, type } = req.body;
 
   // Validation
-  if (!title || !credits || !price) {
+  if (!title || !credits || !price || !type) {
     return errorResponseHandler(
-      "title, credits & price are required",
+      "title, credits, price & type are required",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  if (!["like", "superlike", "boost"].includes(type)) {
+    return errorResponseHandler(
+      "Invalid product type",
       httpStatusCode.BAD_REQUEST,
       res,
     );
@@ -271,7 +316,7 @@ export const createLikeProductService = async (req: any, res: Response) => {
   const stripeProduct = await stripe.products.create({
     name: title,
     metadata: {
-      type: "likes",
+      productType: type,
       credits: credits.toString(),
     },
   });
@@ -282,7 +327,7 @@ export const createLikeProductService = async (req: any, res: Response) => {
     currency: "usd",
     recurring: { interval: interval || "month" },
     metadata: {
-      type: "likes",
+      productType: type,
       credits: credits.toString(),
     },
   });
@@ -290,6 +335,7 @@ export const createLikeProductService = async (req: any, res: Response) => {
   // Save to MongoDB
   const product = await LikeProductsModel.create({
     title,
+    type,
     credits,
     price,
     interval: interval || "month",
@@ -2471,7 +2517,415 @@ export const adminEventAndTicketingServices = {
 };
 export const adminRevenueAndFinancialServices = {
   async getFinancialOverview(payload: any) {
-    const { adminId, startDate, endDate } = payload;
+    const {
+      adminId,
+      startDate,
+      endDate,
+      search,
+      tableType = "all", // all | subscription | ticket | like | superlike | boost
+    } = payload;
+
+    const dateFilter: any = {};
+    if (startDate || endDate) {
+      dateFilter.createdAt = {};
+      if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+      if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
+    }
+
+    /* =====================================================
+  1. TOTAL REVENUE + CATEGORY SPLIT
+  ===================================================== */
+
+    // Get revenue from Transaction collection (likes, superlikes, boosts, tickets) - always USD
+    const revenueAgg = await Transaction.aggregate([
+      { $match: { status: "succeeded", ...dateFilter } },
+      {
+        $group: {
+          _id: "$type",
+          amount: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    // Get revenue from TransactionModel collection (subscriptions) - multiple currencies
+    const subscriptionRevenueAgg = await TransactionModel.aggregate([
+      { $match: { status: "succeeded", ...dateFilter } },
+      {
+        $group: {
+          _id: "$currency",
+          amount: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    const revenueMap: any = {
+      subscription: 0,
+      ticket: 0,
+      like: 0,
+      superlike: 0,
+      boost: 0,
+    };
+
+    // Subscription currencies breakdown
+    const subscriptionByCurrency = subscriptionRevenueAgg.map((s) => ({
+      currency: s._id,
+      amount: s.amount,
+    }));
+
+    const totalSubscriptionAmount = subscriptionRevenueAgg.reduce(
+      (sum, s) => sum + s.amount,
+      0,
+    );
+
+    revenueMap.subscription = totalSubscriptionAmount;
+
+    // Other transactions are in USD
+    revenueAgg.forEach((r) => {
+      if (r._id === "EVENT_TICKET") revenueMap.ticket += r.amount;
+      if (r._id === "PURCHASE_LIKE") revenueMap.like += r.amount;
+      if (r._id === "PURCHASE_SUPERLIKE") revenueMap.superlike += r.amount;
+      if (r._id === "PURCHASE_BOOST") revenueMap.boost += r.amount;
+    });
+
+    // Note: Total revenue is mixed currencies - subscriptions in various currencies + others in USD
+    const totalRevenueAmount = Object.values(revenueMap).reduce(
+      (sum: number, val: any) => sum + val,
+      0,
+    );
+
+    const percentage = (val: number) =>
+      totalRevenueAmount === 0
+        ? 0
+        : +((val / totalRevenueAmount) * 100).toFixed(2);
+
+    /* =====================================================
+  2. SUBSCRIPTION → PLAN-WISE REVENUE
+  ===================================================== */
+
+    const subscriptionByPlan = await TransactionModel.aggregate([
+      {
+        $match: {
+          status: "succeeded",
+          ...dateFilter,
+        },
+      },
+      {
+        $lookup: {
+          from: "plans",
+          localField: "planId",
+          foreignField: "_id",
+          as: "plan",
+        },
+      },
+      { $unwind: "$plan" },
+      {
+        $group: {
+          _id: "$plan._id",
+          planName: { $first: "$plan.name" },
+          amount: { $sum: "$amount" },
+          currency: { $first: "$currency" },
+        },
+      },
+    ]);
+
+    const subscriptionTotal = subscriptionByPlan.reduce(
+      (s, p) => s + p.amount,
+      0,
+    );
+
+    /* =====================================================
+  3. LIKE / SUPERLIKE / BOOST PRODUCT-WISE
+  ===================================================== */
+
+    const productRevenue = await Transaction.aggregate([
+      {
+        $match: {
+          status: "succeeded",
+          type: {
+            $in: ["PURCHASE_LIKE", "PURCHASE_SUPERLIKE", "PURCHASE_BOOST"],
+          },
+          ...dateFilter,
+        },
+      },
+      {
+        $lookup: {
+          from: "likeproducts",
+          localField: "reference.id",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: "$product" },
+      {
+        $group: {
+          _id: {
+            type: "$product.type",
+            productId: "$product._id",
+            title: "$product.title",
+          },
+          amount: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    const splitProducts = (type: string) => {
+      const items = productRevenue.filter((p) => p._id.type === type);
+      const total = items.reduce((s, i) => s + i.amount, 0);
+
+      return {
+        totalAmount: total,
+        currency: "usd", // Products are always in USD
+        byProduct: items.map((i) => ({
+          productId: i._id.productId,
+          title: i._id.title,
+          amount: i.amount,
+          currency: "usd",
+          percentage: total === 0 ? 0 : +((i.amount / total) * 100).toFixed(2),
+        })),
+      };
+    };
+
+    /* =====================================================
+  4. TICKET SALES SUMMARY
+  ===================================================== */
+
+    const ticketAgg = await Transaction.aggregate([
+      {
+        $match: {
+          type: "EVENT_TICKET",
+          status: "succeeded",
+          ...dateFilter,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    /* =====================================================
+  5. TABLE DATA (SEARCH + TYPE FILTER)
+  ===================================================== */
+
+    let tableData: any[] = [];
+
+    if (tableType === "subscription" || tableType === "all") {
+      // Build search pipeline for subscriptions
+      const subscriptionPipeline: any[] = [
+        { $match: { status: "succeeded", ...dateFilter } },
+      ];
+
+      // Add user lookup for search
+      subscriptionPipeline.push(
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "plans",
+            localField: "planId",
+            foreignField: "_id",
+            as: "plan",
+          },
+        },
+        { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } },
+      );
+
+      // Add search filter if search query exists
+      if (search && search.trim()) {
+        const searchRegex = { $regex: search.trim(), $options: "i" };
+        subscriptionPipeline.push({
+          $match: {
+            $or: [
+              { "user.name": searchRegex },
+              { "user.email": searchRegex },
+              { "user.phone": searchRegex },
+              { "plan.name.en": searchRegex },
+              { transactionId: searchRegex },
+              { orderId: searchRegex },
+            ],
+          },
+        });
+      }
+
+      subscriptionPipeline.push(
+        {
+          $project: {
+            type: { $literal: "SUBSCRIPTION" },
+            amount: 1,
+            currency: 1,
+            userId: 1,
+            createdAt: 1,
+            planId: 1,
+            transactionId: 1,
+            orderId: 1,
+            userName: "$user.userName",
+            photo: {
+              $arrayElemAt: ["$user.photos", 0],
+            },
+            userEmail: "$user.email",
+            planName: "$plan.name",
+          },
+        },
+        { $sort: { createdAt: -1 } },
+      );
+
+      const subscriptionTableData =
+        await TransactionModel.aggregate(subscriptionPipeline);
+      tableData = [...tableData, ...subscriptionTableData];
+    }
+
+    if (tableType !== "subscription") {
+      // Build match for Transaction collection
+      const tableMatch: any = { status: "succeeded", ...dateFilter };
+
+      if (tableType !== "all") {
+        const map: any = {
+          ticket: "EVENT_TICKET",
+          like: "PURCHASE_LIKE",
+          superlike: "PURCHASE_SUPERLIKE",
+          boost: "PURCHASE_BOOST",
+        };
+        tableMatch.type = map[tableType];
+      }
+
+      const otherPipeline: any[] = [{ $match: tableMatch }];
+
+      // Add user lookup for search
+      otherPipeline.push(
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+      );
+
+      // Add search filter if search query exists
+      if (search && search.trim()) {
+        const searchRegex = { $regex: search.trim(), $options: "i" };
+        otherPipeline.push({
+          $match: {
+            $or: [
+              { "user.userName": searchRegex },
+              { "user.email": searchRegex },
+              { "user.phone": searchRegex },
+              { type: searchRegex },
+              { transactionId: searchRegex },
+              { orderId: searchRegex },
+            ],
+          },
+        });
+      }
+
+      otherPipeline.push(
+        {
+          $project: {
+            type: 1,
+            amount: 1,
+            currency: 1,
+            userId: 1,
+            createdAt: 1,
+            referenceId: "$reference.id",
+            transactionId: 1,
+            orderId: 1,
+            userName: "$user.userName",
+            photo: {
+              $arrayElemAt: ["$user.photos", 0],
+            },
+            userEmail: "$user.email",
+          },
+        },
+        { $sort: { createdAt: -1 } },
+      );
+
+      const otherTableData = await Transaction.aggregate(otherPipeline);
+      tableData = [...tableData, ...otherTableData];
+    }
+
+    // Sort combined data by createdAt
+    tableData.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    /* =====================================================
+  FINAL RESPONSE
+  ===================================================== */
+
+    return {
+      totalRevenue: {
+        amount: totalRevenueAmount,
+        currency: "mixed", // Mixed currencies - subscriptions in multiple currencies + others in USD
+        breakdown: {
+          subscription: {
+            amount: revenueMap.subscription,
+            percentage: percentage(revenueMap.subscription),
+            byCurrency: subscriptionByCurrency, // Array of {currency, amount}
+          },
+          ticket: {
+            amount: revenueMap.ticket,
+            percentage: percentage(revenueMap.ticket),
+            currency: "usd",
+          },
+          like: {
+            amount: revenueMap.like,
+            percentage: percentage(revenueMap.like),
+            currency: "usd",
+          },
+          superlike: {
+            amount: revenueMap.superlike,
+            percentage: percentage(revenueMap.superlike),
+            currency: "usd",
+          },
+          boost: {
+            amount: revenueMap.boost,
+            percentage: percentage(revenueMap.boost),
+            currency: "usd",
+          },
+        },
+      },
+      subscriptions: {
+        totalAmount: subscriptionTotal,
+        byCurrency: subscriptionByCurrency, // Show currency breakdown
+        byPlan: subscriptionByPlan.map((p) => ({
+          planId: p._id,
+          planName: p.planName,
+          amount: p.amount,
+          currency: p.currency, // Each plan purchase has its own currency
+          percentage:
+            subscriptionTotal === 0
+              ? 0
+              : +((p.amount / subscriptionTotal) * 100).toFixed(2),
+        })),
+      },
+
+      likes: splitProducts("like"),
+      superlikes: splitProducts("superlike"),
+      boosts: splitProducts("boost"),
+
+      tickets: {
+        totalAmount: ticketAgg[0]?.totalAmount || 0,
+        totalSold: ticketAgg[0]?.count || 0,
+        currency: "usd",
+      },
+      table: {
+        totalCount: tableData.length,
+        data: tableData,
+      },
+    };
   },
 };
 export const adminReferalServices = {
@@ -2625,16 +3079,107 @@ export const adminReferalServices = {
       { $count: "count" },
     ]);
 
-    /* ---------------- FINAL RESPONSE ---------------- */
-    // ---------------- CLICK & CONVERSION STATS ----------------
+    /* ---------------- CONVERSION GRAPH DATA ---------------- */
+
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - 6);
-    weekStart.setHours(0, 0, 0, 0);
+    const todayStart = startOfDay(now);
+    const weekStart = startOfDay(new Date(now.setDate(now.getDate() - 6)));
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    /* ---------- TODAY (HOURLY) ---------- */
+    const [todayClicksGraph, todaySignupsGraph] = await Promise.all([
+      buildTimeSeries({
+        model: ReferralClickModel,
+        match: { createdAt: { $gte: todayStart } },
+        groupFormat: "%H",
+      }),
+      buildTimeSeries({
+        model: usersModel,
+        match: {
+          referredBy: { $ne: null },
+          createdAt: { $gte: todayStart },
+        },
+        groupFormat: "%H",
+      }),
+    ]);
+
+    /* ---------- WEEK / MONTH (DAILY) ---------- */
+    const [
+      weekClicksGraph,
+      weekSignupsGraph,
+      monthClicksGraph,
+      monthSignupsGraph,
+    ] = await Promise.all([
+      buildTimeSeries({
+        model: ReferralClickModel,
+        match: { createdAt: { $gte: weekStart } },
+        groupFormat: "%Y-%m-%d",
+      }),
+      buildTimeSeries({
+        model: usersModel,
+        match: {
+          referredBy: { $ne: null },
+          createdAt: { $gte: weekStart },
+        },
+        groupFormat: "%Y-%m-%d",
+      }),
+      buildTimeSeries({
+        model: ReferralClickModel,
+        match: { createdAt: { $gte: monthStart } },
+        groupFormat: "%Y-%m-%d",
+      }),
+      buildTimeSeries({
+        model: usersModel,
+        match: {
+          referredBy: { $ne: null },
+          createdAt: { $gte: monthStart },
+        },
+        groupFormat: "%Y-%m-%d",
+      }),
+    ]);
+
+    /* ---------- YEAR (MONTHLY) ---------- */
+    const [yearClicksGraph, yearSignupsGraph] = await Promise.all([
+      buildTimeSeries({
+        model: ReferralClickModel,
+        match: { createdAt: { $gte: yearStart } },
+        groupFormat: "%Y-%m",
+      }),
+      buildTimeSeries({
+        model: usersModel,
+        match: {
+          referredBy: { $ne: null },
+          createdAt: { $gte: yearStart },
+        },
+        groupFormat: "%Y-%m",
+      }),
+    ]);
+
+    /* ---------- MERGE CLICKS + SIGNUPS ---------- */
+    const mergeGraphs = (clicks: any[], signups: any[]) => {
+      const map = new Map<string, any>();
+
+      clicks.forEach((c) =>
+        map.set(c.label, { label: c.label, clicks: c.count, signups: 0 }),
+      );
+      signups.forEach((s) => {
+        if (!map.has(s.label))
+          map.set(s.label, { label: s.label, clicks: 0, signups: s.count });
+        else map.get(s.label).signups = s.count;
+      });
+
+      return Array.from(map.values());
+    };
+
+    const calcConversion = (signups: number, clicks: number) =>
+      clicks === 0 ? 0 : Number(((signups / clicks) * 100).toFixed(2));
+
+    /* ---------------- FINAL RESPONSE ---------------- */
+    // ---------------- CLICK & CONVERSION STATS ----------------
+    todayStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(now.getDate() - 6);
+    weekStart.setHours(0, 0, 0, 0);
 
     const [
       clicksToday,
@@ -2668,29 +3213,38 @@ export const adminReferalServices = {
       }),
     ]);
 
-    const calcConversion = (signups: number, clicks: number) =>
-      clicks === 0 ? 0 : Number(((signups / clicks) * 100).toFixed(2));
-
     const conversionStats = {
       today: {
-        clicks: clicksToday,
-        signups: signupsToday,
-        conversionRate: calcConversion(signupsToday, clicksToday),
+        summary: {
+          clicks: clicksToday,
+          signups: signupsToday,
+          conversionRate: calcConversion(signupsToday, clicksToday),
+        },
+        graph: mergeGraphs(todayClicksGraph, todaySignupsGraph),
       },
       week: {
-        clicks: clicksWeek,
-        signups: signupsWeek,
-        conversionRate: calcConversion(signupsWeek, clicksWeek),
+        summary: {
+          clicks: clicksWeek,
+          signups: signupsWeek,
+          conversionRate: calcConversion(signupsWeek, clicksWeek),
+        },
+        graph: mergeGraphs(weekClicksGraph, weekSignupsGraph),
       },
       month: {
-        clicks: clicksMonth,
-        signups: signupsMonth,
-        conversionRate: calcConversion(signupsMonth, clicksMonth),
+        summary: {
+          clicks: clicksMonth,
+          signups: signupsMonth,
+          conversionRate: calcConversion(signupsMonth, clicksMonth),
+        },
+        graph: mergeGraphs(monthClicksGraph, monthSignupsGraph),
       },
       year: {
-        clicks: clicksYear,
-        signups: signupsYear,
-        conversionRate: calcConversion(signupsYear, clicksYear),
+        summary: {
+          clicks: clicksYear,
+          signups: signupsYear,
+          conversionRate: calcConversion(signupsYear, clicksYear),
+        },
+        graph: mergeGraphs(yearClicksGraph, yearSignupsGraph),
       },
     };
 

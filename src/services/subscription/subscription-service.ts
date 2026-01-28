@@ -525,10 +525,11 @@ export const createCheckoutSessionService = async (
           res,
         );
       }
+      let transactionType = likeProduct.type === "like" ? TransactionType.PURCHASE_LIKE : likeProduct.type === "boost" ? TransactionType.BOOST_PURCHASE : TransactionType.SUPERLIKE_PURCHASE;
 
       transactionData = {
         ...transactionData,
-        type: TransactionType.PURCHASE_LIKE,
+        type: transactionType,
         amount: likeProduct.price,
         reference: { model: "likeProduct", id: likeProduct._id },
         stripePaymentIntentId: paymentIntent.id,
@@ -972,93 +973,94 @@ export const handleStripeWebhookService = async (
         };
         await transaction.save({ session });
 
-        if (transaction.type === TransactionType.DATING_SUBSCRIPTION) {
-          // Use transaction metadata as source of truth for product/price/plan
-          const { productId, priceId, planType } = txMeta as any;
-          if (!productId || !priceId) {
-            return errorResponseHandler(
-              "Missing productId or priceId in transaction metadata",
-              400,
-              res,
-            );
-          }
+        // if (transaction.type === TransactionType.DATING_SUBSCRIPTION) {
+        //   // Use transaction metadata as source of truth for product/price/plan
+        //   const { productId, priceId, planType } = txMeta as any;
+        //   if (!productId || !priceId) {
+        //     return errorResponseHandler(
+        //       "Missing productId or priceId in transaction metadata",
+        //       400,
+        //       res,
+        //     );
+        //   }
 
-          const product = await stripe.products.retrieve(productId);
-          const price = await stripe.prices.retrieve(priceId);
-          const subscription = await DatingSubscription.findOne({
-            user: resolvedUserId,
-          }).session(session);
+        //   const product = await stripe.products.retrieve(productId);
+        //   const price = await stripe.prices.retrieve(priceId);
+        //   const subscription = await DatingSubscription.findOne({
+        //     user: resolvedUserId,
+        //   }).session(session);
 
-          const startDate = new Date();
-          const endDate = new Date();
-          if (price.recurring) {
-            const { interval, interval_count = 1 } = price.recurring;
-            if (interval === "day")
-              endDate.setDate(endDate.getDate() + interval_count);
-            else if (interval === "week")
-              endDate.setDate(endDate.getDate() + interval_count * 7);
-            else if (interval === "month")
-              endDate.setMonth(endDate.getMonth() + interval_count);
-            else if (interval === "year")
-              endDate.setFullYear(endDate.getFullYear() + interval_count);
-          } else {
-            endDate.setDate(endDate.getDate() + 30);
-          }
+        //   const startDate = new Date();
+        //   const endDate = new Date();
+        //   if (price.recurring) {
+        //     const { interval, interval_count = 1 } = price.recurring;
+        //     if (interval === "day")
+        //       endDate.setDate(endDate.getDate() + interval_count);
+        //     else if (interval === "week")
+        //       endDate.setDate(endDate.getDate() + interval_count * 7);
+        //     else if (interval === "month")
+        //       endDate.setMonth(endDate.getMonth() + interval_count);
+        //     else if (interval === "year")
+        //       endDate.setFullYear(endDate.getFullYear() + interval_count);
+        //   } else {
+        //     endDate.setDate(endDate.getDate() + 30);
+        //   }
 
-          if (subscription) {
-            subscription.plan =
-              (planType as DatingSubscriptionPlan) ||
-              product.metadata?.plan_type ||
-              DatingSubscriptionPlan.BASIC;
-            subscription.isActive = true;
-            subscription.startDate = startDate;
-            subscription.endDate = endDate;
-            subscription.stripeCustomerId = paymentIntent.customer as string;
-            subscription.stripeProductId = productId;
-            subscription.stripePriceId = priceId;
-            subscription.price = price.unit_amount
-              ? price.unit_amount / 100
-              : 0;
-            subscription.features = {
-              ...(product.metadata.features
-                ? JSON.parse(product.metadata.features)
-                : {}),
-            };
-            await subscription.save({ session });
-          } else {
-            const createdSubscriptions = await DatingSubscription.create(
-              [
-                {
-                  user: resolvedUserId,
-                  plan:
-                    (planType as DatingSubscriptionPlan) ||
-                    product.metadata?.plan_type ||
-                    DatingSubscriptionPlan.BASIC,
-                  isActive: true,
-                  startDate,
-                  endDate,
-                  stripeCustomerId: paymentIntent.customer as string,
-                  stripeProductId: productId,
-                  stripePriceId: priceId,
-                  price: price.unit_amount ? price.unit_amount / 100 : 0,
-                  paymentMethod: "card",
-                  features: {
-                    ...(product.metadata.features
-                      ? JSON.parse(product.metadata.features)
-                      : {}),
-                  },
-                },
-              ],
-              { session },
-            );
-            const newSubscription = createdSubscriptions[0];
-            await Transaction.findOneAndUpdate(
-              { stripePaymentIntentId: paymentIntent.id },
-              { "reference.id": newSubscription._id },
-              { session },
-            );
-          }
-        } else if (transaction.type === TransactionType.EVENT_TICKET) {
+        //   if (subscription) {
+        //     subscription.plan =
+        //       (planType as DatingSubscriptionPlan) ||
+        //       product.metadata?.plan_type ||
+        //       DatingSubscriptionPlan.BASIC;
+        //     subscription.isActive = true;
+        //     subscription.startDate = startDate;
+        //     subscription.endDate = endDate;
+        //     subscription.stripeCustomerId = paymentIntent.customer as string;
+        //     subscription.stripeProductId = productId;
+        //     subscription.stripePriceId = priceId;
+        //     subscription.price = price.unit_amount
+        //       ? price.unit_amount / 100
+        //       : 0;
+        //     subscription.features = {
+        //       ...(product.metadata.features
+        //         ? JSON.parse(product.metadata.features)
+        //         : {}),
+        //     };
+        //     await subscription.save({ session });
+        //   } else {
+        //     const createdSubscriptions = await DatingSubscription.create(
+        //       [
+        //         {
+        //           user: resolvedUserId,
+        //           plan:
+        //             (planType as DatingSubscriptionPlan) ||
+        //             product.metadata?.plan_type ||
+        //             DatingSubscriptionPlan.BASIC,
+        //           isActive: true,
+        //           startDate,
+        //           endDate,
+        //           stripeCustomerId: paymentIntent.customer as string,
+        //           stripeProductId: productId,
+        //           stripePriceId: priceId,
+        //           price: price.unit_amount ? price.unit_amount / 100 : 0,
+        //           paymentMethod: "card",
+        //           features: {
+        //             ...(product.metadata.features
+        //               ? JSON.parse(product.metadata.features)
+        //               : {}),
+        //           },
+        //         },
+        //       ],
+        //       { session },
+        //     );
+        //     const newSubscription = createdSubscriptions[0];
+        //     await Transaction.findOneAndUpdate(
+        //       { stripePaymentIntentId: paymentIntent.id },
+        //       { "reference.id": newSubscription._id },
+        //       { session },
+        //     );
+        //   }
+        // }
+         if (transaction.type === TransactionType.EVENT_TICKET) {
           // ... existing event ticket handling code remains the same ...
           const { ticketId, eventId, quantity } = (transaction.metadata ||
             paymentIntent.metadata) as any;
@@ -1622,116 +1624,134 @@ export const handleStripeWebhookService = async (
 
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        console.log("subscription:", subscription);
-
-        // Handle auto-renewal for like products
         if (
-          subscription.metadata?.type === "PURCHASE_LIKE" &&
-          subscription.metadata?.likeProductId
+          subscription.metadata?.type !== "PURCHASE_LIKE" ||
+          !subscription.metadata.likeProductId ||
+          !subscription.metadata.userId
         ) {
-          const likeProductId = subscription.metadata.likeProductId;
-          const userId = subscription.metadata.userId;
+          break;
+        }
+        const { likeProductId, userId } = subscription.metadata;
+        const likeProduct: any =
+          await LikeProductsModel.findById(likeProductId).session(session);
 
-          // Fetch the like product
-          const likeProduct: any =
-            await LikeProductsModel.findById(likeProductId).session(session);
-          if (!likeProduct) {
-            console.warn(
-              `Like product ${likeProductId} not found for subscription renewal`,
-            );
-            break;
-          }
+        if (!likeProduct) {
+          console.warn(`Like product ${likeProductId} not found`);
+          break;
+        }
 
-          // Get user and update like credits
-          const user: any = await usersModel.findById(userId).session(session);
-          if (!user) {
-            console.warn(`User ${userId} not found for subscription renewal`);
-            break;
-          }
+        const user: any = await usersModel.findById(userId).session(session);
+        if (!user) {
+          console.warn(`User ${userId} not found`);
+          break;
+        }
 
-          // Update credits based on product type
-          const productTitle = likeProduct.title.toLowerCase();
-          const isUnlimited = likeProduct.credits === "unlimited";
-          // Resolve a safe period end timestamp (prefer current_period_end, fallback to billing_cycle_anchor or trial_end)
-          const rawPeriodEnd =
-            (subscription as any).current_period_end ||
-            (subscription as any).billing_cycle_anchor ||
-            (subscription as any).trial_end ||
-            null;
-          let periodEnd: Date | null = null;
-          if (rawPeriodEnd && !isNaN(Number(rawPeriodEnd))) {
-            // Stripe provides seconds since epoch; convert to ms
-            periodEnd = new Date(Number(rawPeriodEnd) * 1000);
-            if (isNaN(periodEnd.valueOf())) periodEnd = null;
-          }
-          const isActive = subscription.status === "active";
+        const isUnlimited = likeProduct.credits === "unlimited";
+        const isActive = subscription.status === "active";
 
-          if (productTitle.includes("super like")) {
+        const rawPeriodEnd =
+          subscription.current_period_end ||
+          subscription.billing_cycle_anchor ||
+          subscription.trial_end ||
+          null;
+
+        const periodEnd =
+          rawPeriodEnd && !isNaN(Number(rawPeriodEnd))
+            ? new Date(Number(rawPeriodEnd) * 1000)
+            : null;
+
+        /* ---------------- APPLY BENEFITS ---------------- */
+
+        switch (likeProduct.type) {
+          case "superlike":
             if (isUnlimited) {
-              // user.unlimitedSuperLikes = true;
-              // user.unlimitedSuperLikesExpiry = isActive ? periodEnd : null;
+              user.unlimitedSuperLikes = isActive;
+              user.unlimitedSuperLikesExpiry = isActive ? periodEnd : null;
             } else {
               user.totalSuperLikes =
                 (user.totalSuperLikes || 0) + likeProduct.credits;
             }
-          } else if (productTitle.includes("boost")) {
+            break;
+
+          case "boost":
             if (isUnlimited) {
-              // user.unlimitedBoosts = true;
-              // user.unlimitedBoostsExpiry = isActive ? periodEnd : null;
+              user.unlimitedBoosts = isActive;
+              user.unlimitedBoostsExpiry = isActive ? periodEnd : null;
             } else {
               user.totalBoosts = (user.totalBoosts || 0) + likeProduct.credits;
             }
-          } else {
+            break;
+
+          case "like":
+          default:
             if (isUnlimited) {
-              user.unlimitedLikes = true;
-              user.unlimitedLikesExpiry =
-                isActive && periodEnd ? periodEnd : null;
+              user.unlimitedLikes = isActive;
+              user.unlimitedLikesExpiry = isActive ? periodEnd : null;
             } else {
               user.totalLikes = (user.totalLikes || 0) + likeProduct.credits;
             }
-          }
-
-          await user.save({ session });
+            break;
         }
+
+        await user.save({ session });
         break;
       }
 
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
 
-        // Handle cancellation for like products
         if (
-          subscription.metadata?.type === "PURCHASE_LIKE" &&
-          subscription.metadata?.likeProductId
+          subscription.metadata?.type !== "PURCHASE_LIKE" ||
+          !subscription.metadata.likeProductId ||
+          !subscription.metadata.userId
         ) {
-          const userId = subscription.metadata.userId;
-
-          // Get user and disable unlimited likes if applicable
-          const user = await usersModel.findById(userId).session(session);
-          if (!user) {
-            console.warn(
-              `User ${userId} not found for subscription cancellation`,
-            );
-            break;
-          }
-
-          // Determine which unlimited likes to disable based on product title
-          const productTitle =
-            subscription.metadata.productTitle?.toLowerCase() || "";
-
-          if (productTitle.includes("super like")) {
-            // user.unlimitedSuperLikes = false;
-            // user.unlimitedSuperLikesExpiry = null as any;
-          } else if (productTitle.includes("boost")) {
-            // user.unlimitedBoosts = false;
-            // user.unlimitedBoostsExpiry = null as any;
-          } else if (productTitle.includes("Unlimited Likes")) {
-            user.unlimitedLikes = false;
-            user.unlimitedLikesExpiry = null as any;
-          }
-
-          await user.save({ session });
+          break;
         }
+
+        const { likeProductId, userId } = subscription.metadata;
+
+        // 1️⃣ Fetch like product from DB
+        const likeProduct: any =
+          await LikeProductsModel.findById(likeProductId).session(session);
+
+        if (!likeProduct) {
+          console.warn(`Like product ${likeProductId} not found on cancel`);
+          break;
+        }
+
+        // 2️⃣ VERY IMPORTANT: ignore limited credit products
+        if (likeProduct.credits !== "unlimited") {
+          // ❌ 100 likes / 50 likes → DO NOTHING
+          break;
+        }
+
+        // 3️⃣ Fetch user
+        const user: any = await usersModel.findById(userId).session(session);
+        if (!user) {
+          console.warn(`User ${userId} not found on cancel`);
+          break;
+        }
+
+        /* ---------------- DISABLE ONLY THIS UNLIMITED FEATURE ---------------- */
+        switch (likeProduct.type) {
+          case "superlike":
+            user.unlimitedSuperLikes = false;
+            user.unlimitedSuperLikesExpiry = null;
+            break;
+
+          case "boost":
+            user.unlimitedBoosts = false;
+            user.unlimitedBoostsExpiry = null;
+            break;
+
+          case "like":
+          default:
+            user.unlimitedLikes = false;
+            user.unlimitedLikesExpiry = null;
+            break;
+        }
+
+        await user.save({ session });
         break;
       }
 

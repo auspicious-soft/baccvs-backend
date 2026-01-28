@@ -2736,3 +2736,313 @@ export const deleteEventService = async (req: Request, res: Response) => {
     message: "Event and associated tickets deleted successfully",
   };
 };
+export const getPurchaseTicketByIdService = async (req: any, res: Response) => {
+  const { purchaseId } = req.params;
+  const { id: userId } = req.user as JwtPayload;
+
+  if (!isValidObjectId(purchaseId)) {
+    return errorResponseHandler(
+      "Invalid purchase ID",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Get purchase with populated data
+  const purchase = await purchaseModel
+    .findById(purchaseId)
+    .populate({
+      path: "ticket",
+      select: "name price benefits quantity",
+    })
+    .populate({
+      path: "event",
+      select: "title date startTime endTime venue location capacity media",
+      populate: [
+        {
+          path: "creator",
+          select: "userName photos email",
+        },
+        {
+          path: "coHosts",
+          select: "userName photos email",
+        },
+        {
+          path: "lineup",
+          select: "userName photos",
+        },
+      ],
+    })
+    .populate({
+      path: "buyer",
+      select: "userName photos email",
+    })
+    .select("-metaData -qrCode")
+    .lean();
+
+  if (!purchase) {
+    return errorResponseHandler(
+      "Purchase not found",
+      httpStatusCode.NOT_FOUND,
+      res,
+    );
+  }
+
+  // Check if user is authorized to view this purchase
+  const isBuyer = purchase.buyer?._id?.toString() === userId;
+  const isCreator = purchase.event.creator?._id?.toString() === userId;
+  const isCoHost = purchase.event.coHosts.some(
+    (coHost: any) => coHost._id.toString() === userId,
+  );
+
+  if (!isBuyer && !isCreator && !isCoHost) {
+    return errorResponseHandler(
+      "Not authorized to view this purchase",
+      httpStatusCode.FORBIDDEN,
+      res,
+    );
+  }
+
+  // Get additional event statistics
+  const eventStats = await purchaseModel.aggregate([
+    {
+      $match: {
+        event: new mongoose.Types.ObjectId(purchase.event._id),
+        status: { $in: ["active", "used"] },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalTicketsSold: { $sum: "$quantity" },
+        totalRevenue: { $sum: "$totalPrice" },
+        purchaseCount: { $sum: 1 },
+      },
+    },
+  ]);
+
+  // Get total capacity from event
+  const event = await eventModel
+    .findById(purchase.event._id)
+    .select("capacity");
+
+  // Format response
+  const formattedPurchase = {
+    ...purchase,
+    ticketDetails: {
+      ...purchase.ticket,
+      soldQuantity: purchase.quantity,
+      remainingQuantity: Math.max(0, (purchase.ticket as any).available),
+    },
+    eventDetails: {
+      ...purchase.event,
+      stats: {
+        totalTicketsSold: eventStats[0]?.totalTicketsSold || 0,
+        totalRevenue: eventStats[0]?.totalRevenue || 0,
+        purchaseCount: eventStats[0]?.purchaseCount || 0,
+        totalCapacity: purchase.event.capacity || 0,
+        spotsLeft: Math.max(
+          0,
+          (purchase.event.capacity || 0) -
+            (eventStats[0]?.totalTicketsSold || 0),
+        ),
+        capacityUtilization:
+          purchase.event.capacity > 0
+            ? (
+                ((eventStats[0]?.totalTicketsSold || 0) /
+                  purchase.event.capacity) *
+                100
+              ).toFixed(2)
+            : "0.00",
+      },
+    },
+    buyerInfo: purchase.buyer,
+    permissions: {
+      canMarkAsUsed: isCreator || isCoHost,
+      canTransfer: isBuyer && purchase.status === "active",
+      canResell:
+        isBuyer &&
+        purchase.status === "active" &&
+        (purchase.ticket as any).isResellable,
+    },
+  };
+  return {
+    success: true,
+    message: "Purchase ticket details retrieved successfully",
+    data: formattedPurchase,
+  };
+};
+export const updatePurchaseStatusService = async (req: any, res: Response) => {
+  const { purchaseId } = req.params;
+  const { status, notes } = req.body;
+  const { id: userId } = req.user as JwtPayload;
+
+  if (!isValidObjectId(purchaseId)) {
+    return errorResponseHandler(
+      "Invalid purchase ID",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Allowed status updates
+  const allowedStatuses = ["used", "active"];
+
+  if (!status || !allowedStatuses.includes(status)) {
+    return errorResponseHandler(
+      `Status must be one of: ${allowedStatuses.join(", ")}`,
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Get purchase with event details
+  const purchase = await purchaseModel
+    .findById(purchaseId)
+    .populate({
+      path: "event",
+      select: "creator coHosts title",
+      populate: [
+        { path: "creator", select: "_id" },
+        { path: "coHosts", select: "_id" },
+      ],
+    })
+    .lean();
+
+  if (!purchase) {
+    return errorResponseHandler(
+      "Purchase not found",
+      httpStatusCode.NOT_FOUND,
+      res,
+    );
+  }
+
+  if (
+    purchase.purchaseType !== "purchase" ||
+    purchase.status === "refunded" ||
+    purchase.status === "transferred"
+  ) {
+    return errorResponseHandler(
+      "This purchase cannot be updated",
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Check if user is authorized (creator or co-host)
+  const isCreator = purchase.event?.creator?._id?.toString() === userId;
+  const isCoHost = purchase.event?.coHosts?.some(
+    (c: any) => c?._id?.toString() === userId,
+  );
+
+  if (!isCreator && !isCoHost) {
+    return errorResponseHandler(
+      "Only event creator or co-hosts can update purchase status",
+      httpStatusCode.FORBIDDEN,
+      res,
+    );
+  }
+
+  // Check if status transition is valid
+  const currentStatus = purchase.status;
+  const validTransitions: any = {
+    active: ["used", "disabled"],
+    disabled: ["active"],
+    used: [], // FINAL STATE
+  };
+
+  if (!validTransitions[purchase.status]?.includes(status)) {
+    return errorResponseHandler(
+      `Cannot change status from ${purchase.status} to ${status}`,
+      httpStatusCode.BAD_REQUEST,
+      res,
+    );
+  }
+
+  // Update purchase status
+  const updateData: any = {
+    status,
+  };
+
+  // Sync isActive with status
+  if (status === "disabled") {
+    updateData.isActive = false;
+  }
+
+  if (status === "active") {
+    updateData.isActive = true;
+  }
+
+  // Add metadata for status changes
+  if (status === "used") {
+    updateData.metaData = {
+      ...purchase.metaData,
+      markedUsedBy: userId,
+      markedUsedAt: new Date(),
+      notes: notes || "",
+    };
+  } else if (status === "active" && currentStatus === "used") {
+    updateData.metadata = {
+      ...purchase.metadata,
+      reactivatedBy: userId,
+      reactivatedAt: new Date(),
+      notes: notes || "",
+    };
+  }
+
+  const updatedPurchase = await purchaseModel
+    .findByIdAndUpdate(
+      purchaseId,
+      { $set: updateData },
+      { new: true, runValidators: true },
+    )
+    .populate({
+      path: "ticket",
+      select: "name price",
+    })
+    .populate({
+      path: "event",
+      select: "title date startTime",
+    })
+    .populate({
+      path: "buyer",
+      select: "userName email",
+    });
+
+  // Send push notification to buyer about status change
+  if (status === "used") {
+    try {
+      const buyerUser = await usersModel.findById(purchase.buyer).select(
+        "fcmToken",
+      );
+
+      if (buyerUser && (buyerUser as any).fcmToken) {
+        await sendPushToToken(
+          (buyerUser as any).fcmToken,
+          "Ticket Marked as Used",
+          `Your ticket for "${purchase.event.title}" has been marked as used by the event organizer.`,
+          {
+            purchaseId: purchaseId.toString(),
+            eventId: purchase.event._id.toString(),
+            ticketId: (purchase.ticket as any).toString(),
+            status: String(status),
+            markedBy: userId,
+          },
+        );
+      }
+    } catch (notificationError) {
+      console.error("Failed to send push notification:", notificationError);
+    }
+  }
+
+  return {
+    success: true,
+    message: `Purchase status updated to ${status} successfully`,
+    data: {
+      purchase: updatedPurchase,
+      previousStatus: currentStatus,
+      updatedBy: isCreator ? "creator" : "co-host",
+      updatedAt: new Date(),
+    },
+  };
+};

@@ -130,6 +130,7 @@ import {
 import { transferTicketController } from "src/controllers/transfer/transfer-controller";
 import { getPromotionPlans } from "src/controllers/admin/admin-controller";
 import { requestWithdrawalController } from "src/controllers/withdraw/withdraw-controller";
+import { trackAdminNotificationInteraction } from "src/controllers/notification/admin-notification-controller";
 
 const router = Router();
 
@@ -307,5 +308,9 @@ router.post("/message/edit/:id", editMessage);
 // Transfer Ticket Route
 router.post("/transfer/ticket", transferTicketController);
 router.post("/withdraw/request", requestWithdrawalController);
+
+
+// notification interaction routes
+router.post("/notifications/admin/interaction",trackAdminNotificationInteraction);
 
 export { router };

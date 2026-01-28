@@ -1,7 +1,10 @@
-// import cron from 'node-cron';
+import cron from 'node-cron';
 // import { Conversation } from 'src/models/chat/conversation-schema';
 // import { usersModel } from 'src/models/user/user-schema';
 
+import AdminNotificationModel from "src/models/notification/admin-notification-schema";
+import { resolveAdminNotificationRecipients } from 'src/services/notification/admin-notification-service';
+import { sendBulkPushNotification } from '../firebase-admin';
 
 // // Cron job: every night at 00:01 am
 // export const dailySubscriptionCron = cron.schedule('1 0 * * *', async () => {
@@ -72,7 +75,7 @@
 //       if (changed) {
 //         await Conversation.updateOne(
 //           { _id: convo._id },
-//           { 
+//           {
 //             $set: Object.fromEntries(
 //               Object.entries(updatedMuteMap).map(([userId, data]) => [
 //                 `isMuted.${userId}`, data
@@ -87,3 +90,68 @@
 //     console.log(`[Cron] Mute cleanup done. Updated ${updatedCount} conversations.`);
 //   });
 // };
+
+export const startAdminNotificationCron = () => {
+  cron.schedule("* * * * *", async () => {
+    console.log("[Cron] Checking for scheduled admin notifications...");
+    const now = new Date();
+    console.log('now:', now);
+
+    const notifications = await AdminNotificationModel.find({
+      status: "scheduled",
+      "schedule.sendNow": false,
+      "schedule.scheduledAt": { $lte: now },
+    }).limit(10);
+
+    for (const notification of notifications) {
+      // Atomic lock
+      const locked = await AdminNotificationModel.findOneAndUpdate(
+        { _id: notification._id, status: "scheduled" },
+        { status: "processing" },
+      );
+
+      if (!locked) continue;
+
+      try {
+        const recipients = await resolveAdminNotificationRecipients(
+          notification.targetType,
+          notification.filters,
+        );
+
+        if (!recipients.length) {
+          await AdminNotificationModel.findByIdAndUpdate(notification._id, {
+            status: "cancelled",
+          });
+          continue;
+        }
+
+        const pushResult = await sendBulkPushNotification({
+          userIds: recipients,
+          title: notification.title,
+          message: notification.message,
+          data: {
+            notificationId: notification._id.toString(),
+            type: "admin",
+          },
+        });
+
+        await AdminNotificationModel.findByIdAndUpdate(notification._id, {
+          status: "sent",
+          lastSentAt: new Date(),
+          $inc: {
+            "metrics.deliveredCount": pushResult.successCount,
+          },
+        });
+      } catch (err) {
+        console.error(
+          `Failed scheduled notification ${notification._id}`,
+          err,
+        );
+
+        await AdminNotificationModel.findByIdAndUpdate(notification._id, {
+          status: "scheduled",
+        });
+      }
+    }
+  });
+};

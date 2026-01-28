@@ -7,6 +7,7 @@ export interface ILikeProduct extends Document {
   interval: "month" | "year";
   stripeProductId?: string;
   stripePriceId?: string;
+  type: "like" | "superlike" | "boost";
 }
 
 const LikeProductSchema = new Schema<ILikeProduct>(
@@ -17,11 +18,16 @@ const LikeProductSchema = new Schema<ILikeProduct>(
     interval: { type: String, enum: ["month", "year"], default: "month" },
     stripeProductId: { type: String },
     stripePriceId: { type: String },
+    type: {
+      type: String,
+      enum: ["like", "superlike", "boost"],
+      required: true,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export const LikeProductsModel = mongoose.model(
   "likeProduct",
-  LikeProductSchema
+  LikeProductSchema,
 );

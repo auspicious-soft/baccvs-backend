@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getAdminData, GetAllStaffMembers, GetSingleStaffMember, inviteStaff, planController, removeUnRemoveStaff, RequestPasswordReset, ResendChangeOTP , SubmitChangeRequest, updateAdminData, updateStaffMemberData, VerifyAdminPassword, VerifyChangeOTP } from "src/controllers/admin/admin-settings-controller";
-import { deleteEventById, deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getReferalStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
+import { deleteEventById, deleteMultipleUsers, GetAllUsers, getEventByIdAdmin, getEventStats, getFinancialOverview, getReferalStats, getSingleUserDetails, refundEventAdmin, updateUsersBanStatus } from "src/controllers/admin/admin-user-controller";
+import { resendAdminNotification, sendAdminNotification } from "src/controllers/notification/admin-notification-controller";
 import { checkSettingsAuth } from "src/middleware/admin-settings-auth";
 
 const router = Router();
@@ -31,8 +32,16 @@ router.get("/event-and-ticketing/event/:eventId", getEventByIdAdmin);
 router.post("/event-and-ticketing/refund", refundEventAdmin);
 router.delete("/event-and-ticketing/delete-event/:eventId", deleteEventById)
 
+// Revenue and Financial Admin Routes
+router.get("/financial-overview",getFinancialOverview);
+
 // referal admin routes
 router.get("/referral/stats",getReferalStats);
+
+
+// Notification Routes
+router.post("/admin/notifications/send",sendAdminNotification);
+router.post("/admin/notifications/resend/:notificationId",resendAdminNotification);
 
 
 export { router };

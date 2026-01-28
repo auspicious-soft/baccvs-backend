@@ -8,6 +8,7 @@ import {
   getUserEvents,
   updateEvent,
   getEventAnalytics,
+  getPurchaseTicketById,
 } from "src/controllers/event/event-controller";
 import { checkAuth } from "src/middleware/check-auth";
 
@@ -21,5 +22,6 @@ router.get("/user/events", getUserEvents);
 router.get("/get/eventofother/:id", getEventOfOtherUser);
 router.post("/update-event/:id", updateEvent);
 router.delete("/delete-event/:id", deleteEvent);
+router.get("/purchase-ticket/:purchaseId", getPurchaseTicketById);
 
 export { router };
