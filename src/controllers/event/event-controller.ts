@@ -11,6 +11,7 @@ import {
   updateEventService,
   getEventAnalyticsService,
   getPurchaseTicketByIdService,
+  updatePurchaseStatusService,
 } from "src/services/event/event-service";
 
 export const createEvent = async (req: Request, res: Response) => {
@@ -109,6 +110,17 @@ export const deleteEvent = async (req: Request, res: Response) => {
 export const getPurchaseTicketById = async (req: Request, res: Response) => {
   try {
     const response: any = await getPurchaseTicketByIdService(req, res);
+    return res.status(httpStatusCode.OK).json(response);
+  } catch (error) {
+    const { code, message } = errorParser(error);
+    return res
+      .status(code || httpStatusCode.INTERNAL_SERVER_ERROR)
+      .json({ success: false, message: message || "An error occurred" });
+  }
+};
+export const updatePurchaseStatus = async (req: Request, res: Response) => {
+  try {
+    const response: any = await updatePurchaseStatusService(req, res);
     return res.status(httpStatusCode.OK).json(response);
   } catch (error) {
     const { code, message } = errorParser(error);
