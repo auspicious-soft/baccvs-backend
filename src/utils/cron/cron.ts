@@ -92,10 +92,9 @@ import { sendBulkPushNotification } from '../firebase-admin';
 // };
 
 export const startAdminNotificationCron = () => {
-  cron.schedule("* * * * *", async () => {
+  cron.schedule("0 0,12 * * *", async () => {
     console.log("[Cron] Checking for scheduled admin notifications...");
     const now = new Date();
-    console.log('now:', now);
 
     const notifications = await AdminNotificationModel.find({
       status: "scheduled",
